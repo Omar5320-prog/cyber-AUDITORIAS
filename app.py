@@ -610,7 +610,7 @@ Los atacantes no solo utilizan correos electrónicos, sino también canales dire
             },
             {
                 "q": (
-                    "4. ¿Cuál es una señal frecuente de una llamada"
+                    "4. ¿Cuál is una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -1232,7 +1232,7 @@ def generate_pdf(
         <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional:</p>
         <ul>
             <li><strong>Cifrado y Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo di phishing.'}</li>
+            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo de phishing.'}</li>
             <li><strong>Superficie Perimetral:</strong> Se identificaron puertos expuestos que requieren supervisión.</li>
         </ul>
         """
@@ -1581,7 +1581,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.8 • Mapeo flexible de cabeceras en CSV (Español/Inglés)."
+      "CyberAudits Enterprise v5.9 • Importador CSV Tolerante y Robusto."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1646,46 +1646,88 @@ else:
         st.markdown("---")
         st.markdown("### 📁 Importación Masiva por Archivo CSV")
         st.write(
-            "Sube tu CSV con cabeceras en inglés (`email`, `department`, `topic`) o en español (`correo`, `departamento`, `curso` / `módulo`). Soporta separación por `,` o `;`."
+            "Sube tu CSV con cabeceras (ej. `email`, `department`, `topic` o `correo`, `departamento`, `curso`). Soporta separación por `,` o `;`."
         )
         uploaded_csv = st.file_uploader(
             "Seleccionar CSV de Empleados", type=["csv"]
         )
         if uploaded_csv is not None:
           try:
-            df_upload = pd.read_csv(uploaded_csv, sep=None, engine="python")
-            df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+            uploaded_csv.seek(0)
+            raw_bytes = uploaded_csv.read()
+            try:
+              text_content = raw_bytes.decode("utf-8")
+            except Exception:
+              text_content = raw_bytes.decode("latin-1")
             
+            lines = [line.strip() for line in text_content.splitlines() if line.strip()]
+            
+            parsed_rows = []
+            
+            # Intentar lectura con pandas primero
+            try:
+              uploaded_csv.seek(0)
+              df_upload = pd.read_csv(uploaded_csv, sep=None, engine="python")
+              df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+              
+              for _, row in df_upload.iterrows():
+                mail_val = None
+                for col in ["email", "correo", "mail", "colaborador"]:
+                  if col in df_upload.columns and pd.notna(row[col]):
+                    mail_val = str(row[col]).strip()
+                    break
+                if not mail_val:
+                  for val in row.values:
+                    if pd.notna(val) and "@" in str(val):
+                      mail_val = str(val).strip()
+                      break
+                
+                if mail_val and "@" in mail_val:
+                  dept_val = "General"
+                  for col in ["department", "departamento", "area", "depto"]:
+                    if col in df_upload.columns and pd.notna(row[col]):
+                      dept_val = str(row[col]).strip()
+                      break
+                  
+                  top_val = "Módulo 1 — Phishing"
+                  for col in ["topic", "curso", "modulo", "módulo", "tema"]:
+                    if col in df_upload.columns and pd.notna(row[col]):
+                      top_val = str(row[col]).strip()
+                      break
+                  parsed_rows.append((mail_val, dept_val, top_val))
+            except Exception:
+              pass
+            
+            # Fallback robusto línea por línea si pandas no capturó filas
+            if not parsed_rows:
+              start_idx = 1 if ("email" in lines[0].lower() or "correo" in lines[0].lower()) else 0
+              for line in lines[start_idx:]:
+                parts = [p.strip().strip('"\'') for p in line.replace(";", ",").replace("\t", ",").split(",")]
+                mail_val = next((p for p in parts if "@" in p), None)
+                if mail_val:
+                  dept_val = parts[1] if len(parts) > 1 and parts[1] != mail_val else "General"
+                  top_val = parts[2] if len(parts) > 2 else "Módulo 1 — Phishing"
+                  parsed_rows.append((mail_val, dept_val, top_val))
+
             conn = sqlite3.connect("cyber_audits.db")
             imported = 0
-            for _, row in df_upload.iterrows():
+            for mail, dept, top in parsed_rows:
               try:
-                mail_val = row.get("email") if "email" in row else row.get("correo")
-                if not mail_val or pd.isna(mail_val):
-                  continue
-                
-                dept_val = row.get("department") if "department" in row else row.get("departamento")
-                if pd.isna(dept_val):
-                  dept_val = "General"
-                  
-                top_val = row.get("topic") if "topic" in row else (row.get("curso") if "curso" in row else row.get("módulo"))
-                if pd.isna(top_val):
-                  top_val = "Módulo 1 — Phishing"
-                
                 conn.execute(
                     "INSERT INTO employees (email, department, topic) VALUES (?, ?, ?)",
-                    (str(mail_val).strip(), str(dept_val).strip(), str(top_val).strip()),
+                    (mail, dept, top),
                 )
                 imported += 1
               except Exception:
                 pass
             conn.commit()
             conn.close()
-            st.success(
-                f"¡Importación completada! Se registraron {imported} asignaciones"
-                " de cursos."
-            )
-            st.rerun()
+            
+            if imported > 0:
+              st.success(f"¡Importación completada! Se registraron {imported} asignaciones de cursos.")
+              st.rerun()
+            else:
+              st.warning("No se pudieron extraer registros válidos. Asegúrate de que el archivo incluya direcciones de correo con '@'.")
           except Exception as e:
             st.error(f"Error procesando el archivo CSV: {e}")
 
