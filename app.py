@@ -35,42 +35,55 @@ def get_db_connection():
 
 
 def init_db():
-  conn = get_db_connection()
-  c = conn.cursor()
-  if "postgres" in st.secrets:
-    c.execute("""
-            CREATE TABLE IF NOT EXISTS history (
-                id SERIAL PRIMARY KEY,
-                timestamp TEXT,
-                hostname TEXT,
-                ip TEXT,
-                risk_score INTEGER,
-                findings_count INTEGER,
-                report_type TEXT
-            )
-        """)
-    c.execute("""
-            CREATE TABLE IF NOT EXISTS organizations (
-                id SERIAL PRIMARY KEY,
-                name TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    c.execute("""
-            CREATE TABLE IF NOT EXISTS employees (
-                id SERIAL PRIMARY KEY,
-                organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
-                email TEXT NOT NULL,
-                department TEXT,
-                topic TEXT DEFAULT 'Módulo 1 — Phishing',
-                status TEXT DEFAULT 'Pendiente',
-                score INTEGER DEFAULT 0,
-                last_completed TEXT,
-                UNIQUE(email, topic)
-            )
-        """)
-  else:
-    c.execute("""
+  try:
+    conn = get_db_connection()
+    conn.autocommit = True
+    c = conn.cursor()
+    if "postgres" in st.secrets:
+      try:
+        c.execute("""
+                CREATE TABLE IF NOT EXISTS history (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TEXT,
+                    hostname TEXT,
+                    ip TEXT,
+                    risk_score INTEGER,
+                    findings_count INTEGER,
+                    report_type TEXT
+                )
+            """)
+      except Exception:
+        pass
+
+      try:
+        c.execute("""
+                CREATE TABLE IF NOT EXISTS organizations (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+      except Exception:
+        pass
+
+      try:
+        c.execute("""
+                CREATE TABLE IF NOT EXISTS employees (
+                    id SERIAL PRIMARY KEY,
+                    organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+                    email TEXT NOT NULL,
+                    department TEXT,
+                    topic TEXT DEFAULT 'Módulo 1 — Phishing',
+                    status TEXT DEFAULT 'Pendiente',
+                    score INTEGER DEFAULT 0,
+                    last_completed TEXT,
+                    UNIQUE(email, topic)
+                )
+            """)
+      except Exception:
+        pass
+    else:
+      c.execute("""
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT,
@@ -81,7 +94,7 @@ def init_db():
                 report_type TEXT
             )
         """)
-    c.execute("""
+      c.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
@@ -93,9 +106,11 @@ def init_db():
                 UNIQUE(email, topic)
             )
         """)
-  conn.commit()
-  c.close()
-  conn.close()
+      conn.commit()
+    c.close()
+    conn.close()
+  except Exception:
+    pass
 
 
 init_db()
