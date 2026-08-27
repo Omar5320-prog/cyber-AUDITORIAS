@@ -2,3 +2,5 @@ streamlit
 requests
 matplotlib
 weasyprint
+pandas
+python-docx
