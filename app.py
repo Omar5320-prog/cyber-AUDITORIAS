@@ -1581,7 +1581,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.6 • Fix de Migración y Multi-Curso."
+      "CyberAudits Enterprise v5.7 • Detección automática de separadores CSV (,) y (;)."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1647,14 +1647,15 @@ else:
         st.markdown("### 📁 Importación Masiva por Archivo CSV")
         st.write(
             "Sube un archivo CSV con cabeceras: `email`, `department`,"
-            " `topic`."
+            " `topic` (soporta separación por comas `,` o punto y coma `;`)."
         )
         uploaded_csv = st.file_uploader(
             "Seleccionar CSV de Empleados", type=["csv"]
         )
         if uploaded_csv is not None:
           try:
-            df_upload = pd.read_csv(uploaded_csv)
+            # sep=None junto con engine='python' detecta automáticamente si usa coma (,) o punto y coma (;)
+            df_upload = pd.read_csv(uploaded_csv, sep=None, engine="python")
             conn = sqlite3.connect("cyber_audits.db")
             imported = 0
             for _, row in df_upload.iterrows():
