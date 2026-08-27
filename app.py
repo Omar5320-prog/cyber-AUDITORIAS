@@ -8,12 +8,12 @@ import os
 import re
 import socket
 import ssl
-import sqlite3
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 import matplotlib.pyplot as plt
 import pandas as pd
+import psycopg2
 import requests
 from weasyprint import HTML
 import streamlit as st
@@ -25,42 +25,71 @@ st.set_page_config(
 )
 
 
-def init_db():
-  conn = sqlite3.connect("cyber_audits.db")
-  c = conn.cursor()
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            hostname TEXT,
-            ip TEXT,
-            risk_score INTEGER,
-            findings_count INTEGER,
-            report_type TEXT
-        )
-    """)
-
-  c.execute("PRAGMA table_info(employees)")
-  employees_cols = c.fetchall()
-
-  if not employees_cols:
-    c.execute("""
-        CREATE TABLE employees (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            department TEXT,
-            topic TEXT DEFAULT 'Módulo 1 — Phishing',
-            status TEXT DEFAULT 'Pendiente',
-            score INTEGER DEFAULT 0,
-            last_completed TEXT,
-            UNIQUE(email, topic)
-        )
-    """)
+def get_db_connection():
+  if "postgres" in st.secrets:
+    db_conf = st.secrets["postgres"]
+    return psycopg2.connect(
+        host=db_conf["host"],
+        database=db_conf["database"],
+        user=db_conf["user"],
+        password=db_conf["password"],
+        port=db_conf["port"],
+    )
   else:
-    try:
-      c.execute("DROP TABLE IF EXISTS employees_new")
-      c.execute("""
-            CREATE TABLE employees_new (
+    import sqlite3
+
+    return sqlite3.connect("cyber_audits.db")
+
+
+def init_db():
+  conn = get_db_connection()
+  c = conn.cursor()
+  if "postgres" in st.secrets:
+    c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT,
+                hostname TEXT,
+                ip TEXT,
+                risk_score INTEGER,
+                findings_count INTEGER,
+                report_type TEXT
+            )
+        """)
+    c.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    c.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                id SERIAL PRIMARY KEY,
+                organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+                email TEXT NOT NULL,
+                department TEXT,
+                topic TEXT DEFAULT 'Módulo 1 — Phishing',
+                status TEXT DEFAULT 'Pendiente',
+                score INTEGER DEFAULT 0,
+                last_completed TEXT,
+                UNIQUE(email, topic)
+            )
+        """)
+  else:
+    c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                hostname TEXT,
+                ip TEXT,
+                risk_score INTEGER,
+                findings_count INTEGER,
+                report_type TEXT
+            )
+        """)
+    c.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT,
                 department TEXT,
@@ -71,23 +100,8 @@ def init_db():
                 UNIQUE(email, topic)
             )
         """)
-      c.execute("""
-            INSERT OR IGNORE INTO employees_new (id, email, department, topic, status, score, last_completed)
-            SELECT id, email, department, topic, status, score, last_completed FROM employees
-        """)
-      c.execute("DROP TABLE employees")
-      c.execute("ALTER TABLE employees_new RENAME TO employees")
-    except Exception:
-      pass
-
-  c.execute("PRAGMA table_info(history)")
-  hist_cols = [col[1] for col in c.fetchall()]
-  if "risk_score" not in hist_cols:
-    try:
-      c.execute("ALTER TABLE history ADD COLUMN risk_score INTEGER DEFAULT 0")
-    except Exception:
-      pass
   conn.commit()
+  c.close()
   conn.close()
 
 
@@ -98,22 +112,25 @@ def save_scan_to_db(
     hostname, ip, risk_score, findings_count, report_type_val
 ):
   try:
-    conn = sqlite3.connect("cyber_audits.db")
+    conn = get_db_connection()
     c = conn.cursor()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    placeholder = "%s" if "postgres" in st.secrets else "?"
     c.execute(
-        "INSERT INTO history (timestamp, hostname, ip, risk_score,"
-        " findings_count, report_type) VALUES (?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
+        f" findings_count, report_type) VALUES ({placeholder}, {placeholder},"
+        f" {placeholder}, {placeholder}, {placeholder}, {placeholder})",
         (timestamp, hostname, ip, risk_score, findings_count, report_type_val),
     )
     conn.commit()
+    c.close()
     conn.close()
   except Exception:
     pass
 
 
 def get_scan_history():
-  conn = sqlite3.connect("cyber_audits.db")
+  conn = get_db_connection()
   df = pd.read_sql_query(
       "SELECT timestamp AS 'Fecha y Hora', hostname AS 'Dominio / Host', ip AS"
       " 'IP', risk_score AS 'Risk Score (/100)', findings_count AS"
@@ -126,7 +143,7 @@ def get_scan_history():
 
 
 def get_employees_df():
-  conn = sqlite3.connect("cyber_audits.db")
+  conn = get_db_connection()
   df = pd.read_sql_query(
       "SELECT email AS 'Correo Electrónico', department AS 'Departamento',"
       " topic AS 'Campaña / Tema', status AS 'Estado', score AS 'Calificación"
@@ -1406,18 +1423,20 @@ if employee_token:
       f" **{topic_token}**"
   )
 
-  conn = sqlite3.connect("cyber_audits.db")
+  conn = get_db_connection()
   c = conn.cursor()
+  placeholder = "%s" if "postgres" in st.secrets else "?"
   c.execute(
-      "SELECT status, score FROM employees WHERE email = ? AND topic = ?",
+      f"SELECT status, score FROM employees WHERE email = {placeholder} AND"
+      f" topic = {placeholder}",
       (employee_token, topic_token),
   )
   row = c.fetchone()
   if not row:
     try:
       c.execute(
-          "INSERT INTO employees (email, department, topic, status) VALUES (?,"
-          " ?, ?, ?)",
+          f"INSERT INTO employees (email, department, topic, status) VALUES"
+          f" ({placeholder}, {placeholder}, {placeholder}, {placeholder})",
           (employee_token, "General", topic_token, "Pendiente"),
       )
       conn.commit()
@@ -1427,6 +1446,7 @@ if employee_token:
     current_score = 0
   else:
     current_status, current_score = row
+  c.close()
   conn.close()
 
   if current_status == "Completado":
@@ -1470,13 +1490,17 @@ if employee_token:
         final_score = int((score_points / total_qs) * 100)
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute(
-            "UPDATE employees SET status = 'Completado', score = ?,"
-            " last_completed = ? WHERE email = ? AND topic = ?",
+        conn = get_db_connection()
+        c = conn.cursor()
+        placeholder = "%s" if "postgres" in st.secrets else "?"
+        c.execute(
+            f"UPDATE employees SET status = 'Completado', score ="
+            f" {placeholder}, last_completed = {placeholder} WHERE email ="
+            f" {placeholder} AND topic = {placeholder}",
             (final_score, timestamp, employee_token, topic_token),
         )
         conn.commit()
+        c.close()
         conn.close()
 
         st.success(
@@ -1583,8 +1607,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.14 • Importador CSV con control de estado y"
-      " éxito."
+      "CyberAudits Enterprise v6.0 • Base de Datos en la Nube (Supabase)."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1593,9 +1616,8 @@ else:
         "## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo"
     )
     st.info(
-        "Ahora puedes registrar al mismo colaborador en múltiples cursos"
-        " diferentes. Utiliza la asignación individual, el importador CSV o la"
-        " sincronización AD."
+        "Plataforma conectada a Supabase PostgreSQL. Los datos de tus"
+        " colaboradores están seguros y centralizados en la nube."
     )
 
     sub_tab1, sub_tab2, sub_tab3 = st.tabs([
@@ -1627,13 +1649,16 @@ else:
           submit_single = st.form_submit_button("Registrar y Asignar Módulo")
           if submit_single and emp_mail_input:
             try:
-              conn = sqlite3.connect("cyber_audits.db")
-              conn.execute(
-                  "INSERT INTO employees (email, department, topic) VALUES (?,"
-                  " ?, ?)",
+              conn = get_db_connection()
+              c = conn.cursor()
+              placeholder = "%s" if "postgres" in st.secrets else "?"
+              c.execute(
+                  f"INSERT INTO employees (email, department, topic) VALUES"
+                  f" ({placeholder}, {placeholder}, {placeholder})",
                   (emp_mail_input, emp_dept_input, chosen_campaign),
               )
               conn.commit()
+              c.close()
               conn.close()
               st.success(
                   f"Módulo '{chosen_campaign}' asignado con éxito a"
@@ -1664,7 +1689,6 @@ else:
             try:
               parsed_rows = []
 
-              # Método 1: Pandas con detección automática
               try:
                 uploaded_csv.seek(0)
                 df_upload = pd.read_csv(
@@ -1724,7 +1748,6 @@ else:
               except Exception:
                 pass
 
-              # Método 2: Analizador robusto línea por línea
               if not parsed_rows:
                 uploaded_csv.seek(0)
                 raw_bytes = uploaded_csv.read()
@@ -1799,29 +1822,32 @@ else:
                         top_val = top_raw
                       parsed_rows.append((mail_val, dept_val, top_val))
 
-              conn = sqlite3.connect("cyber_audits.db")
+              conn = get_db_connection()
+              c = conn.cursor()
               imported = 0
               existing = 0
+              placeholder = "%s" if "postgres" in st.secrets else "?"
               for mail, dept, top in parsed_rows:
                 try:
-                  conn.execute(
-                      "INSERT INTO employees (email, department, topic) VALUES"
-                      " (?, ?, ?)",
+                  c.execute(
+                      f"INSERT INTO employees (email, department, topic) VALUES"
+                      f" ({placeholder}, {placeholder}, {placeholder})",
                       (mail, dept, top),
                   )
                   imported += 1
                 except Exception:
                   existing += 1
               conn.commit()
+              c.close()
               conn.close()
 
               st.session_state["last_csv_hash"] = file_hash
 
               if parsed_rows:
                 st.success(
-                    f"✅ ¡Importación completada con éxito! Se cargaron"
-                    f" {len(parsed_rows)} registros"
-                    f" ({imported} nuevos, {existing} ya existentes)."
+                    f"✅ ¡Importación completada con éxito en la nube! Se"
+                    f" cargaron {len(parsed_rows)} registros ({imported}"
+                    f" nuevos, {existing} ya existentes)."
                 )
               else:
                 st.warning(
@@ -1832,8 +1858,7 @@ else:
               st.error(f"Error procesando el archivo CSV: {e}")
           else:
             st.success(
-                "✅ Archivo CSV cargado y procesado exitosamente en la base de"
-                " datos."
+                "✅ Archivo CSV procesado y sincronizado con Supabase."
             )
 
       with col_add2:
@@ -1877,20 +1902,23 @@ else:
                   "Módulo 4 — Vishing y Smishing",
               ),
           ]
-          conn = sqlite3.connect("cyber_audits.db")
+          conn = get_db_connection()
+          c = conn.cursor()
           added_count = 0
           skipped_count = 0
+          placeholder = "%s" if "postgres" in st.secrets else "?"
           for mail, dept, top in mock_directory:
             try:
-              conn.execute(
-                  "INSERT INTO employees (email, department, topic) VALUES (?,"
-                  " ?, ?)",
+              c.execute(
+                  f"INSERT INTO employees (email, department, topic) VALUES"
+                  f" ({placeholder}, {placeholder}, {placeholder})",
                   (mail, dept, top),
               )
               added_count += 1
             except Exception:
               skipped_count += 1
           conn.commit()
+          c.close()
           conn.close()
           st.success(
               f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count}"
@@ -1899,14 +1927,16 @@ else:
           st.rerun()
 
     with sub_tab2:
-      st.markdown("### 📊 Panel de Control y Métricas Globales")
+      st.markdown("### 📊 Panel de Control y Métricas Globales (Supabase)")
       emp_df = get_employees_df()
       if not emp_df.empty:
         st.dataframe(emp_df, use_container_width=True)
         if st.button("🗑️ Vaciar Base de Datos de Empleados", type="secondary"):
-          conn = sqlite3.connect("cyber_audits.db")
-          conn.execute("DELETE FROM employees")
+          conn = get_db_connection()
+          c = conn.cursor()
+          c.execute("DELETE FROM employees")
           conn.commit()
+          c.close()
           conn.close()
           if "last_csv_hash" in st.session_state:
             del st.session_state["last_csv_hash"]
@@ -1922,10 +1952,11 @@ else:
           " para realizar campañas de correo masivo:"
       )
 
-      conn = sqlite3.connect("cyber_audits.db")
+      conn = get_db_connection()
       c = conn.cursor()
       c.execute("SELECT email, topic FROM employees")
       records = c.fetchall()
+      c.close()
       conn.close()
 
       if records:
@@ -2140,14 +2171,16 @@ else:
         st.info("Ejecuta un escaneo en la primera pestaña.")
 
     with tab3:
-      st.subheader("📜 Historial de Escaneos Corporativos (SQLite)")
+      st.subheader("📜 Historial de Escaneos Corporativos (Supabase)")
       history_df = get_scan_history()
       if not history_df.empty:
         st.dataframe(history_df, use_container_width=True)
         if st.button("🗑️ Limpiar Historial"):
-          conn = sqlite3.connect("cyber_audits.db")
-          conn.execute("DELETE FROM history")
+          conn = get_db_connection()
+          c = conn.cursor()
+          c.execute("DELETE FROM history")
           conn.commit()
+          c.close()
           conn.close()
           st.rerun()
       else:
@@ -2158,5 +2191,5 @@ else:
       st.markdown("""
             **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
             * **Módulos:** Auditoría perimetral y gestión del factor humano.
-            * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
+            * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia en PostgreSQL (Supabase).
             """)
