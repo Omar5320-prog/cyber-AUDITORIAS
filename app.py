@@ -26,25 +26,12 @@ st.set_page_config(
 
 
 def get_db_connection():
-  if "postgres" in st.secrets:
-    db_conf = st.secrets["postgres"]
-    if "url" in db_conf:
-      return psycopg2.connect(db_conf["url"])
-    else:
-      dsn = (
-          f"host={db_conf.get('host')} "
-          f"dbname={db_conf.get('database')} "
-          f"user={db_conf.get('user')} "
-          f"password={db_conf.get('password')} "
-          f"port={db_conf.get('port', 6543)} "
-          f"sslmode=require"
-      )
-      return psycopg2.connect(dsn)
+  if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
+    return psycopg2.connect(st.secrets["postgres"]["url"])
   else:
     import sqlite3
 
     return sqlite3.connect("cyber_audits.db")
-
 
 def init_db():
   conn = get_db_connection()
