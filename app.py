@@ -648,9 +648,9 @@ def generate_pdf(
       else "<span style='color:orange;'><b>Revisar</b></span>"
   )
 
-  # Renderizado dinámico según el tipo de informe elegido (Exactamente 3 opciones)
+  # Renderizado según los 3 tipos de informe solicitados
   if "Narrativo" in report_type:
-    # 1. Informe Ejecutivo Narrativo (Enfoque Gerencial, claro, fluido y menos técnico)
+    # 1. INFORME EJECUTIVO NARRATIVO (Con cabecera formal tipo informe/memo)
     content_html = f"""
         <div class="header-banner">
             <div class="banner-left">
@@ -659,23 +659,42 @@ def generate_pdf(
             </div>
             <div class="banner-right">{logo_html}</div>
         </div>
-        <h2>Resumen Gerencial y Contexto del Negocio</h2>
+        
+        <table style="width: 100%; margin-bottom: 12px; border: 1px solid #cbd5e1; border-collapse: collapse; background: #ffffff; font-size: 8.5pt;">
+            <tr>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 15%; background: #f1f5f9;"><strong>Para:</strong></td>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 35%;">{recipient_name}</td>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 15%; background: #f1f5f9;"><strong>Fecha:</strong></td>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 35%;">{datetime.datetime.now().strftime('%Y-%m-%d')}</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; background: #f1f5f9;"><strong>Asunto:</strong></td>
+                <td style="padding: 6px; border: 1px solid #cbd5e1;" colspan="3">{report_subject}</td>
+            </tr>
+            <tr>
+                <td style="padding: 6px; border: 1px solid #cbd5e1; background: #f1f5f9;"><strong>Objetivo:</strong></td>
+                <td style="padding: 6px; border: 1px solid #cbd5e1;" colspan="3">{hostname} (IP: {geo['ip']})</td>
+            </tr>
+        </table>
+
+        <h2>1. Resumen Ejecutivo y Visión General</h2>
         <div class="executive-box">
-            <p style="margin:0;">Estimada Dirección y Junta Directiva de <strong>{recipient_name}</strong>,</p>
-            <p>Se ha llevado a cabo una evaluación de seguridad perimetral sobre el activo digital <strong>{hostname}</strong>. El propósito de este informe es proveer una visión clara y comprensible sobre la postura de riesgo actual de la organización, alejándonos de tecnicismos complejos para centrarnos en el impacto operativo y financiero.</p>
-            <p style="margin-bottom:0;"><strong>Calificación de Riesgo Asignada (Risk Score):</strong> <span style="font-size:12pt; font-weight:bold; color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</span></p>
+            <p style="margin:0;">El presente documento detalla la evaluación perimetral llevada a cabo sobre el activo digital <strong>{hostname}</strong>. Se ha determinado una calificación de riesgo corporativo (Risk Score) de <strong style="color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</strong>.</p>
         </div>
-        <h2>Análisis General del Perímetro</h2>
-        <p>Durante la auditoría automatizada, se examinaron los puntos de entrada expuestos a internet. Los hallazgos principales indican que el sitio web opera bajo la dirección IP <code>{geo['ip']}</code> ({geo['org']}, {geo['country']}).</p>
+
+        <h2>2. Análisis del Impacto en el Negocio</h2>
+        <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional y la confianza:</p>
         <ul>
-            <li><strong>Cifrado y Confianza (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Postura de Correo Electrónico:</strong> {'Los registros de autenticación protegen contra suplantación.' if email_sec['spf'] and email_sec['dmarc'] else 'Se detectó la ausencia de directivas SPF y/o DMARC, lo que deja abierta la puerta a ataques de phishing utilizando el nombre de su dominio.'}</li>
-            <li><strong>Superficie de Exposición:</strong> Se identificaron puertos abiertos y servicios expuestos que podrían ser aprovechados por atacantes informáticos si no se protegen adecuadamente mediante cortafuegos.</li>
+            <li><strong>Cifrado y Seguridad de Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
+            <li><strong>Autenticación de Correo Electrónico:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Se observa carencia de controles de correo (SPF/DMARC), incrementando el riesgo de suplantación de identidad (phishing).'}</li>
+            <li><strong>Superficie Perimetral:</strong> Se identificaron puertos y servicios expuestos que requieren supervisión estricta para evitar accesos no autorizados.</li>
         </ul>
-        <p>Recomendamos encarecidamente priorizar la corrección de los hallazgos críticos para mitigar cualquier riesgo de interrupción de servicio o fraude corporativo.</p>
+
+        <h2>3. Conclusiones y Siguientes Pasos</h2>
+        <p>Recomendamos autorizar al equipo técnico la aplicación de las medidas correctivas necesarias para mitigar cualquier riesgo de interrupción de servicio o fraude corporativo.</p>
         """
   elif "Normativa" in report_type:
-    # 2. Informe de Normativa, Remediación y Recomendaciones (Enfoque ISO / Compliance / Snippets)
+    # 2. INFORME DE NORMATIVA, REMEDIACIÓN Y RECOMENDACIONES (ISO / Compliance / Snippets)
     items_html_norm = ""
     for idx, f in enumerate(findings, 1):
       snippet_box = (
@@ -702,7 +721,7 @@ def generate_pdf(
     content_html = f"""
         <div class="header-banner">
             <div class="banner-left">
-                <h1>Informe de Normativa y Remediación (ISO / Compliance)</h1>
+                <h1>Informe de Normativa, Remediación y Recomendaciones</h1>
                 <p>Elaborado por: <strong>{agency_name}</strong></p>
             </div>
             <div class="banner-right">{logo_html}</div>
@@ -712,7 +731,7 @@ def generate_pdf(
         {items_html_norm}
         """
   else:
-    # 3. Informe Técnico Exhaustivo Completo (Estándar con toda la información y gráficos detallados)
+    # 3. INFORME TÉCNICO EXHAUSTIVO (COMPLETO)
     items_html_full = ""
     for idx, f in enumerate(findings, 1):
       snippet_box = (
@@ -833,7 +852,7 @@ if "scanned" not in st.session_state:
 st.markdown(
     """
     <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Enterprise:</strong> 3 Modelos de Informe Activos (Técnico Exhaustivo, Ejecutivo Narrativo y Normativa/Remediación).
+        🚀 <strong>CyberAudits Enterprise:</strong> 3 Modelos de Informe Activos con Cabecera Formal.
     </div>
     """,
     unsafe_allow_html=True,
@@ -878,7 +897,7 @@ report_subject = st.sidebar.text_input(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "CyberAudits Enterprise v3.2 • 100% Autónomo y sin dependencias externas."
+    "CyberAudits Enterprise v3.3 • 100% Autónomo y sin dependencias externas."
 )
 
 tab1, tab2, tab3, tab4 = st.tabs([
