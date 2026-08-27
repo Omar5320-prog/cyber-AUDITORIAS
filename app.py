@@ -799,70 +799,71 @@ st.write(
     " informes ejecutivos."
 )
 
-st.sidebar.header("⚙️ Configuración del Informe")
-agency_name = st.sidebar.text_input(
-    "Nombre de la Agencia", value="SecOps Global Partners"
-)
-agency_tagline = st.sidebar.text_input(
-    "Subtítulo / Área de la Agencia",
-    value="División de Consultoría y Ciberseguridad",
-)
-logo_file = st.sidebar.file_uploader(
-    "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
-)
-
-report_type = st.sidebar.selectbox(
-    "Plantilla / Modelo de Informe",
-    [
-        "Informe Técnico Exhaustivo (Completo)",
-        "Informe Ejecutivo Narrativo",
-        "Informe de Normativa, Remediación y Recomendaciones (ISO / Compliance)",
-    ],
-)
-
-recipient_name = st.sidebar.text_input(
-    "Dirigido a (Gerencia / Cliente)",
-    value="Dirección General / Junta Directiva",
-)
-report_subject = st.sidebar.text_input(
-    "Asunto del Informe",
-    value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
-)
-
-st.sidebar.markdown("---")
-
-# ACCESO PRIVADO EN LA BARRA LATERAL
-st.sidebar.subheader("🔒 Acceso Restringido")
+# SECCIÓN DE ACCESO Y NAVEGACIÓN UBICADA ARRIBA DE TODO EN LA BARRA LATERAL
+st.sidebar.header("🧭 Módulos de la Plataforma")
 admin_password_input = st.sidebar.text_input(
-    "Contraseña de Administrador", type="password"
+    "🔑 Contraseña de Administrador", type="password"
 )
 
 SECRET_ADMIN_PASSWORD = "CyberAdmin2026!"
 is_admin = admin_password_input == SECRET_ADMIN_PASSWORD
 
-# Si el admin ingresa correctamente, mostramos el selector de vista en la barra lateral
-selected_view = "Auditoría Perimetral"
+modules_list = ["Auditoría Perimetral"]
 if is_admin:
-  st.sidebar.markdown("---")
-  st.sidebar.subheader("🛠️ Panel de Control Admin")
-  selected_view = st.sidebar.radio(
-      "Seleccionar Módulo",
-      ["Auditoría Perimetral", "🎓 Concienciación (En Desarrollo)"],
+  modules_list.append("🎓 Concienciación (Privado)")
+
+selected_module = st.sidebar.radio(
+    "Seleccionar Módulo Disponible", modules_list
+)
+st.sidebar.markdown("---")
+
+# CONFIGURACIÓN DEL INFORME (DISPONIBLE EN EL MÓDULO DE AUDITORÍA)
+if selected_module == "Auditoría Perimetral":
+  st.sidebar.header("⚙️ Configuración del Informe")
+  agency_name = st.sidebar.text_input(
+      "Nombre de la Agencia", value="SecOps Global Partners"
+  )
+  agency_tagline = st.sidebar.text_input(
+      "Subtítulo / Área de la Agencia",
+      value="División de Consultoría y Ciberseguridad",
+  )
+  logo_file = st.sidebar.file_uploader(
+      "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
   )
 
+  report_type = st.sidebar.selectbox(
+      "Plantilla / Modelo de Informe",
+      [
+          "Informe Técnico Exhaustivo (Completo)",
+          "Informe Ejecutivo Narrativo",
+          (
+              "Informe de Normativa, Remediación y Recomendaciones (ISO /"
+              " Compliance)"
+          ),
+      ],
+  )
+
+  recipient_name = st.sidebar.text_input(
+      "Dirigido a (Gerencia / Cliente)",
+      value="Dirección General / Junta Directiva",
+  )
+  report_subject = st.sidebar.text_input(
+      "Asunto del Informe",
+      value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
+  )
+else:
+  agency_name = "SecOps Global Partners"
+  agency_tagline = "División de Consultoría y Ciberseguridad"
+  logo_file = None
+  report_type = "Informe Técnico Exhaustivo (Completo)"
+  recipient_name = "Dirección General"
+  report_subject = "Evaluación de Riesgos"
+
 st.sidebar.markdown("---")
-st.sidebar.caption("CyberAudits Enterprise v4.3 • Producción Segura.")
+st.sidebar.caption("CyberAudits Enterprise v4.4 • Producción Segura.")
 
-# PESTAÑAS PRINCIPALES DEL CLIENTE (LIMPIAS Y FIJAS)
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🔍 Perimeter Scan",
-    "📊 Security Analytics",
-    "📜 Historial de Escaneos",
-    "ℹ️ About CyberAudits",
-])
-
-# CONDICIONAL: SI EL ADMIN SELECCIONA EL MÓDULO DE CONCIENCIACIÓN DESDE LA BARRA LATERAL
-if is_admin and selected_view == "🎓 Concienciación (En Desarrollo)":
+# VISTA CONDICIONAL SEGÚN EL MÓDULO SELECCIONADO
+if is_admin and selected_module == "🎓 Concienciación (Privado)":
   st.markdown("---")
   st.markdown(
       "## 🎓 Módulo Privado de Concienciación y Cultura de Seguridad (En"
@@ -967,7 +968,14 @@ if is_admin and selected_view == "🎓 Concienciación (En Desarrollo)":
         st.rerun()
 
 else:
-  # VISTA ESTÁNDAR DE AUDITORÍA PERIMETRAL (CLIENTES Y VISITANTES)
+  # PESTAÑAS PRINCIPALES DE AUDITORÍA PERIMETRAL (PÚBLICAS)
+  tab1, tab2, tab3, tab4 = st.tabs([
+      "🔍 Perimeter Scan",
+      "📊 Security Analytics",
+      "📜 Historial de Escaneos",
+      "ℹ️ About CyberAudits",
+  ])
+
   with tab1:
     st.markdown("### 🎯 Quick Test Targets")
     col_btn1, col_btn2, col_btn3 = st.columns(3)
