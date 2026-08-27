@@ -42,14 +42,27 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE,
             department TEXT,
+            topic TEXT DEFAULT 'Phishing e Ingeniería Social',
             status TEXT DEFAULT 'Pendiente',
             score INTEGER DEFAULT 0,
             last_completed TEXT
         )
     """)
-  c.execute("PRAGMA table_info(history)")
+  # Migración segura por si la tabla ya existía sin la columna topic
+  c.execute("PRAGMA table_info(employees)")
   columns = [col[1] for col in c.fetchall()]
-  if "risk_score" not in columns:
+  if "topic" not in columns:
+    try:
+      c.execute(
+          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Phishing e"
+          " Ingeniería Social'"
+      )
+    except Exception:
+      pass
+
+  c.execute("PRAGMA table_info(history)")
+  hist_cols = [col[1] for col in c.fetchall()]
+  if "risk_score" not in hist_cols:
     try:
       c.execute("ALTER TABLE history ADD COLUMN risk_score INTEGER DEFAULT 0")
     except Exception:
@@ -96,13 +109,483 @@ def get_employees_df():
   conn = sqlite3.connect("cyber_audits.db")
   df = pd.read_sql_query(
       "SELECT email AS 'Correo Electrónico', department AS 'Departamento',"
-      " status AS 'Estado', score AS 'Calificación (%)', last_completed AS"
-      " 'Última Evaluación' FROM employees",
+      " topic AS 'Campaña / Tema', status AS 'Estado', score AS 'Calificación"
+      " (%)', last_completed AS 'Última Evaluación' FROM employees",
       conn,
   )
   conn.close()
   return df
 
+
+# BANCO DE CONTENIDOS Y PREGUNTAS (7-10 PREGUNTAS POR TEMA)
+TRAINING_TOPICS = {
+    "Phishing e Ingeniería Social": {
+        "title": "Módulo de Phishing e Ingeniería Social Avanzada",
+        "theory": """
+            <div class="training-card">
+                <h4>🎯 ¿Qué es el Phishing y cómo evoluciona?</h4>
+                <p>El <strong>Phishing</strong> es el fraude mediante el cual los ciberdelincuentes obtienen información confidencial (credenciales, datos bancarios) suplantando la identidad de marcas o directivos de confianza.</p>
+                <p><strong>Indicadores clave de alerta:</strong></p>
+                <ul>
+                    <li><strong>Urgencia artificial:</strong> Mensajes que exigen acción inmediata bajo amenaza de suspensión de servicios.</li>
+                    <li><strong>Dominios falsos:</strong> URLs con ligeras variaciones tipográficas (ej. <i>banc0nacion.com</i> en lugar de <i>banconacion.com.ar</i>).</li>
+                    <li><strong>Adjuntos maliciosos:</strong> Archivos comprimidos (.zip, .iso) o documentos con macros ocultas.</li>
+                </ul>
+            </div>
+            """,
+        "questions": [
+            {
+                "q": (
+                    "1. ¿Cuál es el objetivo principal de un ataque de"
+                    " phishing?"
+                ),
+                "options": [
+                    "Mejorar la velocidad de la red",
+                    (
+                        "Robar credenciales, datos sensibles o instalar"
+                        " software malicioso"
+                    ),
+                    "Actualizar los servidores de la empresa",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "2. Si recibe un correo de soporte técnico exigiendo cambiar"
+                    " su contraseña en 10 minutos o perderá el acceso, ¿qué"
+                    " debe hacer?"
+                ),
+                "options": [
+                    "Hacer clic inmediatamente en el enlace del correo",
+                    (
+                        "Verificar la autenticidad contactando al área de TI por"
+                        " canales oficiales"
+                    ),
+                    "Reenviarlo a todos sus compañeros",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "3. ¿Qué indica que una dirección de correo remitente"
+                    " podría ser fraudulenta?"
+                ),
+                "options": [
+                    "Que utiliza el dominio oficial de la organización",
+                    (
+                        "Que el dominio tiene errores tipográficos sutiles (ej."
+                        " @micros0ft.com)"
+                    ),
+                    "Que viene firmada digitalmente",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "4. ¿Qué es el 'Spear Phishing' en comparación con el"
+                    " phishing tradicional?"
+                ),
+                "options": [
+                    "Un ataque masivo automatizado sin importar la víctima",
+                    (
+                        "Un ataque altamente personalizado dirigido a una"
+                        " persona o cargo específico"
+                    ),
+                    "Un virus que infecta impresoras",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "5. Si pasa el cursor sobre un hiperenlace en un correo"
+                    " sospechoso y nota que la URL de destino no coincide con"
+                    " el texto visible, ¿qué significa?"
+                ),
+                "options": [
+                    "Es un enlace totalmente seguro",
+                    (
+                        "Es un intento probable de redirección a un sitio de"
+                        " phishing"
+                    ),
+                    "Es una redirección oficial del navegador",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "6. ¿Cuál de los siguientes canales es el más seguro para"
+                    " reportar un correo malicioso?"
+                ),
+                "options": [
+                    "Responder directamente al atacante pidiendo explicaciones",
+                    (
+                        "El sistema interno de reporte o el equipo de"
+                        " Ciberseguridad / TI"
+                    ),
+                    "Publicarlo en redes sociales públicas",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "7. ¿Por qué los atacantes suelen usar la 'urgencia' en sus"
+                    " mensajes de phishing?"
+                ),
+                "options": [
+                    "Para dar un servicio más rápido al cliente",
+                    (
+                        "Para que la víctima actúe impulsivamente sin analizar"
+                        " los riesgos"
+                    ),
+                    "Es un protocolo estándar de seguridad",
+                ],
+                "correct": 1,
+            },
+        ],
+    },
+    "Gestión de Contraseñas Robustas": {
+        "title": "Módulo de Contraseñas y Autenticación Segura",
+        "theory": """
+            <div class="training-card">
+                <h4>🔒 Fundamentos de contraseñas y credenciales</h4>
+                <p>Las credenciales débiles son la vía de acceso número uno en incidentes corporativos. Las contraseñas complejas y el uso de gestores de claves evitan ataques de fuerza bruta.</p>
+                <ul>
+                    <li>Longitud mínima recomendada: 12 a 16 caracteres.</li>
+                    <li>Combinación estricta de mayúsculas, minúsculas, números y símbolos.</li>
+                    <li>Utilización obligatoria de doble factor de autenticación (2FA / MFA).</li>
+                </ul>
+            </div>
+            """,
+        "questions": [
+            {
+                "q": (
+                    "1. ¿Cuál es la longitud mínima recomendada para una"
+                    " contraseña corporativa robusta?"
+                ),
+                "options": ["4 caracteres", "8 caracteres", "12 a 16 caracteres"],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "2. ¿Por qué es peligroso utilizar la misma contraseña en"
+                    " sistemas personales y corporativos?"
+                ),
+                "options": [
+                    "No hay ningún peligro real",
+                    (
+                        "Si una plataforma externa es vulnerada, los atacantes"
+                        " tendrán acceso a su cuenta corporativa"
+                    ),
+                    "La computadora se vuelve más lenta",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "3. ¿Qué es el Doble Factor de Autenticación (2FA / MFA)?"
+                    ""
+                ),
+                "options": [
+                    "Escribir la contraseña dos veces seguidas",
+                    (
+                        "Combinar algo que sabes (clave) con algo que tienes"
+                        " (código en app o token)"
+                    ),
+                    "Tener dos cuentas de correo distintas",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "4. ¿Cuál de las siguientes opciones representa una"
+                    " contraseña débil?"
+                ),
+                "options": [
+                    "Xk#9$mPq2!vL8#zQ",
+                    "Juan1985 (nombre y fecha de nacimiento)",
+                    "Una frase larga aleatoria con símbolos",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "5. ¿Qué herramienta se recomienda para almacenar y"
+                    " gestionar múltiples contraseñas complejas?"
+                ),
+                "options": [
+                    "Un post-it pegado en el monitor",
+                    "Un archivo de texto plano en el escritorio",
+                    "Un gestor de contraseñas cifrado y certificado",
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "6. Si un compañero le pide su contraseña por chat interno"
+                    " para resolver un problema urgente, ¿qué debe hacer?"
+                ),
+                "options": [
+                    "Dársela porque es un colega de confianza",
+                    (
+                        "Negarse rotundamente; las credenciales son de uso"
+                        " estrictamente personal"
+                    ),
+                    "Dársela solo si la cambia al día siguiente",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "7. ¿Cada cuánto tiempo se aconseja rotar contraseñas en"
+                    " cuentas de alto privilegio?"
+                ),
+                "options": [
+                    "Nunca, jamás deben cambiarse",
+                    "Periódicamente según la política de seguridad de la empresa",
+                    "Cada 5 minutos de forma automática",
+                ],
+                "correct": 1,
+            },
+        ],
+    },
+    "Seguridad en Dispositivos y Remoto": {
+        "title": "Módulo de Seguridad en Dispositivos y Trabajo Remoto",
+        "theory": """
+            <div class="training-card">
+                <h4>🛡️ Cuidado de equipos fuera del perímetro de oficina</h4>
+                <p>El trabajo remoto e híbrido expone los dispositivos a entornos físicos no controlados.</p>
+                <ul>
+                    <li>Bloquear siempre la sesión (Win + L / Cmd + Ctrl + Q) al alejarse del equipo.</li>
+                    <li>Evitar el uso de redes Wi-Fi públicas sin VPN corporativa.</li>
+                    <li>No conectar memorias USB o discos externos desconocidos.</li>
+                </ul>
+            </div>
+            """,
+        "questions": [
+            {
+                "q": (
+                    "1. Al levantarse de su escritorio en la oficina o en casa,"
+                    " ¿qué acción física debe realizar obligatoriamente?"
+                ),
+                "options": [
+                    "Dejar el equipo abierto para que no se apague",
+                    "Bloquear la sesión de pantalla de forma segura",
+                    "Apagar el router de internet",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "2. ¿Por qué representan un riesgo las redes Wi-Fi públicas"
+                    " abiertas (cafeterías, aeropuertos)?"
+                ),
+                "options": [
+                    "Porque la velocidad de internet es muy alta",
+                    (
+                        "Porque el tráfico puede ser interceptado por atacantes"
+                        " mediante escuchas en la red"
+                    ),
+                    "Porque queman la batería del portátil",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "3. ¿Qué debe hacer si encuentra una memoria USB perdida en"
+                    " el estacionamiento de la empresa?"
+                ),
+                "options": [
+                    "Conectarla a su computadora para ver de quién es",
+                    (
+                        "Entregarla directamente al departamento de TI sin"
+                        " conectarla jamás"
+                    ),
+                    "Formatearla y usarla para uso personal",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "4. ¿Cuál es la función principal de una VPN corporativa?"
+                    ""
+                ),
+                "options": [
+                    "Acelerar los juegos en línea",
+                    (
+                        "Crear un túnel de comunicación cifrado y seguro hacia"
+                        " la red de la empresa"
+                    ),
+                    "Ocultar las búsquedas de Google personales",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "5. ¿Por qué es vital mantener el sistema operativo y las"
+                    " aplicaciones actualizadas?"
+                ),
+                "options": [
+                    "Para que aparezcan nuevos fondos de pantalla",
+                    (
+                        "Para corregir vulnerabilidades y parchar fallos de"
+                        " seguridad conocidos"
+                    ),
+                    "Para gastar más espacio en disco",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "6. Si un dispositivo corporativo es robado o extraviado,"
+                    " ¿cuál debe ser su primera reacción?"
+                ),
+                "options": [
+                    "Esperar a ver si alguien lo devuelve por correo",
+                    (
+                        "Notificar inmediatamente al área de TI para proceder"
+                        " con el bloqueo o borrado remoto"
+                    ),
+                    "Comprar uno nuevo por su cuenta",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "7. ¿Se deben almacenar contraseñas de accesos corporativos"
+                    " en notas adhesivas físicas pegadas al monitor?"
+                ),
+                "options": [
+                    "Sí, es muy práctico para no olvidarlas",
+                    (
+                        "No, constituye una brecha física grave de seguridad"
+                        " ('shoulder surfing')"
+                    ),
+                    "Solo si la letra es ilegible",
+                ],
+                "correct": 1,
+            },
+        ],
+    },
+    "Prevención de Ransomware": {
+        "title": "Módulo Especializado: Prevención y Respuesta ante Ransomware",
+        "theory": """
+            <div class="training-card">
+                <h4>💥 ¿Qué es el Ransomware?</h4>
+                <p>El <strong>Ransomware</strong> es un tipo de malware que cifra todos los archivos de un sistema o red corporativa exigiendo un rescate económico a cambio de la clave de descifrado.</p>
+                <ul>
+                    <li>Vectores de entrada: Correos de phishing, descargas de software pirata o vulnerabilidades sin parchear.</li>
+                    <li>Plan de acción: Desconexión inmediata de la red (cable de red / Wi-Fi) y aviso a TI.</li>
+                </ul>
+            </div>
+            """,
+        "questions": [
+            {
+                "q": (
+                    "1. ¿Cómo actúa típicamente un ataque de Ransomware en un"
+                    " equipo?"
+                ),
+                "options": [
+                    "Mejora el rendimiento del procesador",
+                    (
+                        "Cifra o bloquea el acceso a todos los archivos y"
+                        " solicita un rescate económico"
+                    ),
+                    "Elimina los virus automáticamente",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "2. Si nota que los archivos de su equipo empiezan a cambiar"
+                    " de extensión extraña y aparece un mensaje de rescate,"
+                    " ¿qué debe hacer primero?"
+                ),
+                "options": [
+                    "Tratar de negociar y pagar con tarjeta de crédito",
+                    (
+                        "Desconectar inmediatamente el equipo de la red (Wi-Fi y"
+                        " cable) y avisar a TI"
+                    ),
+                    "Reiniciar la PC para ver si se soluciona",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "3. ¿Cuál es la defensa más efectiva ante un ataque de"
+                    " Ransomware cifrador?"
+                ),
+                "options": [
+                    "Tener respaldos (backups) frecuentes, aislados e"
+                    " inmutables",
+                    "Tener un antivirus gratuito básico",
+                    "Apagar la computadora los fines de semana",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "4. ¿Cuál suele ser la vía principal de infección por"
+                    " Ransomware en las empresas?"
+                ),
+                "options": [
+                    "Mensajes de texto SMS",
+                    (
+                        "Apertura de correos de phishing con archivos adjuntos"
+                        " maliciosos"
+                    ),
+                    "Páginas web institucionales oficiales",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "5. ¿Se recomienda pagar el rescate exigido por los"
+                    " ciberdelincuentes?"
+                ),
+                "options": [
+                    "Sí, siempre devuelven los archivos intactos",
+                    (
+                        "No se recomienda, ya que no garantiza la recuperación"
+                        " y financia actividades criminales"
+                    ),
+                    "Sí, porque es deducible de impuestos",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "6. ¿Por qué las copias de seguridad (backups) deben estar"
+                    " desconectadas de la red principal?"
+                ),
+                "options": [
+                    "Para que no gasten electricidad",
+                    (
+                        "Para evitar que el Ransomware también cifre y"
+                        " destruya los respaldos"
+                    ),
+                    "Para que no se llenen de polvo digital",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "7. ¿Qué rol cumple el empleado en la prevención del"
+                    " Ransomware?"
+                ),
+                "options": [
+                    "Ninguno, es tarea exclusiva de los servidores",
+                    (
+                        "Ser la primera línea de defensa evitando abrir"
+                        " archivos o enlaces sospechosos"
+                    ),
+                    "Desarrollar parches de software",
+                ],
+                "correct": 1,
+            },
+        ],
+    },
+}
 
 st.markdown(
     """
@@ -784,35 +1267,50 @@ def generate_pdf(
   HTML(string=html_content).write_pdf(output_filename)
 
 
-# DETECCIÓN DE PARÁMETRO EN URL (PORTAL DEL EMPLEADO)
+# DETECCIÓN DE PARÁMETROS EN URL (PORTAL DEL EMPLEADO CON TEMA)
 query_params = st.query_params
 employee_token = query_params.get("empleado")
+topic_token = query_params.get("tema", "Phishing e Ingeniería Social")
 
 if employee_token:
-  # VISTA EXCLUSIVA PARA EL EMPLEADO QUE HACE CLIC EN SU ENLACE
   st.markdown(
       """
         <div class="employee-portal-banner">
             <h2>🎓 Portal Corporativo de Concienciación en Ciberseguridad</h2>
-            <p>Capacitación obligatoria y evaluación de seguridad para colaboradores</p>
+            <p>Capacitación obligatoria y evaluación de competencias técnicas</p>
         </div>
         """,
       unsafe_allow_html=True,
   )
 
-  st.info(f"👤 Colaborador autenticado mediante enlace único: **{employee_token}**")
+  # Seleccionar material y preguntas según el tema especificado en la URL
+  selected_topic_data = TRAINING_TOPICS.get(
+      topic_token, TRAINING_TOPICS["Phishing e Ingeniería Social"]
+  )
 
-  # Verificar si el empleado existe en la base de datos, si no, registrarlo automáticamente
+  st.info(
+      f"👤 Colaborador: **{employee_token}** | Campaña Asignada:"
+      f" **{topic_token}**"
+  )
+
+  # Verificar o registrar en base de datos
   conn = sqlite3.connect("cyber_audits.db")
   c = conn.cursor()
-  c.execute("SELECT status, score FROM employees WHERE email = ?", (employee_token,))
+  c.execute(
+      "SELECT status, score FROM employees WHERE email = ? AND topic = ?",
+      (employee_token, topic_token),
+  )
   row = c.fetchone()
   if not row:
-    c.execute(
-        "INSERT INTO employees (email, department, status) VALUES (?, ?, ?)",
-        (employee_token, "General", "Pendiente"),
-    )
-    conn.commit()
+    try:
+      c.execute(
+          "INSERT INTO employees (email, department, topic, status) VALUES (?,"
+          " ?, ?, ?)",
+          (employee_token, "General", topic_token, "Pendiente"),
+      )
+      conn.commit()
+    except Exception:
+      pass
     current_status = "Pendiente"
     current_score = 0
   else:
@@ -821,93 +1319,65 @@ if employee_token:
 
   if current_status == "Completado":
     st.success(
-        f"✅ ¡Ya has completado satisfactoriamente esta capacitación! Tu calificación"
-        f" registrada es de **{current_score}%**."
+        f"✅ ¡Ya has completado satisfactoriamente esta capacitación de"
+        f" **{topic_token}**! Tu calificación registrada es de **{current_score}%**."
     )
   else:
-    st.markdown("### 📚 1. Lee atentamente el material formativo oficial")
-    st.markdown("""
-        <div class="training-card">
-            <h4>📌 Módulo 1: Detección y Prevención de Phishing</h4>
-            <p><strong>¿Qué es el Phishing?</strong> Técnica de ingeniería social donde los atacantes simulan ser entidades legítimas (bancos, directivos) para robar credenciales.</p>
-            <ul>
-                <li>Urgencia injustificada o tono amenazante.</li>
-                <li>Remitentes con dominios alterados o extraños.</li>
-                <li>Enlaces maliciosos ocultos bajo textos comunes.</li>
-            </ul>
-        </div>
-        <div class="training-card">
-            <h4>🔒 Módulo 2: Creación y Gestión de Contraseñas Robustas</h4>
-            <ul>
-                <li>Usa mínimo 12 caracteres mezclando mayúsculas, minúsculas, números y símbolos.</li>
-                <li>No uses fechas de nacimiento ni datos personales obvios.</li>
-            </ul>
-        </div>
-        <div class="training-card">
-            <h4>🛡️ Módulo 3: Seguridad en Dispositivos y Trabajo Remoto</h4>
-            <ul>
-                <li>Bloquea siempre tu pantalla al alejarte del equipo.</li>
-                <li>Evita Wi-Fi públicas sin VPN activa.</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown(f"### 📚 Material Formativo: {topic_token}")
+    st.markdown(selected_topic_data["theory"], unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### 📝 2. Cuestionario de Evaluación")
+    st.markdown(
+        "### 📝 Cuestionario de Evaluación (7 Preguntas Obligatorias)"
+    )
 
-    with st.form("employee_quiz_form"):
-      q1 = st.radio(
-          "1. ¿Qué debe hacer si recibe un correo urgente pidiendo verificar su"
-          " contraseña?",
-          [
-              "Hacer clic y cambiarla rápido",
-              "Ignorarlo o reportarlo a TI sin hacer clic",
-              "Responder con los datos",
-          ],
-      )
-      q2 = st.radio(
-          "2. ¿Cuál es una característica clave de una contraseña robusta?",
-          [
-              "Fechas importantes fáciles de recordar",
-              "Una sola palabra larga",
-              "Combinación de mayúsculas, minúsculas, números y símbolos",
-          ],
-      )
-      q3 = st.radio(
-          "3. Al alejarse de su equipo de trabajo, ¿qué debe hacer?",
-          ["Dejarlo abierto", "Bloquear la sesión de forma segura", "Apagarlo"],
-      )
+    with st.form("employee_deep_quiz_form"):
+      user_answers = {}
+      for idx, q_item in enumerate(selected_topic_data["questions"]):
+        st.write(f"**{q_item['q']}**")
+        user_choice = st.radio(
+            "Seleccione una opción:",
+            q_item["options"],
+            key=f"q_{idx}",
+            label_visibility="collapsed",
+        )
+        user_answers[idx] = (user_choice, q_item["correct"])
+        st.markdown("")
 
-      submit_emp_quiz = st.form_submit_button("Enviar Mis Respuestas")
+      submit_emp_quiz = st.form_submit_button(
+          "Enviar Examen y Registrar Resultados"
+      )
       if submit_emp_quiz:
-        score = 0
-        if "Ignorarlo" in q1:
-          score += 34
-        if "Combinación" in q2:
-          score += 33
-        if "Bloquear" in q3:
-          score += 33
+        score_points = 0
+        total_qs = len(selected_topic_data["questions"])
+        for idx, (chosen_text, correct_idx) in user_answers.items():
+          correct_text = selected_topic_data["questions"][idx]["options"][
+              correct_idx
+          ]
+          if chosen_text == correct_text:
+            score_points += 1
 
-        if score >= 90:
-          score = 100
+        final_score = int((score_points / total_qs) * 100)
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         conn = sqlite3.connect("cyber_audits.db")
         conn.execute(
             "UPDATE employees SET status = 'Completado', score = ?,"
-            " last_completed = ? WHERE email = ?",
-            (score, timestamp, employee_token),
+            " last_completed = ? WHERE email = ? AND topic = ?",
+            (final_score, timestamp, employee_token, topic_token),
         )
         conn.commit()
         conn.close()
+
         st.success(
-            f"🎉 ¡Evaluación enviada con éxito! Calificación obtenida: {score}%."
-            " Ya puedes cerrar esta ventana."
+            f"🎉 ¡Examen enviado con éxito! Has obtenido una calificación de"
+            f" **{final_score}%** ({score_points}/{total_qs} aciertos)."
+            " Resultados sincronizados con el panel corporativo."
         )
         st.rerun()
 
 else:
-  # VISTA PRINCIPAL DEL SAAS (AUDITORÍA PERIMETRAL Y ADMIN)
+  # VISTA PRINCIPAL DEL SAAS (ADMIN Y AUDITORÍA)
   if "scanned" not in st.session_state:
     st.session_state.scanned = False
   if "failed_attempts" not in st.session_state:
@@ -925,7 +1395,7 @@ else:
   st.title("🛡️ CyberAudits - Suite Enterprise")
   st.write(
       "Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de"
-      " informes ejecutivos."
+      " campañas de concienciación."
   )
 
   # BARRA LATERAL: NAVEGACIÓN Y CONTRASEÑA BLINDADA
@@ -935,13 +1405,12 @@ else:
   is_admin = False
 
   if st.session_state.failed_attempts >= 5:
-    st.sidebar.error("⚠️ Acceso de administrador bloqueado por intentos fallidos.")
+    st.sidebar.error("⚠️ Acceso de administrador bloqueado temporalmente.")
   else:
     admin_password_input = st.sidebar.text_input(
         "🔑 Contraseña de Administrador", type="password"
     )
 
-    # Hash SHA-256 de Morita020302-
     MASTER_HASH = (
         "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
     )
@@ -1006,122 +1475,134 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v4.7 • Enlaces Únicos Activos.")
+  st.sidebar.caption("CyberAudits Enterprise v4.8 • Campañas Múltiples Activas.")
 
-  # PANEL DE ADMIN O VISTA PÚBLICA
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
-    st.markdown("## 🎓 Módulo Privado de Concienciación y Cultura de Seguridad")
+    st.markdown(
+        "## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo"
+    )
     st.info(
-        "Panel protegido por criptografía SHA-256. Aquí puedes registrar"
-        " empleados y copiar sus enlaces de acceso directo."
+        "Asigna temas específicos, sincroniza con tu directorio corporativo o"
+        " genera enlaces con parámetros personalizados."
     )
 
     sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-        "👥 Gestión y Enlaces de Empleados",
-        "📚 Material Teórico",
-        "📝 Simulación de Test",
+        "👥 Registro, AD Sync y Campañas",
+        "📊 Dashboard de Resultados",
+        "🔗 Generador de Enlaces de Campaña",
     ])
 
     with sub_tab1:
-      col_emp1, col_emp2 = st.columns(2)
-      with col_emp1:
-        st.markdown("### ➕ Registrar Empleado / Destinatario")
-        with st.form("add_employee_form"):
-          new_email = st.text_input("Correo Electrónico Corporativo")
-          new_dept = st.selectbox(
+      col_add1, col_add2 = st.columns(2)
+      with col_add1:
+        st.markdown("### ➕ Asignar Campaña a Colaborador")
+        with st.form("single_assign_form"):
+          emp_mail_input = st.text_input("Correo Electrónico")
+          emp_dept_input = st.selectbox(
               "Departamento",
               [
                   "Administración",
                   "Tecnología / TI",
                   "Finanzas",
                   "Ventas",
-                  "General",
+                  "Operaciones",
               ],
           )
-          submitted = st.form_submit_button("Registrar Empleado")
-          if submitted and new_email:
+          chosen_campaign = st.selectbox(
+              "Seleccionar Tema / Campaña de Capacitación",
+              list(TRAINING_TOPICS.keys()),
+          )
+          submit_single = st.form_submit_button(
+              "Registrar y Asignar Campaña"
+          )
+          if submit_single and emp_mail_input:
             try:
               conn = sqlite3.connect("cyber_audits.db")
               conn.execute(
-                  "INSERT INTO employees (email, department) VALUES (?, ?)",
-                  (new_email, new_dept),
+                  "INSERT INTO employees (email, department, topic) VALUES (?,"
+                  " ?, ?)",
+                  (emp_mail_input, emp_dept_input, chosen_campaign),
               )
               conn.commit()
               conn.close()
-              st.success(f"Empleado {new_email} registrado correctamente.")
+              st.success(
+                  f"Campaña '{chosen_campaign}' asignada a {emp_mail_input}."
+              )
               st.rerun()
             except Exception:
               st.error(
-                  "El correo ya se encuentra registrado en la base de datos."
+                  "El correo ya se encuentra registrado con esa campaña o en la"
+                  " base de datos."
               )
 
-      with sub_tab2:
-        st.markdown(
-            "### 📊 Dashboard de Calificaciones y Enlaces Únicos Generados"
+      with col_add2:
+        st.markdown("### 🔄 Sincronización Masiva (Simulador Active Directory / Azure"
+                    " AD)")
+        st.write(
+            "Importa automáticamente el listado de colaboradores desde tu"
+            " directorio corporativo en lote:"
         )
-        emp_df = get_employees_df()
-        if not emp_df.empty:
-          st.dataframe(emp_df, use_container_width=True)
-
-          # Generar enlaces únicos para cada empleado registrado
-          st.markdown("#### 🔗 Enlaces personalizados para enviar a colaboradores:")
+        if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
+          mock_directory = [
+              ("carlos.gomez@empresa.com", "Tecnología / TI", "Phishing e Ingeniería Social"),
+              ("ana.martinez@empresa.com", "Finanzas", "Gestión de Contraseñas Robustas"),
+              ("lucas.pereira@empresa.com", "Ventas", "Seguridad en Dispositivos y Remoto"),
+              ("sofia.benitez@empresa.com", "Operaciones", "Prevención de Ransomware"),
+          ]
           conn = sqlite3.connect("cyber_audits.db")
-          c = conn.cursor()
-          c.execute("SELECT email FROM employees")
-          all_emps = c.fetchall()
-          conn.close()
-
-          base_url = st.get_option("server.baseUrlPath") or ""  # o app url
-          for (emp_mail,) in all_emps:
-            link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={emp_mail}"
-            st.text_input(f"Enlace para: {emp_mail}", value=link, key=f"lnk_{emp_mail}")
-
-          if st.button("🗑️ Vaciar Lista de Empleados"):
-            conn = sqlite3.connect("cyber_audits.db")
-            conn.execute("DELETE FROM employees")
-            conn.commit()
-            conn.close()
-            st.rerun()
-        else:
-          st.info(
-              "No hay empleados registrados. Añade uno a la izquierda para"
-              " generar su enlace único."
-          )
-
-    with sub_tab2:
-      st.markdown("### 📚 Contenido Teórico Integrado")
-      st.write("Módulos activos para los colaboradores.")
-      st.markdown("""
-            <div class="training-card">
-                <h4>📌 Phishing, Contraseñas y Dispositivos Seguros</h4>
-                <p>El material formativo estándar se muestra de forma limpia al ingresar mediante el enlace único del empleado.</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    with sub_tab3:
-      st.markdown("### 📝 Simulación de Cuestionario (Vista Administrador)")
-      test_email = st.selectbox(
-          "Seleccionar Empleado a Evaluar de prueba",
-          [
-              row["Correo Electrónico"]
-              for _, row in get_employees_df().iterrows()
-              if not get_employees_df().empty
-          ],
-      )
-      if test_email:
-        if st.button("Simular Aprobación para " + test_email):
-          timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-          conn = sqlite3.connect("cyber_audits.db")
-          conn.execute(
-              "UPDATE employees SET status = 'Completado', score = 100,"
-              " last_completed = ? WHERE email = ?",
-              (timestamp, test_email),
-          )
+          added_count = 0
+          for mail, dept, top in mock_directory:
+            try:
+              conn.execute(
+                  "INSERT INTO employees (email, department, topic) VALUES (?,"
+                  " ?, ?)",
+                  (mail, dept, top),
+              )
+              added_count += 1
+            except Exception:
+              pass
           conn.commit()
           conn.close()
-          st.success("¡Simulación completada con éxito!")
+          st.success(
+              f"¡Sincronización AD exitosa! Se importaron {added_count}"
+              " colaboradores con sus respectivas campañas."
+          )
           st.rerun()
+
+    with sub_tab2:
+      st.markdown("### 📊 Panel de Control y Métricas Globales")
+      emp_df = get_employees_df()
+      if not emp_df.empty:
+        st.dataframe(emp_df, use_container_width=True)
+        if st.button("🗑️ Vaciar Base de Datos de Empleados"):
+          conn = sqlite3.connect("cyber_audits.db")
+          conn.execute("DELETE FROM employees")
+          conn.commit()
+          conn.close()
+          st.rerun()
+      else:
+        st.info("No hay registros en el dashboard de empleados.")
+
+    with sub_tab3:
+      st.markdown("### 🔗 Enlaces Únicos Personalizados por Campaña")
+      st.write(
+          "Copia el enlace exacto con el parámetro `&tema=...` para enviar a"
+          " cada colaborador:"
+      )
+
+      conn = sqlite3.connect("cyber_audits.db")
+      c = conn.cursor()
+      c.execute("SELECT email, topic FROM employees")
+      records = c.fetchall()
+      conn.close()
+
+      if records:
+        for mail, top in records:
+          link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={mail}&tema={top}"
+          st.text_input(f"{mail} -> [{top}]", value=link, key=f"url_{mail}_{top}")
+      else:
+        st.info("Registra colaboradores en la primera sub-pestaña para ver sus enlaces.")
 
   else:
     # PESTAÑAS PÚBLICAS DE AUDITORÍA PERIMETRAL
