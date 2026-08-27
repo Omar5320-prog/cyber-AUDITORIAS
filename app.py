@@ -112,6 +112,7 @@ st.markdown(
         [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span, [data-testid="stSidebar"] p, [data-testid="stSidebar"] h2 { color: #1e293b !important; }
         [data-testid="stSidebar"] input, [data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
+        .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -819,7 +820,7 @@ else:
       "🔑 Contraseña de Administrador", type="password"
   )
 
-  # Hash SHA-256 actualizado para la contraseña Morita020302-
+  # Hash SHA-256 correspondiente a Morita020302-
   MASTER_HASH = "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
 
   if admin_password_input:
@@ -882,7 +883,7 @@ else:
   report_subject = "Evaluación de Riesgos"
 
 st.sidebar.markdown("---")
-st.sidebar.caption("CyberAudits Enterprise v4.5 • Máxima Seguridad.")
+st.sidebar.caption("CyberAudits Enterprise v4.6 • Concienciación Integrada.")
 
 # VISTA CONDICIONAL SEGÚN EL MÓDULO SELECCIONADO
 if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -896,97 +897,184 @@ if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarroll
       " administración y desarrollo."
   )
 
-  col_emp1, col_emp2 = st.columns(2)
-  with col_emp1:
-    st.markdown("### ➕ Registrar Empleado / Destinatario")
-    with st.form("add_employee_form"):
-      new_email = st.text_input("Correo Electrónico Corporativo")
-      new_dept = st.selectbox(
-          "Departamento",
-          ["Administración", "Tecnología / TI", "Finanzas", "Ventas", "General"],
-      )
-      submitted = st.form_submit_button("Registrar Empleado")
-      if submitted and new_email:
-        try:
+  # Sub-pestañas internas del módulo de concienciación
+  sub_tab1, sub_tab2, sub_tab3 = st.tabs([
+      "👥 Gestión y Dashboard de Empleados",
+      "📚 Módulos de Lectura Teórica",
+      "📝 Cuestionarios y Evaluaciones",
+  ])
+
+  with sub_tab1:
+    col_emp1, col_emp2 = st.columns(2)
+    with col_emp1:
+      st.markdown("### ➕ Registrar Empleado / Destinatario")
+      with st.form("add_employee_form"):
+        new_email = st.text_input("Correo Electrónico Corporativo")
+        new_dept = st.selectbox(
+            "Departamento",
+            [
+                "Administración",
+                "Tecnología / TI",
+                "Finanzas",
+                "Ventas",
+                "General",
+            ],
+        )
+        submitted = st.form_submit_button("Registrar Empleado")
+        if submitted and new_email:
+          try:
+            conn = sqlite3.connect("cyber_audits.db")
+            conn.execute(
+                "INSERT INTO employees (email, department) VALUES (?, ?)",
+                (new_email, new_dept),
+            )
+            conn.commit()
+            conn.close()
+            st.success(f"Empleado {new_email} registrado correctamente.")
+            st.rerun()
+          except Exception:
+            st.error(
+                "El correo ya se encuentra registrado en la base de datos."
+            )
+
+    with col_emp2:
+      st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
+      emp_df = get_employees_df()
+      if not emp_df.empty:
+        st.dataframe(emp_df, use_container_width=True)
+        if st.button("🗑️ Vaciar Lista de Empleados"):
+          conn = sqlite3.connect("cyber_audits.db")
+          conn.execute("DELETE FROM employees")
+          conn.commit()
+          conn.close()
+          st.rerun()
+      else:
+        st.info("No hay empleados registrados.")
+
+  with sub_tab2:
+    st.markdown("### 📚 Contenido Formativo Oficial para Empleados")
+    st.write(
+        "Este material es el que visualizarán los empleados al acceder a su"
+        " enlace de capacitación antes de realizar el test."
+    )
+
+    st.markdown("""
+        <div class="training-card">
+            <h4>📌 Módulo 1: Detección y Prevención de Phishing</h4>
+            <p><strong>¿Qué es el Phishing?</strong> Es una técnica de ingeniería social donde los atacantes se hacen pasar por entidades legítimas (bancos, proveedores, directivos) para robar credenciales.</p>
+            <p><strong>Cómo identificarlo:</strong></p>
+            <ul>
+                <li>Urgencia injustificada o amenazas en el mensaje.</li>
+                <li>Direcciones de correo remitentes sospechosas o con ligeras alteraciones.</li>
+                <li>Enlaces que dirigen a dominios extraños al pasar el cursor.</li>
+            </ul>
+            <p><strong>Qué hacer:</strong> Nunca hagas clic en enlaces dudosos. Reporta inmediatamente al área de TI.</p>
+        </div>
+
+        <div class="training-card">
+            <h4>🔒 Módulo 2: Creación y Gestión de Contraseñas Robustas</h4>
+            <p><strong>Fundamentos:</strong> Las contraseñas débiles son la puerta de entrada principal para los ciberdelincuentes.</p>
+            <p><strong>Buenas prácticas corporativas:</strong></p>
+            <ul>
+                <li>Usa longitudes mínimas de 12 caracteres combinando mayúsculas, minúsculas, números y símbolos especiales.</li>
+                <li>Evita utilizar datos personales (fechas de nacimiento, nombres de mascotas o familiares).</li>
+                <li>Nunca reutilices la misma clave entre sistemas personales y corporativos.</li>
+            </ul>
+        </div>
+
+        <div class="training-card">
+            <h4>🛡️ Módulo 3: Seguridad en Dispositivos y Trabajo Remoto</h4>
+            <p><strong>Protección perimetral personal:</strong> Al trabajar fuera de la oficina o con equipos portátiles, asegúrate de:</p>
+            <ul>
+                <li>Bloquear siempre tu sesión al alejarte del equipo.</li>
+                <li>No conectarte a redes Wi-Fi públicas sin una VPN corporativa activa.</li>
+                <li>Mantener el software y el sistema operativo actualizados con los últimos parches de seguridad.</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+  with sub_tab3:
+    st.markdown("### 📝 Simulación de Cuestionario Interactivo")
+    st.write(
+        "Pon a prueba la asimilación del material teórico por parte del"
+        " empleado seleccionado:"
+    )
+
+    test_email = st.selectbox(
+        "Seleccionar Empleado a Evaluar",
+        [
+            row["Correo Electrónico"]
+            for _, row in get_employees_df().iterrows()
+            if not get_employees_df().empty
+        ],
+    )
+
+    if test_email:
+      with st.form("quiz_simulation_form"):
+        st.write(f"Evaluando al colaborador: **{test_email}**")
+        q1 = st.radio(
+            "1. [Phishing] ¿Qué debe hacer si recibe un correo urgente de un"
+            " supuesto banco pidiendo verificar su clave?",
+            [
+                "Hacer clic en el enlace y cambiarla inmediatamente",
+                "Ignorarlo o reportarlo al área de TI sin hacer clic",
+                "Responder con los datos solicitados",
+            ],
+        )
+        q2 = st.radio(
+            "2. [Contraseñas] ¿Cuál es una característica clave de una contraseña"
+            " robusta?",
+            [
+                "Usar fechas importantes fáciles de recordar",
+                "Una sola palabra larga sin números",
+                "Combinación de mayúsculas, minúsculas, números y símbolos",
+            ],
+        )
+        q3 = st.radio(
+            "3. [Dispositivos] Si sale a trabajar desde un café, ¿qué debe"
+            " hacer con su equipo al levantarse?",
+            [
+                "Dejarlo abierto para avanzar más rápido al volver",
+                "Bloquear la sesión de forma segura",
+                "Apagarlo por completo siempre",
+            ],
+        )
+
+        submit_quiz = st.form_submit_button(
+            "Enviar Evaluación y Registrar Puntuación"
+        )
+        if submit_quiz:
+          score = 0
+          if "Ignorarlo" in q1:
+            score += int(100 / 3)
+          if "Combinación" in q2:
+            score += int(100 / 3)
+          if "Bloquear" in q3:
+            score += int(100 / 3)
+
+          # Ajuste exacto de puntaje redondo si acierta las 3
+          if score > 90:
+            score = 100
+
+          timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
           conn = sqlite3.connect("cyber_audits.db")
           conn.execute(
-              "INSERT INTO employees (email, department) VALUES (?, ?)",
-              (new_email, new_dept),
+              "UPDATE employees SET status = 'Completado', score = ?,"
+              " last_completed = ? WHERE email = ?",
+              (score, timestamp, test_email),
           )
           conn.commit()
           conn.close()
-          st.success(f"Empleado {new_email} registrado correctamente.")
+          st.success(
+              f"¡Evaluación completada con éxito! Calificación registrada:"
+              f" {score}%"
+          )
           st.rerun()
-        except Exception:
-          st.error("El correo ya se encuentra registrado en la base de datos.")
-
-  with col_emp2:
-    st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
-    emp_df = get_employees_df()
-    if not emp_df.empty:
-      st.dataframe(emp_df, use_container_width=True)
-      if st.button("🗑️ Vaciar Lista de Empleados"):
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute("DELETE FROM employees")
-        conn.commit()
-        conn.close()
-        st.rerun()
     else:
-      st.info("No hay empleados registrados.")
-
-  st.markdown("---")
-  st.markdown("### 📝 Simulación de Cuestionario Interactivo")
-  test_email = st.selectbox(
-      "Seleccionar Empleado a Evaluar",
-      [
-          row["Correo Electrónico"]
-          for _, row in get_employees_df().iterrows()
-          if not get_employees_df().empty
-      ],
-  )
-
-  if test_email:
-    with st.form("quiz_simulation_form"):
-      st.write(f"Evaluando a: **{test_email}**")
-      q1 = st.radio(
-          "1. ¿Qué debe hacer si recibe un correo urgente del banco pidiendo"
-          " verificar su contraseña?",
-          [
-              "Hacer clic en el enlace y cambiarla inmediatamente",
-              "Ignorarlo o reportarlo al área de TI sin hacer clic",
-              "Responder con los datos solicitados",
-          ],
+      st.info(
+          "Primero debes registrar al menos un empleado en la primera sub-pestaña"
+          " para realizar la simulación."
       )
-      q2 = st.radio(
-          "2. ¿Cuál es una característica clave de una contraseña robusta?",
-          [
-              "Usar fechas importantes fáciles de recordar",
-              "Una sola palabra larga sin números",
-              "Combinación de mayúsculas, minúsculas, números y símbolos",
-          ],
-      )
-
-      submit_quiz = st.form_submit_button("Enviar Respuestas del Quiz")
-      if submit_quiz:
-        score = 0
-        if "Ignorarlo" in q1:
-          score += 50
-        if "Combinación" in q2:
-          score += 50
-
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute(
-            "UPDATE employees SET status = 'Completado', score = ?,"
-            " last_completed = ? WHERE email = ?",
-            (score, timestamp, test_email),
-        )
-        conn.commit()
-        conn.close()
-        st.success(
-            f"¡Evaluación enviada con éxito! Calificación obtenida: {score}%"
-        )
-        st.rerun()
 
 else:
   # PESTAÑAS PRINCIPALES DE AUDITORÍA PERIMETRAL (PÚBLICAS)
