@@ -42,7 +42,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE,
             department TEXT,
-            topic TEXT DEFAULT 'Phishing: El engaño en los correos',
+            topic TEXT DEFAULT 'Módulo 1 — Phishing',
             status TEXT DEFAULT 'Pendiente',
             score INTEGER DEFAULT 0,
             last_completed TEXT
@@ -53,8 +53,8 @@ def init_db():
   if "topic" not in columns:
     try:
       c.execute(
-          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Phishing: El"
-          " engaño en los correos'"
+          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Módulo 1 —"
+          " Phishing'"
       )
     except Exception:
       pass
@@ -116,271 +116,564 @@ def get_employees_df():
   return df
 
 
-# BANCO DE CONTENIDOS 100% ALINEADOS CON LAS PREGUNTAS
 TRAINING_TOPICS = {
-    "Phishing: El engaño en los correos": {
-        "title": "Curso 1: Cómo identificar correos falsos (Phishing)",
+    "Módulo 1 — Phishing": {
+        "title": "Módulo 1 — Phishing y Detección de Fraudes",
         "theory": """
-**¿Qué es principalmente el Phishing?**
-El **Phishing** es un correo falso enviado por estafadores para engañarte y robar tus contraseñas, claves o datos personales haciéndose pasar por empresas legítimas.
+### 🎣 ¿Qué es el Phishing?
+El **phishing** es una técnica utilizada para engañar a las personas y obtener información confidencial. No es un programa para proteger el ordenador ni un sistema para mejorar la velocidad de Internet.
 
-**Señales de alerta y comportamiento de los estafadores:**
-* **Urgencia y amenazas:** Los estafadores suelen meter prisa y urgencia diciendo que van a bloquear tu cuenta de forma inminente si no haces clic. Las empresas reales y legítimas jamás te exigen datos ni te amenazan de esa forma.
-* **Remitentes sospechosos:** Si ves una dirección de correo del remitente con letras raras, números intercalados o mal escrita (ej. `@banc0-nacion.com`), esto indica que es un claro indicio de un intento de estafa.
+#### 1. Señales de Alerta y Urgencia
+* **Situaciones sospechosas:** Un mensaje que nos pide actuar inmediatamente y amenaza con bloquear nuestra cuenta es una señal clara de phishing.
+* **Uso de la urgencia:** Los ciberdelincuentes suelen utilizar mensajes que generan urgencia para conseguir que la persona actúe rápidamente sin comprobar la información, impidiendo que analice el mensaje con calma.
 
-**¿Qué debes hacer ante un correo sospechoso?**
-* **No hacer clic en enlaces:** Ante la duda, nunca hagas clic en enlaces rápidos para ver qué pasa. 
-* **Reportar:** Consulta y reporta siempre con el área de tecnología de tu empresa. Jamás respondas un correo enviando tu clave personal.
+#### 2. Cómo Actuar ante Correos y Enlaces Sospechosos
+* **Correos bancarios:** Si recibes un correo que aparentemente procede de tu banco y contiene un enlace para "verificar tu cuenta", **nunca** hagas clic inmediatamente. Debes comprobar la información utilizando la aplicación o página oficial del banco.
+* **Información crítica:** **Nunca** debemos proporcionar información sensible como nuestra contraseña o códigos de seguridad mediante un enlace sospechoso.
+* **Archivos adjuntos:** Si recibes un archivo adjunto que no esperabas, no lo abras inmediatamente ni lo envíes a otros compañeros; debes comprobar primero si el mensaje y el remitente son legítimos.
+* **Errores y falsas páginas:** Si accidentalmente introducimos nuestra contraseña en una página que creemos que era falsa, no te quedes sin hacer nada: debes cambiar la contraseña inmediatamente desde la página oficial e informar del incidente si corresponde.
+* **Ámbito laboral:** Si recibes un correo sospechoso en tu trabajo, no lo reenvíes a todos ni hagas clic en los enlaces; debes informarlo siguiendo el procedimiento establecido por la organización.
         """,
         "questions": [
             {
-                "q": "1. ¿Qué es principalmente el Phishing?",
+                "q": "1. ¿Qué es el phishing?",
                 "options": [
-                    "Un virus que limpia la memoria de la computadora",
+                    "Un programa utilizado para proteger el ordenador.",
                     (
-                        "Un correo falso para engañarte y robar tus contraseñas"
-                        " o datos"
+                        "Una técnica utilizada para engañar a las personas y"
+                        " obtener información."
                     ),
-                    "Una actualización oficial del sistema operativo",
+                    "Un sistema para mejorar la velocidad de Internet.",
                 ],
                 "correct": 1,
             },
             {
                 "q": (
-                    "2. ¿Cómo suelen actuar los estafadores en estos correos"
-                    " falsos?"
+                    "2. ¿Cuál de estas situaciones puede ser una señal de"
+                    " phishing?"
                 ),
                 "options": [
-                    "Te felicitan por tu cumpleaños con un regalo",
                     (
-                        "Te meten prisa y urgencia diciendo que van a bloquear"
-                        " tu cuenta"
+                        "Un mensaje que nos pide actuar inmediatamente y"
+                        " amenaza con bloquear nuestra cuenta."
                     ),
-                    "Te llaman por teléfono antes de enviarte el mensaje",
+                    (
+                        "Un mensaje que recibimos de un compañero y que"
+                        " estábamos esperando."
+                    ),
+                    (
+                        "Una notificación habitual de una aplicación que"
+                        " utilizamos."
+                    ),
                 ],
-                "correct": 1,
+                "correct": 0,
             },
             {
-                "q": "3. ¿Qué debes hacer si recibes un correo sospechoso pidiendo tus datos?",
+                "q": (
+                    "3. Recibes un correo que aparentemente procede de tu"
+                    " banco y contiene un enlace para 'verificar tu cuenta'."
+                    " ¿Qué deberías hacer?"
+                ),
                 "options": [
-                    "Hacer clic rápido en el enlace para ver qué pasa",
                     (
-                        "No hacer clic en nada y consultar con el área de"
-                        " tecnología"
+                        "Hacer clic inmediatamente para evitar que bloqueen la"
+                        " cuenta."
                     ),
-                    "Responder el correo enviando tu clave",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": "4. ¿Las empresas reales te amenazan por correo con bloquear tus servicios si no entras a un enlace?",
-                "options": [
-                    "Sí, es su método habitual de aviso",
-                    "No, las empresas legítimas no te exigen datos ni te amenazan de esa forma",
-                    "Solo los fines de semana",
+                    (
+                        "Comprobar la información utilizando la aplicación o"
+                        " página oficial del banco."
+                    ),
+                    "Responder al correo solicitando más información.",
                 ],
                 "correct": 1,
             },
             {
                 "q": (
-                    "5. Si ves una dirección de correo del remitente con letras"
-                    " raras o mal escrita, ¿qué indica?"
+                    "4. ¿Qué información nunca debemos proporcionar mediante"
+                    " un enlace sospechoso?"
                 ),
                 "options": [
-                    "Que es un correo totalmente oficial y seguro",
-                    "Que es un claro indicio de un intento de estafa",
-                    "Que el cartero digital se equivocó",
+                    "Nuestra contraseña o códigos de seguridad.",
+                    "El nombre de nuestra ciudad.",
+                    "El idioma que utilizamos.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "5. ¿Por qué los ciberdelincuentes suelen utilizar mensajes"
+                    " que generan urgencia?"
+                ),
+                "options": [
+                    (
+                        "Para que la persona tenga más tiempo para analizar el"
+                        " mensaje."
+                    ),
+                    (
+                        "Para conseguir que la persona actúe rápidamente sin"
+                        " comprobar la información."
+                    ),
+                    "Para mejorar la seguridad del usuario.",
                 ],
                 "correct": 1,
+            },
+            {
+                "q": (
+                    "6. Recibes un archivo adjunto que no esperabas. ¿Qué"
+                    " deberías hacer?"
+                ),
+                "options": [
+                    "Abrirlo inmediatamente para saber qué contiene.",
+                    "Descargarlo y enviarlo a otros compañeros.",
+                    (
+                        "Comprobar primero si el mensaje y el remitente son"
+                        " legítimos."
+                    ),
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "7. ¿Qué debemos hacer si accidentalmente introducimos"
+                    " nuestra contraseña en una página que creemos que era"
+                    " falsa?"
+                ),
+                "options": [
+                    "No hacer nada y esperar a ver qué ocurre.",
+                    (
+                        "Cambiar la contraseña desde la página oficial e"
+                        " informar del incidente si corresponde."
+                    ),
+                    (
+                        "Compartir la contraseña con un compañero para pedirle"
+                        " ayuda."
+                    ),
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "8. ¿Qué debemos hacer si recibimos un correo sospechoso"
+                    " en nuestro trabajo?"
+                ),
+                "options": [
+                    (
+                        "Reenviarlo a todos los compañeros para preguntar si es"
+                        " real."
+                    ),
+                    "Hacer clic en el enlace para comprobarlo.",
+                    (
+                        "Informarlo siguiendo el procedimiento establecido por"
+                        " la organización."
+                    ),
+                ],
+                "correct": 2,
             },
         ],
     },
-    "Contraseñas Seguras y Fáciles": {
-        "title": "Curso 2: Cómo crear contraseñas seguras",
+    "Módulo 2 — Contraseñas seguras": {
+        "title": "Módulo 2 — Contraseñas Seguras y MFA",
         "theory": """
-**Errores graves a evitar en tus claves:**
-* **Datos personales:** Nunca utilices tu fecha de nacimiento ya que es un dato fácil de adivinar o averiguar por terceros.
-* **Reutilización:** No es recomendable usar la misma contraseña en el trabajo y en tus cuentas personales, porque si descubren una clave, pierden el acceso a todo lo demás. Tampoco uses claves débiles o comunes como '123456' o el nombre de tu mascota.
-* **Anotar contraseñas:** Anotar tu contraseña en un papelito (Post-it) y pegarlo en el monitor de tu oficina **no es seguro**, ya que cualquier persona que pase por tu lugar podrá verla y comprometer tu acceso.
+### 🔑 Gestión de Contraseñas y Autenticación
+Una contraseña segura se caracteriza por ser larga y difícil de adivinar, evitando opciones débiles como '123456' o utilizar nuestro nombre seguido de un número sencillo.
 
-**Buenas prácticas:**
-* Para que una contraseña sea segura y difícil de adivinar, lo mejor es usar una frase larga o una combinación variada de palabras que sea difícil de deducir por extraños.
+#### 1. Buenas Prácticas y Errores a Evitar
+* **Información personal:** Al crear una contraseña debemos evitar utilizar información personal fácil de conocer (como nombres o fechas obvias).
+* **Reutilización:** No debemos utilizar la misma contraseña para todas nuestras cuentas. Si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo ante los atacantes.
+* **Dónde guardarlas:** Nunca debemos guardar nuestras contraseñas en un papel pegado al monitor del ordenador; lo adecuado es utilizar un gestor de contraseñas confiable o sistemas autorizados por la organización.
+
+#### 2. Autenticación Multifactor (MFA)
+* **¿Qué es?:** Es una medida de seguridad que solicita una comprobación adicional además de la contraseña (no elimina la necesidad de claves ni acelera la lentitud). Siempre debemos activarla en servicios importantes para añadir una capa adicional de protección.
+* **Códigos inesperados:** Si recibes un código de verificación en tu teléfono que no has solicitado, no debes compartirlo con nadie ni publicarlo; debes no compartirlo con nadie y revisar si existe alguna actividad sospechosa.
         """,
         "questions": [
             {
-                "q": "1. ¿Por qué no se debe usar la fecha de nacimiento como contraseña?",
+                "q": (
+                    "1. ¿Cuál es una característica de una contraseña segura?"
+                ),
                 "options": [
-                    "Porque la computadora se pone lenta",
-                    "Porque es un dato fácil de adivinar o averiguar",
-                    "Porque las normas no lo permiten",
+                    "Es larga y difícil de adivinar.",
+                    "Es nuestro nombre seguido de 123.",
+                    "Es la misma que utilizamos en todas nuestras cuentas.",
                 ],
-                "correct": 1,
+                "correct": 0,
             },
             {
-                "q": "2. ¿Es recomendable usar la misma contraseña en el trabajo y en tus cuentas personales?",
+                "q": (
+                    "2. ¿Cuál de las siguientes contraseñas es menos segura?"
+                ),
                 "options": [
-                    "Sí, así es más fácil de recordar",
+                    "Una frase larga y difícil de adivinar.",
+                    "Una combinación de palabras y caracteres.",
+                    "123456.",
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "3. ¿Por qué no debemos utilizar la misma contraseña para"
+                    " todas nuestras cuentas?"
+                ),
+                "options": [
                     (
-                        "No, porque si descubren una clave, pierden el acceso a"
-                        " todo lo demás"
+                        "Porque si una contraseña queda expuesta, otras cuentas"
+                        " podrían quedar en riesgo."
                     ),
-                    "Sí, siempre que tenga números",
+                    "Porque las contraseñas solamente funcionan una vez.",
+                    (
+                        "Porque utilizar varias contraseñas hace que Internet"
+                        " sea más lento."
+                    ),
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "4. ¿Cuál de estas opciones debemos evitar al crear una"
+                    " contraseña?"
+                ),
+                "options": [
+                    "Utilizar información personal fácil de conocer.",
+                    "Utilizar una contraseña larga.",
+                    "Utilizar una contraseña diferente para cada cuenta.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "5. ¿Qué es la autenticación multifactor o MFA?"
+                ),
+                "options": [
+                    "Un sistema que elimina la necesidad de utilizar contraseñas.",
+                    (
+                        "Una medida de seguridad que solicita una comprobación"
+                        " adicional además de la contraseña."
+                    ),
+                    "Un programa para aumentar la velocidad del ordenador.",
                 ],
                 "correct": 1,
             },
             {
-                "q": "3. ¿Qué hace que una contraseña sea más difícil de adivinar?",
+                "q": (
+                    "6. Recibes un código de verificación en tu teléfono que"
+                    " no has solicitado. ¿Qué deberías hacer?"
+                ),
                 "options": [
-                    "Que sea corta y tenga solo números",
-                    "Que sea una frase larga o combinación variada difícil de deducir",
-                    "Que sea tu nombre al revés",
+                    "Compartirlo con la persona que te lo solicite por teléfono.",
+                    "Publicarlo para preguntar qué significa.",
+                    (
+                        "No compartirlo con nadie y revisar si existe alguna"
+                        " actividad sospechosa."
+                    ),
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "7. ¿Dónde debemos evitar guardar nuestras contraseñas?"
+                ),
+                "options": [
+                    "En un gestor de contraseñas confiable.",
+                    "En un papel pegado al monitor del ordenador.",
+                    "En un sistema autorizado por la organización.",
                 ],
                 "correct": 1,
             },
             {
-                "q": "4. Si anotas tu contraseña en un papelito y lo pegas en el monitor de tu oficina, ¿es seguro?",
+                "q": (
+                    "8. ¿Qué debemos hacer cuando un servicio importante"
+                    " permite activar MFA?"
+                ),
                 "options": [
-                    "Sí, porque está a la mano",
-                    "No, cualquier persona que pase por tu lugar podrá verla",
-                    "Sí, si apagas la luz al salir",
+                    "Activarlo para añadir una capa adicional de seguridad.",
+                    "Desactivarlo porque hace más lenta la conexión.",
+                    "Compartir el código MFA con nuestros compañeros.",
                 ],
-                "correct": 1,
-            },
-            {
-                "q": "5. ¿Qué combinación de las siguientes es un ejemplo de mala práctica?",
-                "options": [
-                    "Usar una frase larga con letras y números",
-                    "Usar '123456' o el nombre de tu mascota",
-                    "Cambiar de clave cada cierto tiempo",
-                ],
-                "correct": 1,
+                "correct": 0,
             },
         ],
     },
-    "Seguridad en tu Puesto de Trabajo": {
-        "title": "Curso 3: Cuidado de tus equipos y espacio físico",
+    "Módulo 3 — Seguridad en el puesto de trabajo": {
+        "title": "Módulo 3 — Seguridad Física y en el Puesto de Trabajo",
         "theory": """
-**Bloqueo de pantalla y ausencia:**
-* Debes **bloquear la pantalla** de la computadora obligatoriamente cada vez que te levantes de tu escritorio, aunque sea por un minuto. Dejarla sin bloquear es peligroso porque cualquier persona física puede ver datos confidenciales de la empresa o usar tu cuenta sin permiso. Para hacerlo rápido usa las teclas `Windows + L`.
+### 🏢 Seguridad en el Entorno Laboral
+La protección de los equipos y la información no solo depende del software, sino de los hábitos diarios en el puesto de trabajo.
 
-**Dispositivos USB y sitios públicos:**
-* Si encuentras una memoria USB tirada en el suelo de la empresa, **nunca la conectes** a tu PC; debes entregarla directamente al área de tecnología sin conectarla.
-* Cuidado con la **"observación por encima del hombro"**, que es cuando alguien curioso mira tu pantalla o contraseña por detrás tuyo. Si trabajas con tu portátil en un sitio público, debes cuidar especialmente que personas extrañas no puedan ver información confidencial en tu monitor.
+#### 1. Bloqueo y Dispositivos Físicos
+* **Bloqueo de pantalla:** Cuando nos alejamos de nuestro ordenador, debemos bloquear siempre la pantalla (nunca dejarla abierta ni escribir la contraseña en el escritorio). Una combinación rápida para lograrlo en Windows es presionando `Windows + L`.
+* **Dispositivos USB desconocidos:** Si encuentras una memoria USB desconocida en las instalaciones de la empresa, debes entregarla al responsable correspondiente sin conectarla, ya que estos dispositivos pueden contener archivos o programas maliciosos que ponen en riesgo la red.
+
+#### 2. Manejo de Información y Movilidad
+* **Documentos confidenciales:** Debemos proteger los documentos que contienen información confidencial y evitar que personas no autorizadas puedan acceder a ellos (nunca dejarlos sobre el escritorio a la vista).
+* **Archivos inesperados de compañeros:** Si recibes un archivo de un compañero que no esperabas, debes comprobar primero que realmente lo haya enviado y que el archivo sea esperado antes de abrirlo.
+* **Buenas prácticas generales:** Mantener los equipos actualizados y seguir rigurosamente las políticas de seguridad de la organización es una excelente práctica.
+* **Trabajo fuera de la oficina:** Debemos cuidar nuestros dispositivos cuando trabajamos fuera de la empresa porque pueden contener información de la organización y corren el riesgo de perderse o ser robados.
         """,
         "questions": [
             {
-                "q": "1. ¿Qué debes hacer obligatoriamente si te levantas de tu escritorio aunque sea por un minuto?",
+                "q": (
+                    "1. ¿Qué debemos hacer cuando nos alejamos de nuestro"
+                    " ordenador?"
+                ),
                 "options": [
-                    "Apagar la luz de la oficina",
-                    "Bloquear la pantalla de la computadora",
-                    "Dejar la sesión abierta para avanzar más rápido",
+                    "Dejar la pantalla abierta.",
+                    "Bloquear la pantalla.",
+                    "Escribir nuestra contraseña en el escritorio.",
                 ],
                 "correct": 1,
             },
             {
-                "q": "2. Si encuentras una memoria USB tirada en el suelo de la empresa, ¿qué debes hacer?",
+                "q": (
+                    "2. ¿Qué combinación de teclas permite bloquear"
+                    " rápidamente un ordenador con Windows?"
+                ),
                 "options": [
-                    "Conectarla a tu PC para ver de quién es el dueño",
-                    "Entregarla al área de tecnología sin conectarla",
-                    "Formatearla y usarla para guardar tus fotos",
+                    "Windows + L.",
+                    "Ctrl + C.",
+                    "Alt + F4.",
                 ],
-                "correct": 1,
+                "correct": 0,
             },
             {
-                "q": "3. ¿Por qué es peligroso dejar la computadora sin bloquear al ausentarte?",
+                "q": (
+                    "3. Encuentras una memoria USB desconocida en las"
+                    " instalaciones de la empresa. ¿Qué deberías hacer?"
+                ),
                 "options": [
-                    "Porque consume más electricidad",
                     (
-                        "Porque cualquier persona puede ver datos de la empresa o"
-                        " usar tu cuenta"
+                        "Conectarla al ordenador para descubrir quién es su"
+                        " propietario."
                     ),
-                    "Porque se congela el sistema",
+                    "Llevarla a casa para comprobar su contenido.",
+                    "Entregarla al responsable correspondiente sin conectarla.",
                 ],
-                "correct": 1,
+                "correct": 2,
             },
             {
-                "q": "4. ¿Qué es la 'observación por encima del hombro'?",
+                "q": (
+                    "4. ¿Por qué debemos tener cuidado con los dispositivos"
+                    " USB desconocidos?"
+                ),
                 "options": [
-                    "Un ejercicio de estiramiento en la oficina",
+                    "Porque pueden contener archivos o programas maliciosos.",
+                    "Porque siempre están vacíos.",
+                    "Porque pueden aumentar la velocidad del ordenador.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "5. ¿Qué debemos hacer con documentos que contienen"
+                    " información confidencial?"
+                ),
+                "options": [
+                    "Dejarlos sobre el escritorio para tenerlos disponibles.",
                     (
-                        "Cuando alguien curioso mira tu pantalla o contraseña por"
-                        " detrás tuyo"
+                        "Protegerlos y evitar que personas no autorizadas"
+                        " puedan acceder a ellos."
                     ),
-                    "Una forma de configurar el monitor",
+                    (
+                        "Fotografiar los documentos y enviarlos a nuestro"
+                        " teléfono personal."
+                    ),
                 ],
                 "correct": 1,
             },
             {
-                "q": "5. Si trabajas con tu portátil en un sitio público, ¿qué debes cuidar?",
+                "q": (
+                    "6. Recibes un archivo de un compañero que no esperabas."
+                    " ¿Qué deberías hacer?"
+                ),
                 "options": [
-                    "Que la batería esté al 100%",
-                    "Que personas extrañas no puedan ver información confidencial en tu pantalla",
-                    "Que nadie te hable en voz alta",
+                    (
+                        "Abrirlo inmediatamente porque procede de un compañero."
+                    ),
+                    (
+                        "Comprobar primero que realmente lo haya enviado y que"
+                        " el archivo sea esperado."
+                    ),
+                    "Reenviarlo a otras personas.",
                 ],
                 "correct": 1,
+            },
+            {
+                "q": (
+                    "7. ¿Cuál de estas acciones representa una buena práctica"
+                    " de seguridad?"
+                ),
+                "options": [
+                    "Instalar cualquier programa que encontremos en Internet.",
+                    "Compartir nuestra sesión con otros compañeros.",
+                    (
+                        "Mantener los equipos actualizados y seguir las"
+                        " políticas de seguridad."
+                    ),
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "8. ¿Por qué también debemos cuidar nuestros dispositivos"
+                    " cuando trabajamos fuera de la oficina?"
+                ),
+                "options": [
+                    (
+                        "Porque pueden contener información de la"
+                        " organización y podrían perderse o ser robados."
+                    ),
+                    (
+                        "Porque fuera de la oficina los ordenadores funcionan"
+                        " más lentamente."
+                    ),
+                    "Porque todos los dispositivos dejan de funcionar fuera.",
+                ],
+                "correct": 0,
             },
         ],
     },
-    "Llamadas y Mensajes Falsos (Vishing)": {
-        "title": "Curso 4: Prevención de fraudes por teléfono",
+    "Módulo 4 — Vishing y Smishing": {
+        "title": "Módulo 4 — Llamadas y Mensajes Falsos (Vishing y Smishing)",
         "theory": """
-**¿Qué es el Vishing?**
-El **Vishing** es un intento de estafa o engaño que realizan los delincuentes a través de llamadas telefónicas. Su objetivo principal al usar llamadas telefónicas urgentes es asustarte para que actúes rápido sin pensar y les des información confidencial.
+### ☎️ Fraudes a través de Llamadas y Mensajes
+Los atacantes no solo utilizan correos electrónicos, sino también canales directos de comunicación móvil.
 
-**Reglas de seguridad telefónica:**
-* **Soporte técnico y claves:** Si alguien te llama por teléfono diciendo que es de soporte técnico y te pide tu contraseña, debes **cortar la llamada de inmediato**; ningún empleado legítimo te pedirá jamás tu clave personal.
-* **Códigos de verificación por SMS:** Los códigos que te llegan por mensaje de texto son privados y **nunca debes revelarlos** por teléfono a nadie.
-* **Qué hacer ante dudas:** Si tienes dudas sobre una llamada sospechosa que dice ser de un servicio oficial, debes cortar la llamada y llamar tú mismo al número oficial de la institución para verificar.
+#### 1. Conceptos Clave
+* **Vishing:** Es una estafa realizada mediante llamadas telefónicas para engañar a las personas y obtener información sensible.
+* **Smishing:** Es una estafa que utiliza principalmente SMS o mensajes de texto para engañar a las víctimas.
+
+#### 2. Cómo Detectar y Protegerse
+* **Llamadas sospechosas y códigos:** Si una persona te llama diciendo que trabaja para tu banco y te solicita un código que acabas de recibir por SMS, **no debes compartir el código** bajo ningún concepto; debes verificar la situación mediante un canal oficial. Una señal frecuente de llamada fraudulenta es que el interlocutor intenta presionarnos para que actuemos inmediatamente.
+* **SMS con enlaces de paquetes:** Si recibes un SMS indicando que tienes un paquete pendiente y contiene un enlace, nunca hagas clic inmediatamente ni introduzcas datos bancarios; debes comprobar el envío directamente desde la página o aplicación oficial de la empresa.
+* **Familiares pidiendo dinero:** Si un supuesto familiar te escribe desde un número desconocido pidiendo dinero urgentemente, evita enviar dinero o dar datos; debes comprobar por otro medio alternativo que realmente sea esa persona.
+* **Información a evitar:** Durante una llamada sospechosa jamás debemos proporcionar contraseñas, códigos de seguridad o datos bancarios.
+* **Acción recomendada:** Si una llamada o mensaje te parece sospechoso, finaliza la llamada inmediatamente y contacta con la empresa o entidad mediante un número oficial verificado.
         """,
         "questions": [
             {
-                "q": "1. ¿Qué es el 'Vishing'?",
+                "q": "1. ¿Qué es el vishing?",
                 "options": [
-                    "Un sistema para limpiar virus de video",
-                    "Un intento de estafa o engaño a través de llamadas telefónicas",
-                    "Una llamada automática de la empresa",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": "2. Si alguien te llama por teléfono diciendo que es de soporte técnico y te pide tu contraseña, ¿qué debes hacer?",
-                "options": [
-                    "Dársela porque parece una persona amable",
-                    "Cortar la llamada de inmediato; nadie legítimo te pedirá tu clave",
-                    "Anotar su nombre y dársela por partes",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": "3. ¿Las entidades bancarias o de soporte te piden códigos que te llegan por SMS para verificar tu identidad?",
-                "options": [
-                    "Sí, se los debes dar a cualquiera que llame",
-                    "No, esos códigos son privados y nunca debes revelarlos por teléfono",
-                    "Solo si llaman por la mañana",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": "4. ¿Qué debes hacer si tienes dudas sobre una llamada sospechosa que dice ser de un servicio oficial?",
-                "options": [
-                    "Seguir la conversación hasta que te convenzan",
                     (
-                        "Cortar y llamar tú mismo al número oficial de la"
-                        " institución"
+                        "Una estafa realizada mediante llamadas telefónicas para"
+                        " engañar a las personas."
                     ),
-                    "Pasarle el teléfono a un compañero",
+                    "Un programa antivirus.",
+                    "Un sistema para proteger las contraseñas.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": "2. ¿Qué es el smishing?",
+                "options": [
+                    "Un tipo de copia de seguridad.",
+                    (
+                        "Una estafa que utiliza principalmente SMS o mensajes"
+                        " para engañar a las personas."
+                    ),
+                    "Un método para mejorar la conexión Wi-Fi.",
                 ],
                 "correct": 1,
             },
             {
-                "q": "5. ¿Cuál es el objetivo de los estafadores al usar llamadas telefónicas urgentes?",
+                "q": (
+                    "3. Una persona te llama diciendo que trabaja para tu banco"
+                    " y te solicita un código que acabas de recibir por SMS."
+                    " ¿Qué debes hacer?"
+                ),
                 "options": [
-                    "Venderte un seguro médico",
+                    "Proporcionarle el código para solucionar el problema.",
+                    "Proporcionarle solamente los primeros números.",
                     (
-                        "Asustarte para que actúes rápido sin pensar y les des"
-                        " información"
+                        "No compartir el código y verificar la situación"
+                        " mediante un canal oficial."
                     ),
-                    "Actualizar la agenda de contactos",
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "4. ¿Cuál es una señal frecuente de una llamada"
+                    " fraudulenta?"
+                ),
+                "options": [
+                    (
+                        "La persona intenta presionarnos para que actuemos"
+                        " inmediatamente."
+                    ),
+                    (
+                        "La persona nos permite comprobar tranquilamente toda"
+                        " la información."
+                    ),
+                    "La llamada no solicita ningún tipo de información.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "5. Recibes un SMS indicando que tienes un paquete"
+                    " pendiente y contiene un enlace. ¿Qué deberías hacer?"
+                ),
+                "options": [
+                    "Hacer clic inmediatamente.",
+                    (
+                        "Comprobar el envío directamente desde la página o"
+                        " aplicación oficial de la empresa."
+                    ),
+                    (
+                        "Introducir los datos de tu tarjeta para solucionar el"
+                        " problema."
+                    ),
+                ],
+                "correct": 1,
+            },
+            {
+                "q": (
+                    "6. Una persona que dice ser un familiar te escribe desde"
+                    " un número desconocido y te pide dinero urgentemente. ¿Qué"
+                    " deberías hacer?"
+                ),
+                "options": [
+                    "Enviar el dinero inmediatamente.",
+                    "Pedirle su contraseña.",
+                    (
+                        "Comprobar por otro medio que realmente sea esa"
+                        " persona."
+                    ),
+                ],
+                "correct": 2,
+            },
+            {
+                "q": (
+                    "7. ¿Qué información debemos evitar proporcionar durante"
+                    " una llamada sospechosa?"
+                ),
+                "options": [
+                    (
+                        "Nuestra contraseña, códigos de seguridad o datos"
+                        " bancarios."
+                    ),
+                    (
+                        "El nombre de la empresa donde trabajamos, si es"
+                        " información pública."
+                    ),
+                    "La hora actual.",
+                ],
+                "correct": 0,
+            },
+            {
+                "q": (
+                    "8. ¿Qué debemos hacer si una llamada nos parece"
+                    " sospechosa?"
+                ),
+                "options": [
+                    (
+                        "Continuar hablando para descubrir qué quiere el"
+                        " atacante."
+                    ),
+                    (
+                        "Finalizar la llamada y contactar con la empresa"
+                        " mediante un número oficial."
+                    ),
+                    "Dar información falsa para intentar engañar al atacante.",
                 ],
                 "correct": 1,
             },
@@ -1068,10 +1361,9 @@ def generate_pdf(
   HTML(string=html_content).write_pdf(output_filename)
 
 
-# DETECCIÓN DE PARÁMETROS EN URL (PORTAL DEL EMPLEADO CON TEMA)
 query_params = st.query_params
 employee_token = query_params.get("empleado")
-topic_token = query_params.get("tema", "Phishing: El engaño en los correos")
+topic_token = query_params.get("tema", "Módulo 1 — Phishing")
 
 if employee_token:
   st.markdown(
@@ -1085,11 +1377,11 @@ if employee_token:
   )
 
   selected_topic_data = TRAINING_TOPICS.get(
-      topic_token, TRAINING_TOPICS["Phishing: El engaño en los correos"]
+      topic_token, TRAINING_TOPICS["Módulo 1 — Phishing"]
   )
 
   st.info(
-      f"👤 Colaborador: **{employee_token}** | Curso Asignado:"
+      f"👤 Colaborador: **{employee_token}** | Módulo Asignado:"
       f" **{topic_token}**"
   )
 
@@ -1118,7 +1410,7 @@ if employee_token:
 
   if current_status == "Completado":
     st.success(
-        f"✅ ¡Ya has completado satisfactoriamente este curso de"
+        f"✅ ¡Ya has completado satisfactoriamente este módulo de"
         f" **{topic_token}**! Tu calificación registrada es de **{current_score}%**."
     )
   else:
@@ -1126,10 +1418,7 @@ if employee_token:
     st.markdown(selected_topic_data["theory"])
 
     st.markdown("---")
-    st.markdown(
-        "### 📝 Cuestionario de Evaluación (5 Preguntas Sencillas basadas en el"
-        " texto anterior)"
-    )
+    st.markdown("### 📝 Cuestionario de Evaluación")
 
     with st.form("employee_deep_quiz_form"):
       user_answers = {}
@@ -1177,7 +1466,6 @@ if employee_token:
         st.rerun()
 
 else:
-  # VISTA PRINCIPAL DEL SAAS (ADMIN Y AUDITORÍA)
   if "scanned" not in st.session_state:
     st.session_state.scanned = False
   if "failed_attempts" not in st.session_state:
@@ -1198,7 +1486,6 @@ else:
       " campañas de concienciación."
   )
 
-  # BARRA LATERAL: NAVEGACIÓN Y CONTRASEÑA BLINDADA
   st.sidebar.header("🧭 Módulos de la Plataforma")
 
   modules_list = ["Auditoría Perimetral"]
@@ -1232,7 +1519,6 @@ else:
   )
   st.sidebar.markdown("---")
 
-  # CONFIGURACIÓN DEL INFORME
   if selected_module == "Auditoría Perimetral":
     st.sidebar.header("⚙️ Configuración del Informe")
     agency_name = st.sidebar.text_input(
@@ -1275,7 +1561,7 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v5.2 • Cursos Alineados Activos.")
+  st.sidebar.caption("CyberAudits Enterprise v5.4 • Cuestionarios Oficiales.")
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
@@ -1283,20 +1569,20 @@ else:
         "## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo"
     )
     st.info(
-        "Asigna cursos sencillos, sincroniza con tu directorio o genera"
-        " enlaces personalizados para los colaboradores."
+        "Asigna módulos, sincroniza con tu directorio o genera y exporta"
+        " enlaces personalizados para envíos masivos."
     )
 
     sub_tab1, sub_tab2, sub_tab3 = st.tabs([
         "👥 Registro, AD Sync y Campañas",
         "📊 Dashboard de Resultados",
-        "🔗 Generador de Enlaces de Campaña",
+        "🔗 Generador y Exportador de Enlaces",
     ])
 
     with sub_tab1:
       col_add1, col_add2 = st.columns(2)
       with col_add1:
-        st.markdown("### ➕ Asignar Curso a Colaborador")
+        st.markdown("### ➕ Asignar Módulo a Colaborador")
         with st.form("single_assign_form"):
           emp_mail_input = st.text_input("Correo Electrónico")
           emp_dept_input = st.selectbox(
@@ -1310,10 +1596,10 @@ else:
               ],
           )
           chosen_campaign = st.selectbox(
-              "Seleccionar Curso de Capacitación",
+              "Seleccionar Módulo de Capacitación",
               list(TRAINING_TOPICS.keys()),
           )
-          submit_single = st.form_submit_button("Registrar y Asignar Curso")
+          submit_single = st.form_submit_button("Registrar y Asignar Módulo")
           if submit_single and emp_mail_input:
             try:
               conn = sqlite3.connect("cyber_audits.db")
@@ -1325,28 +1611,27 @@ else:
               conn.commit()
               conn.close()
               st.success(
-                  f"Curso '{chosen_campaign}' asignado a {emp_mail_input}."
+                  f"Módulo '{chosen_campaign}' asignado a {emp_mail_input}."
               )
               st.rerun()
             except Exception:
               st.error(
-                  "El correo ya se encuentra registrado con ese curso o en la"
+                  "El correo ya se encuentra registrado con ese módulo o en la"
                   " base de datos."
               )
 
       with col_add2:
-        st.markdown("### 🔄 Sincronización Masiva (Simulador Active Directory / Azure"
-                    " AD)")
+        st.markdown("### 🔄 Sincronización Masiva (Simulador Active Directory)")
         st.write(
             "Importa automáticamente el listado de colaboradores desde tu"
             " directorio corporativo en lote:"
         )
         if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
           mock_directory = [
-              ("carlos.gomez@empresa.com", "Tecnología / TI", "Phishing: El engaño en los correos"),
-              ("ana.martinez@empresa.com", "Finanzas", "Contraseñas Seguras y Fáciles"),
-              ("lucas.pereira@empresa.com", "Ventas", "Seguridad en tu Puesto de Trabajo"),
-              ("sofia.benitez@empresa.com", "Operaciones", "Llamadas y Mensajes Falsos (Vishing)"),
+              ("carlos.gomez@empresa.com", "Tecnología / TI", "Módulo 1 — Phishing"),
+              ("ana.martinez@empresa.com", "Finanzas", "Módulo 2 — Contraseñas seguras"),
+              ("lucas.pereira@empresa.com", "Ventas", "Módulo 3 — Seguridad en el puesto de trabajo"),
+              ("sofia.benitez@empresa.com", "Operaciones", "Módulo 4 — Vishing y Smishing"),
           ]
           conn = sqlite3.connect("cyber_audits.db")
           added_count = 0
@@ -1366,7 +1651,7 @@ else:
           st.success(
               f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count}"
               f" nuevos colaboradores ({skipped_count} ya se encontraban"
-              " registrados en la base de datos)."
+              " registrados)."
           )
           st.rerun()
 
@@ -1385,10 +1670,10 @@ else:
         st.info("No hay registros en el dashboard de empleados.")
 
     with sub_tab3:
-      st.markdown("### 🔗 Enlaces Únicos Personalizados por Campaña")
+      st.markdown("### 🔗 Enlaces Únicos y Exportación Masiva")
       st.write(
-          "Copia el enlace exacto con el parámetro `&tema=...` para enviar a"
-          " cada colaborador:"
+          "Copia los enlaces individuales o descarga la lista completa en CSV"
+          " para realizar campañas de correo masivo:"
       )
 
       conn = sqlite3.connect("cyber_audits.db")
@@ -1398,14 +1683,25 @@ else:
       conn.close()
 
       if records:
+        link_data = []
         for mail, top in records:
           link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={mail}&tema={top}"
+          link_data.append({"Correo": mail, "Módulo": top, "Enlace": link})
           st.text_input(f"{mail} -> [{top}]", value=link, key=f"url_{mail}_{top}")
+
+        st.markdown("---")
+        df_links = pd.DataFrame(link_data)
+        st.download_button(
+            "📥 Descargar Todos los Enlaces (CSV para Envíos Masivos)",
+            df_links.to_csv(index=False, sep=";").encode("utf-8-sig"),
+            file_name="enlaces_campana_colaboradores.csv",
+            mime="text/csv",
+            type="primary",
+        )
       else:
-        st.info("Registra colaboradores en la primera sub-pestaña para ver sus enlaces.")
+        st.info("Registra colaboradores en la primera sub-pestaña para ver y exportar sus enlaces.")
 
   else:
-    # PESTAÑAS PÚBLICAS DE AUDITORÍA PERIMETRAL
     tab1, tab2, tab3, tab4 = st.tabs([
         "🔍 Perimeter Scan",
         "📊 Security Analytics",
