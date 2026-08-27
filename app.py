@@ -830,17 +830,22 @@ report_subject = st.sidebar.text_input(
 )
 
 st.sidebar.markdown("---")
-# INTERRUPTOR PRIVADO PARA MANTENER OCULTO EL MÓDULO EN PRODUCCIÓN
-st.sidebar.subheader("🔒 Panel de Administración")
-admin_mode = st.sidebar.checkbox(
-    "Activar Modo Desarrollador (Concienciación)", value=False
+
+# ACCESO PRIVADO MEDIANTE CONTRASEÑA SECRETA
+st.sidebar.subheader("🔒 Acceso Restringido")
+admin_password_input = st.sidebar.text_input(
+    "Contraseña de Administrador", type="password"
 )
 
-st.sidebar.markdown("---")
-st.sidebar.caption("CyberAudits Enterprise v4.1 • Producción Segura.")
+# CONTRASEÑA SECRETA DEFINIDA (Puedes cambiar 'CyberAdmin2026!' por la clave que prefieras)
+SECRET_ADMIN_PASSWORD = "CyberAdmin2026!"
+is_admin = admin_password_input == SECRET_ADMIN_PASSWORD
 
-# GESTIÓN DINÁMICA DE TABS SEGÚN MODO ADMIN
-if admin_mode:
+st.sidebar.markdown("---")
+st.sidebar.caption("CyberAudits Enterprise v4.2 • Producción Segura.")
+
+# GESTIÓN DINÁMICA DE TABS SEGÚN CONTRASEÑA VÁLIDA
+if is_admin:
   tab1, tab2, tab3, tab4, tab5 = st.tabs([
       "🔍 Perimeter Scan",
       "📊 Security Analytics",
@@ -1049,16 +1054,13 @@ with tab3:
   else:
     st.info("Aún no hay escaneos guardados.")
 
-# PESTAÑA CONDICIONAL DE CONCIENCIACIÓN (SOLO SE MUESTRA SI ADMIN_MODE ESTÁ ACTIVO)
-if admin_mode:
+# MÓDULO PROTEGIDO: SOLO SE MUESTRA SI LA CONTRASEÑA ES CORRECTA
+if is_admin:
   with tab4:
     st.subheader(
         "🎓 Módulo de Concienciación y Cultura de Seguridad (En Desarrollo)"
     )
-    st.write(
-        "Módulo interno en pruebas. Los clientes externos no pueden ver esta"
-        " sección."
-    )
+    st.write("Módulo privado desbloqueado mediante credenciales de admin.")
 
     col_emp1, col_emp2 = st.columns(2)
     with col_emp1:
@@ -1160,7 +1162,6 @@ if admin_mode:
           )
           st.rerun()
 
-  # Última pestaña (About) pasa a ser la quinta si el modo admin está activo
   with tab5:
     st.subheader("About CyberAudits Enterprise Suite")
     st.markdown("""
@@ -1169,7 +1170,6 @@ if admin_mode:
         * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
         """)
 else:
-  # Si el modo admin está apagado, la última pestaña (About) es la cuarta
   with tab4:
     st.subheader("About CyberAudits Enterprise Suite")
     st.markdown("""
