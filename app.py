@@ -475,10 +475,19 @@ def generate_pdf(
     email_sec,
     agency_name,
     report_type,
+    recipient_name,
+    logo_b64,
     output_filename,
 ):
-  # Si se seleccionó el formato Memo / Carta Ejecutivo
-  if "Memo" in report_type or "Carta" in report_type:
+  logo_html = (
+      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;'
+      ' width: auto; float: right; margin-top: 2px;" alt="Logo">'
+      if logo_b64
+      else ""
+  )
+
+  # Si se seleccionó el formato Carta / Informe Ejecutivo Narrativo
+  if "Carta" in report_type or "Narrativo" in report_type:
     html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -487,8 +496,10 @@ def generate_pdf(
             <style>
                 @page {{ size: A4; margin: 15mm 15mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 8pt; color: #64748b; }} }}
                 body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10pt; line-height: 1.6; }}
-                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }}
-                .memo-header h1 {{ margin: 0; font-size: 16pt; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; }}
+                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; overflow: hidden; }}
+                .memo-header-left {{ float: left; width: 75%; }}
+                .memo-header-right {{ float: right; width: 22%; text-align: right; }}
+                .memo-header h1 {{ margin: 0; font-size: 15pt; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }}
                 .memo-header p {{ margin: 3px 0; color: #64748b; font-size: 9pt; }}
                 .meta-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 9.5pt; }}
                 .meta-table td {{ padding: 5px 0; border-bottom: 1px solid #e2e8f0; }}
@@ -496,41 +507,46 @@ def generate_pdf(
                 .memo-body h2 {{ color: #0f172a; font-size: 11pt; border-left: 3px solid #3b82f6; padding-left: 8px; margin-top: 15px; margin-bottom: 8px; }}
                 .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 12px 15px; border-radius: 4px; margin: 15px 0; }}
                 .signature-section {{ margin-top: 40px; page-break-inside: avoid; }}
-                .disclaimer {{ font-size: 8pt; color: #94a3b8; margin-top: 30px; text-align: center; border-top: 1px solid #e2e8f0; paddingTop: 10px; }}
+                .disclaimer {{ font-size: 8pt; color: #94a3b8; margin-top: 30px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px; }}
             </style>
         </head>
         <body>
-            <!-- MEMORÁNDUM EN ESPAÑOL -->
+            <!-- INFORME EJECUTIVO EN FORMATO CARTA -->
             <div class="memo-header">
-                <h1>Memorándum Ejecutivo de Seguridad</h1>
-                <p>Emitido por: <strong>{agency_name}</strong> | División de Consultoría y Ciberseguridad</p>
+                <div class="memo-header-left">
+                    <h1>Informe Ejecutivo de Seguridad</h1>
+                    <p>Emitido por: <strong>{agency_name}</strong> | División de Consultoría</p>
+                </div>
+                <div class="memo-header-right">
+                    {logo_html}
+                </div>
             </div>
             
             <table class="meta-table">
-                <tr><td class="label">PARA:</td><td>Dirección General / Alta Gerencia de {hostname}</td></tr>
+                <tr><td class="label">PARA:</td><td>{recipient_name}</td></tr>
                 <tr><td class="label">DE:</td><td>{agency_name}</td></tr>
                 <tr><td class="label">ASUNTO:</td><td>Evaluación de Riesgos Perimetrales y Postura de Negocio</td></tr>
-                <tr><td class="label">UBICACIÓN OBJETIVO:</td><td>{geo['city']}, {geo['country']} ({geo['ip']})</td></tr>
+                <tr><td class="label">OBJETIVO:</td><td>{hostname} ({geo['city']}, {geo['country']} - IP: {geo['ip']})</td></tr>
             </table>
 
             <div class="memo-body">
                 <h2>1. Resumen Gerencial y Hallazgo General</h2>
-                <p>Por medio de la presente, nos dirigimos a ustedes para presentar las conclusiones gerenciales derivadas del análisis de seguridad perimetral realizado sobre el dominio <strong>{hostname}</strong>. El propósito de este memorándum es traducir los hallazgos técnicos a un lenguaje de impacto financiero y operativo para la toma de decisiones oportuna.</p>
+                <p>Por medio del presente informe, nos dirigimos a usted para presentar las conclusiones gerenciales derivadas del análisis de seguridad perimetral realizado sobre el dominio <strong>{hostname}</strong>. El propósito de este documento es traducir los indicadores técnicos a un lenguaje de impacto estratégico y financiero para la toma oportuna de decisiones.</p>
                 
                 <div class="highlight-box">
-                    <p style="margin:0;"><strong>Estado Actual de Riesgo:</strong> La infraestructura evaluada presenta un total de <strong>{len(findings)} áreas de vulnerabilidad y exposición</strong> que requieren atención prioritaria por parte del equipo técnico para salvaguardar la reputación de la marca y la confianza de los clientes.</p>
+                    <p style="margin:0;"><strong>Estado Actual de Riesgo:</strong> La infraestructura evaluada presenta un total de <strong>{len(findings)} áreas de vulnerabilidad y exposición perimetral</strong> que requieren atención prioritaria por parte del equipo técnico para salvaguardar la reputación de la organización.</p>
                 </div>
 
                 <h2>2. Análisis de Riesgos Críticos para el Negocio</h2>
-                <p>Durante la auditoría, se identificaron factores clave que impactan directamente la continuidad y seguridad de la organización:</p>
+                <p>Durante la auditoría, se detectaron factores clave que impactan directamente la operación y seguridad institucional:</p>
                 <ul>
-                    <li><strong>Protección de Correo y Fraude (SPF / DMARC):</strong> {"Los mecanismos de autenticación de correo se encuentran configurados correctamente." if email_sec['spf'] and email_sec['dmarc'] else "Se detectó la ausencia de directivas estrictas de autenticación de correo (SPF/DMARC). Esto expone a la empresa a que actores maliciosos envíen correos masivos de suplantación de identidad (phishing) a nombre de su marca, dañando severamente la confianza comercial."}</li>
-                    <li><strong>Exposición de Servicios y Puertos:</strong> La presencia de puertos operativos accesibles directamente desde internet sin pasarelas de control incrementa la superficie de ataque ante intentos automatizados de intrusión y fuerza bruta.</li>
-                    <li><strong>Seguridad en Tránsito y Cifrado:</strong> La falta de cabeceras de seguridad estrictas (como HSTS) en el servidor web deja abierta una ventana para la intercepción de sesiones en redes públicas o corporativas no confiables.</li>
+                    <li><strong>Protección de Correo y Fraude (SPF / DMARC):</strong> {"Los mecanismos de autenticación de correo se encuentran configurados correctamente." if email_sec['spf'] and email_sec['dmarc'] else "Se identificó la ausencia de directivas estrictas de autenticación de correo (SPF/DMARC). Esto expone a la entidad a que terceros maliciosos envíen correos masivos de suplantación de identidad (phishing) a nombre de su marca."}</li>
+                    <li><strong>Exposición de Servicios y Puertos:</strong> La presencia de puertos operativos accesibles de forma directa desde internet incrementa la superficie de ataque ante intentos automatizados de intrusión y ataques de fuerza bruta.</li>
+                    <li><strong>Seguridad en Tránsito y Cifrado:</strong> La falta de políticas de cabeceras seguras (como HSTS) en los servidores web deja abierta una ventana para la intercepción de tráfico en redes no confiables.</li>
                 </ul>
 
                 <h2>3. Recomendaciones y Siguiente Paso Ejecutivo</h2>
-                <p>Recomendamos encarecidamente autorizar de manera inmediata al equipo de ingeniería o sistemas la aplicación de las directrices técnicas detalladas en el anexo técnico adjunto. Contar con una postura perimetral blindada no es solo un requisito técnico, sino un pilar fundamental para la viabilidad comercial y la protección legal de la empresa.</p>
+                <p>Recomendamos encarecidamente autorizar de manera inmediata al equipo de tecnología la aplicación de los planes de remediación técnica incluidos en los anexos correspondientes. Mantener un perímetro blindado es indispensable para garantizar la confianza de sus clientes y socios comerciales.</p>
             </div>
 
             <div class="signature-section">
@@ -538,12 +554,11 @@ def generate_pdf(
                 <p><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name}</p>
             </div>
 
-            <div class="disclaimer">Documento confidencial preparado para la alta gerencia de {hostname}. Todos los derechos reservados.</div>
+            <div class="disclaimer">Documento confidencial preparado para la gerencia de {hostname}. Todos los derechos reservados.</div>
         </body>
         </html>
         """
   else:
-    # Lógica estándar para los demás informes técnicos o ejecutivos
     active_findings = findings
     if "Correo" in report_type:
       active_findings = [
@@ -567,7 +582,7 @@ def generate_pdf(
     )
     sub_html = (
         "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
-        or "<li>No additional subdomains found.</li>"
+        or "<li>No additional subdomains found.</td></tr>"
     )
 
     spf_badge = (
@@ -658,7 +673,9 @@ def generate_pdf(
             <style>
                 @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page / Página " counter(page) " of / de " counter(pages); font-size: 8pt; color: #64748b; }} }}
                 body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
-                .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; }}
+                .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
+                .banner-left {{ float: left; width: 75%; }}
+                .banner-right {{ float: right; width: 22%; text-align: right; }}
                 .header-banner h1 {{ margin: 0; font-size: 14pt; }}
                 .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8.5pt; }}
                 .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
@@ -690,8 +707,13 @@ def generate_pdf(
         <body>
             <!-- INGLÉS -->
             <div class="header-banner">
-                <h1>{report_title_en}</h1>
-                <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
+                <div class="banner-left">
+                    <h1>{report_title_en}</h1>
+                    <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
+                </div>
+                <div class="banner-right">
+                    {logo_html}
+                </div>
             </div>
             <table style="width: 100%; margin-bottom: 6px; border: none;">
                 <tr>
@@ -724,7 +746,15 @@ def generate_pdf(
             </div>
             <div style="page-break-after: always;"></div>
             
-            <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Prepared by: {agency_name}</p></div>
+            <div class="header-banner">
+                <div class="banner-left">
+                    <h1>Technical Annex & Remediation Guide</h1>
+                    <p>Prepared by: {agency_name}</p>
+                </div>
+                <div class="banner-right">
+                    {logo_html}
+                </div>
+            </div>
             <h2>2. Exhaustive Details & Actionable Findings</h2>
             {items_html_en}
             <div class="disclaimer">Note: External perimeter findings generated in real time.</div>
@@ -732,8 +762,13 @@ def generate_pdf(
             <!-- ESPAÑOL -->
             <div style="page-break-after: always;"></div>
             <div class="header-banner">
-                <h1>{report_title_es}</h1>
-                <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
+                <div class="banner-left">
+                    <h1>{report_title_es}</h1>
+                    <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
+                </div>
+                <div class="banner-right">
+                    {logo_html}
+                </div>
             </div>
             <table style="width: 100%; margin-bottom: 6px; border: none;">
                 <tr>
@@ -765,7 +800,15 @@ def generate_pdf(
                 <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_es}</ul>
             </div>
             <div style="page-break-after: always;"></div>
-            <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Elaborado por: {agency_name}</p></div>
+            <div class="header-banner">
+                <div class="banner-left">
+                    <h1>Anexo Técnico y Guía de Remediación</h1>
+                    <p>Elaborado por: {agency_name}</p>
+                </div>
+                <div class="banner-right">
+                    {logo_html}
+                </div>
+            </div>
             <h2>2. Detalle Exhaustivo de Hallazgos</h2>
             {items_html_es}
             <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
@@ -805,18 +848,28 @@ st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
 )
+logo_file = st.sidebar.file_uploader(
+    "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
+)
+
 report_type = st.sidebar.selectbox(
     "Plantilla / Modelo de Informe",
     [
         "Informe Técnico Exhaustivo (Completo)",
         "Informe Ejecutivo (Solo Gerencia)",
         "Informe de Postura de Correo y DNS",
-        "Nota / Memo Ejecutivo (Formato Carta)",
+        "Informe Ejecutivo Narrativo (Formato Carta)",
     ],
 )
+
+recipient_name = st.sidebar.text_input(
+    "Dirigido a (Destinatario / Gerencia)",
+    value="Dirección General / Junta Directiva",
+)
+
 st.sidebar.caption(
-    "Selecciona el modelo de reporte que mejor se adapte a las necesidades"
-    " de tu cliente."
+    "Personaliza la identidad visual y los destinatarios de los reportes"
+    " profesionales."
 )
 
 tab1, tab2, tab3 = st.tabs(
@@ -860,6 +913,11 @@ with tab1:
         )
         chart_b64 = generate_chart(stats)
 
+        # Procesar logo en base64 si el usuario cargó uno
+        logo_b64 = ""
+        if logo_file is not None:
+          logo_b64 = base64.b64encode(logo_file.getvalue()).decode("utf-8")
+
         pdf_filename = f"auditoria_{hostname}.pdf"
         generate_pdf(
             target_url,
@@ -873,6 +931,8 @@ with tab1:
             email_sec,
             agency_name,
             report_type,
+            recipient_name,
+            logo_b64,
             pdf_filename,
         )
         status.update(
@@ -891,6 +951,8 @@ with tab1:
       st.session_state.email_sec = email_sec
       st.session_state.agency_name = agency_name
       st.session_state.report_type = report_type
+      st.session_state.recipient_name = recipient_name
+      st.session_state.logo_b64 = logo_b64
       st.session_state.pdf_filename = pdf_filename
 
   if st.session_state.scanned:
@@ -952,6 +1014,7 @@ with tab1:
           "findings": st.session_state.findings,
           "prepared_by": st.session_state.agency_name,
           "report_model": st.session_state.report_type,
+          "recipient": st.session_state.recipient_name,
       }
       json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
       st.download_button(
@@ -1003,5 +1066,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Automated multi-template white-label corporate delivery for security agencies.
+    * **Reporting:** Automated multi-template white-label corporate delivery with custom logos and recipient addressing.
     """)
