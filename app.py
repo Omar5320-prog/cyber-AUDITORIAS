@@ -1,14 +1,14 @@
 import base64
+import csv
 import datetime
 import hashlib
 import io
 import json
 import os
+import re
 import socket
 import ssl
 import sqlite3
-import csv
-import re
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -39,10 +39,10 @@ def init_db():
             report_type TEXT
         )
     """)
-  
+
   c.execute("PRAGMA table_info(employees)")
   employees_cols = c.fetchall()
-  
+
   if not employees_cols:
     c.execute("""
         CREATE TABLE employees (
@@ -1583,7 +1583,8 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.12 • Importador CSV con corrección sintáctica."
+      "CyberAudits Enterprise v5.13 • Importador CSV y Gestión Directa de Base"
+      " de Datos."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1691,7 +1692,18 @@ else:
                   top_val = "Módulo 1 — Phishing"
                   for col in ["topic", "curso", "modulo", "módulo", "tema"]:
                     if col in df_upload.columns and pd.notna(row[col]):
-                      top_val = str(row[col]).strip()
+                      val_str = str(row[col]).strip()
+                      # Mapear nombres cortos si es necesario
+                      if "phishing" in val_str.lower():
+                        top_val = "Módulo 1 — Phishing"
+                      elif "contrase" in val_str.lower():
+                        top_val = "Módulo 2 — Contraseñas seguras"
+                      elif "puesto" in val_str.lower() or "trabajo" in val_str.lower():
+                        top_val = "Módulo 3 — Seguridad en el puesto de trabajo"
+                      elif "vishing" in val_str.lower() or "smishing" in val_str.lower():
+                        top_val = "Módulo 4 — Vishing y Smishing"
+                      else:
+                        top_val = val_str
                       break
                   parsed_rows.append((mail_val, dept_val, top_val))
             except Exception:
@@ -1747,11 +1759,21 @@ else:
                     dept_val = (
                         non_mail[0] if len(non_mail) >= 1 else "General"
                     )
-                    top_val = (
+                    top_raw = (
                         non_mail[1]
                         if len(non_mail) >= 2
                         else "Módulo 1 — Phishing"
                     )
+                    if "phishing" in top_raw.lower():
+                      top_val = "Módulo 1 — Phishing"
+                    elif "contrase" in top_raw.lower():
+                      top_val = "Módulo 2 — Contraseñas seguras"
+                    elif "puesto" in top_raw.lower() or "trabajo" in top_raw.lower():
+                      top_val = "Módulo 3 — Seguridad en el puesto de trabajo"
+                    elif "vishing" in top_raw.lower() or "smishing" in top_raw.lower():
+                      top_val = "Módulo 4 — Vishing y Smishing"
+                    else:
+                      top_val = top_raw
                     parsed_rows.append((mail_val, dept_val, top_val))
 
             conn = sqlite3.connect("cyber_audits.db")
@@ -1850,11 +1872,12 @@ else:
       emp_df = get_employees_df()
       if not emp_df.empty:
         st.dataframe(emp_df, use_container_width=True)
-        if st.button("🗑️ Vaciar Base de Datos de Empleados"):
+        if st.button("🗑️ Vaciar Base de Datos de Empleados", type="secondary"):
           conn = sqlite3.connect("cyber_audits.db")
           conn.execute("DELETE FROM employees")
           conn.commit()
           conn.close()
+          st.success("Base de datos de empleados vaciada correctamente.")
           st.rerun()
       else:
         st.info("No hay registros en el dashboard de empleados.")
