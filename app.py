@@ -28,13 +28,16 @@ st.set_page_config(
 def get_db_connection():
   if "postgres" in st.secrets:
     db_conf = st.secrets["postgres"]
-    return psycopg2.connect(
-        host=db_conf["host"],
-        database=db_conf["database"],
-        user=db_conf["user"],
-        password=db_conf["password"],
-        port=db_conf["port"],
-    )
+    if "url" in db_conf:
+      return psycopg2.connect(db_conf["url"])
+    else:
+      return psycopg2.connect(
+          host=db_conf.get("host"),
+          database=db_conf.get("database"),
+          user=db_conf.get("user"),
+          password=db_conf.get("password"),
+          port=db_conf.get("port", 5432),
+      )
   else:
     import sqlite3
 
@@ -1451,8 +1454,8 @@ if employee_token:
 
   if current_status == "Completado":
     st.success(
-        f"✅ ¡Ya has completado satisfactoriamente este módulo de"
-        f" **{topic_token}**! Tu calificación registrada es de **{current_score}%**."
+        f"✅ ¡Ya hay un registro de examen completado para **{topic_token}**"
+        f" con una calificación de **{current_score}%**!"
     )
   else:
     st.markdown(f"### 📚 Material de Estudio: {topic_token}")
