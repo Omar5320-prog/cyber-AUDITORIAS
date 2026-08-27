@@ -28,14 +28,18 @@ st.set_page_config(
 def get_db_connection():
   if "postgres" in st.secrets:
     db_conf = st.secrets["postgres"]
-    return psycopg2.connect(
-        host=db_conf.get("host"),
-        database=db_conf.get("database"),
-        user=db_conf.get("user"),
-        password=db_conf.get("password"),
-        port=int(db_conf.get("port", 6543)),
-        sslmode="require",
-    )
+    if "url" in db_conf:
+      return psycopg2.connect(db_conf["url"])
+    else:
+      dsn = (
+          f"host={db_conf.get('host')} "
+          f"dbname={db_conf.get('database')} "
+          f"user={db_conf.get('user')} "
+          f"password={db_conf.get('password')} "
+          f"port={db_conf.get('port', 6543)} "
+          f"sslmode=require"
+      )
+      return psycopg2.connect(dsn)
   else:
     import sqlite3
 
