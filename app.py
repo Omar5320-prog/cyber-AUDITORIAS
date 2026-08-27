@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 def get_geolocation(hostname):
-  """Obtiene la IP, país, ciudad y proveedor de hosting del objetivo."""
+  """Obtiene la IP, país, ciudad y proveedor usando ip-api.com (más estable)."""
   geo_data = {
       "ip": "N/A",
       "country": "Desconocido",
@@ -26,13 +26,15 @@ def get_geolocation(hostname):
   try:
     ip = socket.gethostbyname(hostname)
     geo_data["ip"] = ip
-    url = f"https://ipapi.co/{ip}/json/"
+    # Usamos ip-api.com que es altamente confiable para planes gratuitos
+    url = f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp"
     response = requests.get(url, timeout=5)
     if response.status_code == 200:
       data = response.json()
-      geo_data["country"] = data.get("country_name", "Desconocido")
-      geo_data["city"] = data.get("city", "Desconocido")
-      geo_data["org"] = data.get("org", "Desconocido")
+      if data.get("status") == "success":
+        geo_data["country"] = data.get("country", "Desconocido")
+        geo_data["city"] = data.get("city", "Desconocido")
+        geo_data["org"] = data.get("org", data.get("isp", "Desconocido"))
   except Exception:
     pass
   return geo_data
@@ -684,7 +686,7 @@ with tab1:
     g_col1, g_col2, g_col3 = st.columns(3)
     g_col1.metric("Dirección IP", st.session_state.geo["ip"])
     g_col2.metric("Ubicación", f"{st.session_state.geo['city']}, {st.session_state.geo['country']}")
-    g_col3.metric("Proveedor (ASN)", st.session_state.geo["org"][:20])
+    g_col3.metric("Proveedor (ASN)", st.session_state.geo["org"])
 
     st.markdown("---")
     st.subheader("📊 Resumen del Estado de Seguridad")
@@ -727,6 +729,6 @@ with tab3:
   st.subheader("About CyberAudits")
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
-    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh, ipapi.
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh, ip-api.
     * **Reporting:** Automated corporate delivery with geolocation metadata.
     """)
