@@ -16,42 +16,46 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS enfocados en perfeccionar la barra lateral de opciones y mantener la legibilidad
+# Estilos CSS para asegurar el diseño claro exacto en la barra lateral y la app
 st.markdown(
     """
     <style>
-        /* Estilo profesional para la barra lateral (Panel de Opciones) */
-        [data-testid="stSidebar"] {
-            background-color: #0f172a;
-            border-right: 1px solid #1e293b;
-            padding-top: 10px;
+        /* Fondo general y barra lateral en modo claro impecable */
+        .stApp {
+            background-color: #f8fafc;
+            color: #1e293b;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
         
-        /* Textos y etiquetas dentro de la barra lateral en blanco nítido */
+        [data-testid="stSidebar"] {
+            background-color: #f0f2f6 !important;
+            border-right: 1px solid #e2e8f0;
+        }
+        
         [data-testid="stSidebar"] label, 
         [data-testid="stSidebar"] .stMarkdown, 
         [data-testid="stSidebar"] span, 
         [data-testid="stSidebar"] p,
         [data-testid="stSidebar"] h2 {
-            color: #f8fafc !important;
+            color: #1e293b !important;
         }
 
-        /* Campos de texto y selectores dentro de la barra lateral */
         [data-testid="stSidebar"] input, 
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-            background-color: #1e293b !important;
-            color: #ffffff !important;
-            border-color: #334155 !important;
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div,
+        [data-testid="stSidebar"] textarea {
+            background-color: #ffffff !important;
+            color: #1e293b !important;
+            border-color: #cbd5e1 !important;
         }
 
-        /* Banner superior corporativo limpio */
+        /* Banner superior corporativo */
         .enterprise-banner {
             background: linear-gradient(90deg, #1e3a8a, #3b82f6);
             padding: 12px 20px;
             border-radius: 8px;
             color: white;
             text-align: center;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             font-weight: 500;
             box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
         }
@@ -891,7 +895,7 @@ st.write(
     " correo y servidores."
 )
 
-# Panel de Configuración Comercial y Modelos de Informe (Sidebar estilizada)
+# Panel de Configuración Comercial y Modelos de Informe (Sidebar en estilo claro idéntico a la referencia)
 st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
@@ -925,7 +929,8 @@ report_subject = st.sidebar.text_input(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "CyberAudits Enterprise • Security Suite v2.6"
+    "Personaliza la identidad visual, subtítulos y destinatarios de los"
+    " reportes."
 )
 
 tab1, tab2, tab3 = st.tabs(
