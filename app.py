@@ -1,5 +1,4 @@
-import base64
-import datetime
+base64import datetime
 import hashlib
 import io
 import json
@@ -7,6 +6,8 @@ import os
 import socket
 import ssl
 import sqlite3
+import csv
+import re
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -1581,7 +1582,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.10 • Importador CSV con manejo de BOM UTF-8."
+      "CyberAudits Enterprise v5.11 • Importador CSV de Doble Motor Robusto."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1646,7 +1647,9 @@ else:
         st.markdown("---")
         st.markdown("### 📁 Importación Masiva por Archivo CSV")
         st.write(
-            "Sube tu CSV con cabeceras (ej. `email`, `department`, `topic` o `correo`, `departamento`, `curso`). Soporta separación por `,` o `;`."
+            "Sube tu CSV con cabeceras (ej. `email`, `department`, `topic` o"
+            " `correo`, `departamento`, `curso`). Soporta separación por `,` o"
+            " `;`."
         )
         uploaded_csv = st.file_uploader(
             "Seleccionar CSV de Empleados", type=["csv"]
@@ -1654,13 +1657,17 @@ else:
         if uploaded_csv is not None:
           try:
             parsed_rows = []
-            
-            # Intentar lectura con pandas usando utf-8-sig para eliminar BOM automáticamente
+
+            # Método 1: Pandas con detección automática
             try:
               uploaded_csv.seek(0)
-              df_upload = pd.read_csv(uploaded_csv, encoding="utf-8-sig", sep=None, engine="python")
-              df_upload.columns = [str(c).strip().lower().lstrip("\ufeff") for c in df_upload.columns]
-              
+              df_upload = pd.read_csv(
+                  uploaded_csv, encoding="utf-8-sig", sep=None, engine="python"
+              )
+              df_upload.columns = [
+                  str(c).strip().lower().lstrip("\ufeff") for c in df_upload.columns
+              ]
+
               for _, row in df_upload.iterrows():
                 mail_val = None
                 for col in ["email", "correo", "mail", "colaborador"]:
@@ -1672,14 +1679,14 @@ else:
                     if pd.notna(val) and "@" in str(val):
                       mail_val = str(val).strip()
                       break
-                
+
                 if mail_val and "@" in mail_val:
                   dept_val = "General"
                   for col in ["department", "departamento", "area", "depto"]:
                     if col in df_upload.columns and pd.notna(row[col]):
                       dept_val = str(row[col]).strip()
                       break
-                  
+
                   top_val = "Módulo 1 — Phishing"
                   for col in ["topic", "curso", "modulo", "módulo", "tema"]:
                     if col in df_upload.columns and pd.notna(row[col]):
@@ -1688,32 +1695,71 @@ else:
                   parsed_rows.append((mail_val, dept_val, top_val))
             except Exception:
               pass
-            
-            # Fallback robusto línea por línea
+
+            # Método 2: Analizador robusto línea por línea
             if not parsed_rows:
               uploaded_csv.seek(0)
               raw_bytes = uploaded_csv.read()
-              try:
-                text_content = raw_bytes.decode("utf-8-sig")
-              except Exception:
-                text_content = raw_bytes.decode("latin-1")
-              
-              lines = [line.strip() for line in text_content.splitlines() if line.strip()]
-              start_idx = 1 if any(k in lines[0].lower() for k in ["email", "correo", "mail"]) else 0
-              for line in lines[start_idx:]:
-                parts = [p.strip().strip('"\'') for p in line.replace(";", ",").replace("\t", ",").split(",")]
-                mail_val = next((p for p in parts if "@" in p), None)
-                if mail_val:
-                  dept_val = parts[1] if len(parts) > 1 and parts[1] != mail_val else "General"
-                  top_val = parts[2] if len(parts) > 2 else "Módulo 1 — Phishing"
-                  parsed_rows.append((mail_val, dept_val, top_val))
+              for enc in ["utf-8-sig", "utf-8", "latin-1", "cp1252"]:
+                try:
+                  text_content = raw_bytes.decode(enc)
+                  break
+                except Exception:
+                  text_content = raw_bytes.decode("latin-1", errors="ignore")
+
+              lines = [
+                  l.strip() for l in text_content.splitlines() if l.strip()
+              ]
+              for line in lines:
+                if any(
+                    h == line.lower() or line.lower().startswith(h)
+                    for h in ["email", "correo", "mail", "colaborador"]
+                ):
+                  continue
+
+                row = None
+                for delim in [",", ";", "\t", "|"]:
+                  try:
+                    r = next(csv.reader(io.StringIO(line), delimiter=delim))
+                    parts = [
+                        p.strip().strip('"\'') for p in r if p.strip()
+                    ]
+                    if len(parts) > 1 and any("@" in p for p in parts):
+                      row = parts
+                      break
+                  except Exception:
+                    pass
+
+                if not row:
+                  parts = [
+                      p.strip().strip('"\'')
+                      for p in re.split(r"[,;\t|]", line)
+                      if p.strip()
+                  ]
+                  if any("@" in p for p in parts):
+                    row = parts
+
+                if row:
+                  mail_val = next((p for p in row if "@" in p), None)
+                  if mail_val:
+                    non_mail = [p for p in row if p != mail_val]
+                    dept_val = (
+                        non_mail[0] if len(non_mail) >= 1 else "General"
+                    )
+                    top_val = (
+                        non_mail[1]
+                        if len(non_mail) >= 2
+                        else "Módulo 1 — Phishing"
+                    )
+                    parsed_rows.append((mail_val, dept_val, top_val))
 
             conn = sqlite3.connect("cyber_audits.db")
             imported = 0
             for mail, dept, top in parsed_rows:
               try:
                 conn.execute(
-                    "INSERT INTO employees (email, department, topic) VALUES (?, ?, ?)",
+                    "INSERT INTO employees (email, department, topic) VALUES"
+                    " (?, ?, ?)",
                     (mail, dept, top),
                 )
                 imported += 1
@@ -1721,12 +1767,18 @@ else:
                 pass
             conn.commit()
             conn.close()
-            
+
             if imported > 0:
-              st.success(f"¡Importación completada! Se registraron {imported} asignaciones de cursos.")
+              st.success(
+                  f"¡Importación completada! Se registraron {imported}"
+                  " asignaciones de cursos."
+              )
               st.rerun()
             else:
-              st.warning("No se pudieron extraer registros válidos. Asegúrate de que el archivo incluya direcciones de correo con '@'.")
+              st.warning(
+                  "No se pudieron extraer registros válidos. Asegúrate de que"
+                  " el archivo incluya direcciones de correo con '@'."
+              )
           except Exception as e:
             st.error(f"Error procesando el archivo CSV: {e}")
 
@@ -1736,7 +1788,9 @@ else:
             "Importa automáticamente el listado de colaboradores desde tu"
             " directorio corporativo en lote:"
         )
-        if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
+        if st.button(
+            "🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"
+        ):
           mock_directory = [
               (
                   "carlos.gomez@empresa.com",
