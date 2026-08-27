@@ -113,6 +113,7 @@ st.markdown(
         [data-testid="stSidebar"] input, [data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
         .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 6px; margin-bottom: 15px; }
+        .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 25px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -783,505 +784,551 @@ def generate_pdf(
   HTML(string=html_content).write_pdf(output_filename)
 
 
-if "scanned" not in st.session_state:
-  st.session_state.scanned = False
+# DETECCIÓN DE PARÁMETRO EN URL (PORTAL DEL EMPLEADO)
+query_params = st.query_params
+employee_token = query_params.get("empleado")
 
-if "failed_attempts" not in st.session_state:
-  st.session_state.failed_attempts = 0
-
-st.markdown(
-    """
-    <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.title("🛡️ CyberAudits - Suite Enterprise")
-st.write(
-    "Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de"
-    " informes ejecutivos."
-)
-
-# 1. SECCIÓN DE NAVEGACIÓN Y CONTRASEÑA BLINDADA ARRIBA DE TODO EN LA BARRA LATERAL
-st.sidebar.header("🧭 Módulos de la Plataforma")
-
-modules_list = ["Auditoría Perimetral"]
-is_admin = False
-
-if st.session_state.failed_attempts >= 5:
-  st.sidebar.error(
-      "⚠️ Demasiados intentos fallidos. Acceso de administrador bloqueado"
-      " temporalmente en esta sesión."
-  )
-else:
-  admin_password_input = st.sidebar.text_input(
-      "🔑 Contraseña de Administrador", type="password"
-  )
-
-  # Hash SHA-256 correspondiente a Morita020302-
-  MASTER_HASH = "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
-
-  if admin_password_input:
-    input_hash = hashlib.sha256(admin_password_input.encode()).hexdigest()
-    if input_hash == MASTER_HASH:
-      is_admin = True
-      st.session_state.failed_attempts = 0
-    else:
-      st.session_state.failed_attempts += 1
-      st.sidebar.error("Contraseña incorrecta.")
-
-if is_admin:
-  modules_list.append("🎓 Concienciación (Privado - En Desarrollo)")
-
-selected_module = st.sidebar.radio(
-    "Seleccionar Módulo Disponible", modules_list
-)
-st.sidebar.markdown("---")
-
-# CONFIGURACIÓN DEL INFORME (DISPONIBLE EN EL MÓDULO DE AUDITORÍA)
-if selected_module == "Auditoría Perimetral":
-  st.sidebar.header("⚙️ Configuración del Informe")
-  agency_name = st.sidebar.text_input(
-      "Nombre de la Agencia", value="SecOps Global Partners"
-  )
-  agency_tagline = st.sidebar.text_input(
-      "Subtítulo / Área de la Agencia",
-      value="División de Consultoría y Ciberseguridad",
-  )
-  logo_file = st.sidebar.file_uploader(
-      "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
-  )
-
-  report_type = st.sidebar.selectbox(
-      "Plantilla / Modelo de Informe",
-      [
-          "Informe Técnico Exhaustivo (Completo)",
-          "Informe Ejecutivo Narrativo",
-          (
-              "Informe de Normativa, Remediación y Recomendaciones (ISO /"
-              " Compliance)"
-          ),
-      ],
-  )
-
-  recipient_name = st.sidebar.text_input(
-      "Dirigido a (Gerencia / Cliente)",
-      value="Dirección General / Junta Directiva",
-  )
-  report_subject = st.sidebar.text_input(
-      "Asunto del Informe",
-      value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
-  )
-else:
-  agency_name = "SecOps Global Partners"
-  agency_tagline = "División de Consultoría y Ciberseguridad"
-  logo_file = None
-  report_type = "Informe Técnico Exhaustivo (Completo)"
-  recipient_name = "Dirección General"
-  report_subject = "Evaluación de Riesgos"
-
-st.sidebar.markdown("---")
-st.sidebar.caption("CyberAudits Enterprise v4.6 • Concienciación Integrada.")
-
-# VISTA CONDICIONAL SEGÚN EL MÓDULO SELECCIONADO
-if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
-  st.markdown("---")
+if employee_token:
+  # VISTA EXCLUSIVA PARA EL EMPLEADO QUE HACE CLIC EN SU ENLACE
   st.markdown(
-      "## 🎓 Módulo Privado de Concienciación y Cultura de Seguridad (En"
-      " Desarrollo)"
+      """
+        <div class="employee-portal-banner">
+            <h2>🎓 Portal Corporativo de Concienciación en Ciberseguridad</h2>
+            <p>Capacitación obligatoria y evaluación de seguridad para colaboradores</p>
+        </div>
+        """,
+      unsafe_allow_html=True,
   )
-  st.info(
-      "Módulo protegido por criptografía SHA-256. Acceso exclusivo para"
-      " administración y desarrollo."
-  )
 
-  # Sub-pestañas internas del módulo de concienciación
-  sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-      "👥 Gestión y Dashboard de Empleados",
-      "📚 Módulos de Lectura Teórica",
-      "📝 Cuestionarios y Evaluaciones",
-  ])
+  st.info(f"👤 Colaborador autenticado mediante enlace único: **{employee_token}**")
 
-  with sub_tab1:
-    col_emp1, col_emp2 = st.columns(2)
-    with col_emp1:
-      st.markdown("### ➕ Registrar Empleado / Destinatario")
-      with st.form("add_employee_form"):
-        new_email = st.text_input("Correo Electrónico Corporativo")
-        new_dept = st.selectbox(
-            "Departamento",
-            [
-                "Administración",
-                "Tecnología / TI",
-                "Finanzas",
-                "Ventas",
-                "General",
-            ],
-        )
-        submitted = st.form_submit_button("Registrar Empleado")
-        if submitted and new_email:
-          try:
-            conn = sqlite3.connect("cyber_audits.db")
-            conn.execute(
-                "INSERT INTO employees (email, department) VALUES (?, ?)",
-                (new_email, new_dept),
-            )
-            conn.commit()
-            conn.close()
-            st.success(f"Empleado {new_email} registrado correctamente.")
-            st.rerun()
-          except Exception:
-            st.error(
-                "El correo ya se encuentra registrado en la base de datos."
-            )
-
-    with col_emp2:
-      st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
-      emp_df = get_employees_df()
-      if not emp_df.empty:
-        st.dataframe(emp_df, use_container_width=True)
-        if st.button("🗑️ Vaciar Lista de Empleados"):
-          conn = sqlite3.connect("cyber_audits.db")
-          conn.execute("DELETE FROM employees")
-          conn.commit()
-          conn.close()
-          st.rerun()
-      else:
-        st.info("No hay empleados registrados.")
-
-  with sub_tab2:
-    st.markdown("### 📚 Contenido Formativo Oficial para Empleados")
-    st.write(
-        "Este material es el que visualizarán los empleados al acceder a su"
-        " enlace de capacitación antes de realizar el test."
+  # Verificar si el empleado existe en la base de datos, si no, registrarlo automáticamente
+  conn = sqlite3.connect("cyber_audits.db")
+  c = conn.cursor()
+  c.execute("SELECT status, score FROM employees WHERE email = ?", (employee_token,))
+  row = c.fetchone()
+  if not row:
+    c.execute(
+        "INSERT INTO employees (email, department, status) VALUES (?, ?, ?)",
+        (employee_token, "General", "Pendiente"),
     )
+    conn.commit()
+    current_status = "Pendiente"
+    current_score = 0
+  else:
+    current_status, current_score = row
+  conn.close()
 
+  if current_status == "Completado":
+    st.success(
+        f"✅ ¡Ya has completado satisfactoriamente esta capacitación! Tu calificación"
+        f" registrada es de **{current_score}%**."
+    )
+  else:
+    st.markdown("### 📚 1. Lee atentamente el material formativo oficial")
     st.markdown("""
         <div class="training-card">
             <h4>📌 Módulo 1: Detección y Prevención de Phishing</h4>
-            <p><strong>¿Qué es el Phishing?</strong> Es una técnica de ingeniería social donde los atacantes se hacen pasar por entidades legítimas (bancos, proveedores, directivos) para robar credenciales.</p>
-            <p><strong>Cómo identificarlo:</strong></p>
+            <p><strong>¿Qué es el Phishing?</strong> Técnica de ingeniería social donde los atacantes simulan ser entidades legítimas (bancos, directivos) para robar credenciales.</p>
             <ul>
-                <li>Urgencia injustificada o amenazas en el mensaje.</li>
-                <li>Direcciones de correo remitentes sospechosas o con ligeras alteraciones.</li>
-                <li>Enlaces que dirigen a dominios extraños al pasar el cursor.</li>
+                <li>Urgencia injustificada o tono amenazante.</li>
+                <li>Remitentes con dominios alterados o extraños.</li>
+                <li>Enlaces maliciosos ocultos bajo textos comunes.</li>
             </ul>
-            <p><strong>Qué hacer:</strong> Nunca hagas clic en enlaces dudosos. Reporta inmediatamente al área de TI.</p>
         </div>
-
         <div class="training-card">
             <h4>🔒 Módulo 2: Creación y Gestión de Contraseñas Robustas</h4>
-            <p><strong>Fundamentos:</strong> Las contraseñas débiles son la puerta de entrada principal para los ciberdelincuentes.</p>
-            <p><strong>Buenas prácticas corporativas:</strong></p>
             <ul>
-                <li>Usa longitudes mínimas de 12 caracteres combinando mayúsculas, minúsculas, números y símbolos especiales.</li>
-                <li>Evita utilizar datos personales (fechas de nacimiento, nombres de mascotas o familiares).</li>
-                <li>Nunca reutilices la misma clave entre sistemas personales y corporativos.</li>
+                <li>Usa mínimo 12 caracteres mezclando mayúsculas, minúsculas, números y símbolos.</li>
+                <li>No uses fechas de nacimiento ni datos personales obvios.</li>
             </ul>
         </div>
-
         <div class="training-card">
             <h4>🛡️ Módulo 3: Seguridad en Dispositivos y Trabajo Remoto</h4>
-            <p><strong>Protección perimetral personal:</strong> Al trabajar fuera de la oficina o con equipos portátiles, asegúrate de:</p>
             <ul>
-                <li>Bloquear siempre tu sesión al alejarte del equipo.</li>
-                <li>No conectarte a redes Wi-Fi públicas sin una VPN corporativa activa.</li>
-                <li>Mantener el software y el sistema operativo actualizados con los últimos parches de seguridad.</li>
+                <li>Bloquea siempre tu pantalla al alejarte del equipo.</li>
+                <li>Evita Wi-Fi públicas sin VPN activa.</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
-  with sub_tab3:
-    st.markdown("### 📝 Simulación de Cuestionario Interactivo")
-    st.write(
-        "Pon a prueba la asimilación del material teórico por parte del"
-        " empleado seleccionado:"
+    st.markdown("---")
+    st.markdown("### 📝 2. Cuestionario de Evaluación")
+
+    with st.form("employee_quiz_form"):
+      q1 = st.radio(
+          "1. ¿Qué debe hacer si recibe un correo urgente pidiendo verificar su"
+          " contraseña?",
+          [
+              "Hacer clic y cambiarla rápido",
+              "Ignorarlo o reportarlo a TI sin hacer clic",
+              "Responder con los datos",
+          ],
+      )
+      q2 = st.radio(
+          "2. ¿Cuál es una característica clave de una contraseña robusta?",
+          [
+              "Fechas importantes fáciles de recordar",
+              "Una sola palabra larga",
+              "Combinación de mayúsculas, minúsculas, números y símbolos",
+          ],
+      )
+      q3 = st.radio(
+          "3. Al alejarse de su equipo de trabajo, ¿qué debe hacer?",
+          ["Dejarlo abierto", "Bloquear la sesión de forma segura", "Apagarlo"],
+      )
+
+      submit_emp_quiz = st.form_submit_button("Enviar Mis Respuestas")
+      if submit_emp_quiz:
+        score = 0
+        if "Ignorarlo" in q1:
+          score += 34
+        if "Combinación" in q2:
+          score += 33
+        if "Bloquear" in q3:
+          score += 33
+
+        if score >= 90:
+          score = 100
+
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        conn = sqlite3.connect("cyber_audits.db")
+        conn.execute(
+            "UPDATE employees SET status = 'Completado', score = ?,"
+            " last_completed = ? WHERE email = ?",
+            (score, timestamp, employee_token),
+        )
+        conn.commit()
+        conn.close()
+        st.success(
+            f"🎉 ¡Evaluación enviada con éxito! Calificación obtenida: {score}%."
+            " Ya puedes cerrar esta ventana."
+        )
+        st.rerun()
+
+else:
+  # VISTA PRINCIPAL DEL SAAS (AUDITORÍA PERIMETRAL Y ADMIN)
+  if "scanned" not in st.session_state:
+    st.session_state.scanned = False
+  if "failed_attempts" not in st.session_state:
+    st.session_state.failed_attempts = 0
+
+  st.markdown(
+      """
+        <div class="enterprise-banner">
+            🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.
+        </div>
+        """,
+      unsafe_allow_html=True,
+  )
+
+  st.title("🛡️ CyberAudits - Suite Enterprise")
+  st.write(
+      "Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de"
+      " informes ejecutivos."
+  )
+
+  # BARRA LATERAL: NAVEGACIÓN Y CONTRASEÑA BLINDADA
+  st.sidebar.header("🧭 Módulos de la Plataforma")
+
+  modules_list = ["Auditoría Perimetral"]
+  is_admin = False
+
+  if st.session_state.failed_attempts >= 5:
+    st.sidebar.error("⚠️ Acceso de administrador bloqueado por intentos fallidos.")
+  else:
+    admin_password_input = st.sidebar.text_input(
+        "🔑 Contraseña de Administrador", type="password"
     )
 
-    test_email = st.selectbox(
-        "Seleccionar Empleado a Evaluar",
+    # Hash SHA-256 de Morita020302-
+    MASTER_HASH = (
+        "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
+    )
+
+    if admin_password_input:
+      input_hash = hashlib.sha256(admin_password_input.encode()).hexdigest()
+      if input_hash == MASTER_HASH:
+        is_admin = True
+        st.session_state.failed_attempts = 0
+      else:
+        st.session_state.failed_attempts += 1
+        st.sidebar.error("Contraseña incorrecta.")
+
+  if is_admin:
+    modules_list.append("🎓 Concienciación (Privado - En Desarrollo)")
+
+  selected_module = st.sidebar.radio(
+      "Seleccionar Módulo Disponible", modules_list
+  )
+  st.sidebar.markdown("---")
+
+  # CONFIGURACIÓN DEL INFORME
+  if selected_module == "Auditoría Perimetral":
+    st.sidebar.header("⚙️ Configuración del Informe")
+    agency_name = st.sidebar.text_input(
+        "Nombre de la Agencia", value="SecOps Global Partners"
+    )
+    agency_tagline = st.sidebar.text_input(
+        "Subtítulo / Área de la Agencia",
+        value="División de Consultoría y Ciberseguridad",
+    )
+    logo_file = st.sidebar.file_uploader(
+        "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
+    )
+
+    report_type = st.sidebar.selectbox(
+        "Plantilla / Modelo de Informe",
         [
-            row["Correo Electrónico"]
-            for _, row in get_employees_df().iterrows()
-            if not get_employees_df().empty
+            "Informe Técnico Exhaustivo (Completo)",
+            "Informe Ejecutivo Narrativo",
+            (
+                "Informe de Normativa, Remediación y Recomendaciones (ISO /"
+                " Compliance)"
+            ),
         ],
     )
 
-    if test_email:
-      with st.form("quiz_simulation_form"):
-        st.write(f"Evaluando al colaborador: **{test_email}**")
-        q1 = st.radio(
-            "1. [Phishing] ¿Qué debe hacer si recibe un correo urgente de un"
-            " supuesto banco pidiendo verificar su clave?",
-            [
-                "Hacer clic en el enlace y cambiarla inmediatamente",
-                "Ignorarlo o reportarlo al área de TI sin hacer clic",
-                "Responder con los datos solicitados",
-            ],
-        )
-        q2 = st.radio(
-            "2. [Contraseñas] ¿Cuál es una característica clave de una contraseña"
-            " robusta?",
-            [
-                "Usar fechas importantes fáciles de recordar",
-                "Una sola palabra larga sin números",
-                "Combinación de mayúsculas, minúsculas, números y símbolos",
-            ],
-        )
-        q3 = st.radio(
-            "3. [Dispositivos] Si sale a trabajar desde un café, ¿qué debe"
-            " hacer con su equipo al levantarse?",
-            [
-                "Dejarlo abierto para avanzar más rápido al volver",
-                "Bloquear la sesión de forma segura",
-                "Apagarlo por completo siempre",
-            ],
-        )
+    recipient_name = st.sidebar.text_input(
+        "Dirigido a (Gerencia / Cliente)",
+        value="Dirección General / Junta Directiva",
+    )
+    report_subject = st.sidebar.text_input(
+        "Asunto del Informe",
+        value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
+    )
+  else:
+    agency_name = "SecOps Global Partners"
+    agency_tagline = "División de Consultoría y Ciberseguridad"
+    logo_file = None
+    report_type = "Informe Técnico Exhaustivo (Completo)"
+    recipient_name = "Dirección General"
+    report_subject = "Evaluación de Riesgos"
 
-        submit_quiz = st.form_submit_button(
-            "Enviar Evaluación y Registrar Puntuación"
+  st.sidebar.markdown("---")
+  st.sidebar.caption("CyberAudits Enterprise v4.7 • Enlaces Únicos Activos.")
+
+  # PANEL DE ADMIN O VISTA PÚBLICA
+  if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
+    st.markdown("---")
+    st.markdown("## 🎓 Módulo Privado de Concienciación y Cultura de Seguridad")
+    st.info(
+        "Panel protegido por criptografía SHA-256. Aquí puedes registrar"
+        " empleados y copiar sus enlaces de acceso directo."
+    )
+
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs([
+        "👥 Gestión y Enlaces de Empleados",
+        "📚 Material Teórico",
+        "📝 Simulación de Test",
+    ])
+
+    with sub_tab1:
+      col_emp1, col_emp2 = st.columns(2)
+      with col_emp1:
+        st.markdown("### ➕ Registrar Empleado / Destinatario")
+        with st.form("add_employee_form"):
+          new_email = st.text_input("Correo Electrónico Corporativo")
+          new_dept = st.selectbox(
+              "Departamento",
+              [
+                  "Administración",
+                  "Tecnología / TI",
+                  "Finanzas",
+                  "Ventas",
+                  "General",
+              ],
+          )
+          submitted = st.form_submit_button("Registrar Empleado")
+          if submitted and new_email:
+            try:
+              conn = sqlite3.connect("cyber_audits.db")
+              conn.execute(
+                  "INSERT INTO employees (email, department) VALUES (?, ?)",
+                  (new_email, new_dept),
+              )
+              conn.commit()
+              conn.close()
+              st.success(f"Empleado {new_email} registrado correctamente.")
+              st.rerun()
+            except Exception:
+              st.error(
+                  "El correo ya se encuentra registrado en la base de datos."
+              )
+
+      with sub_tab2:
+        st.markdown(
+            "### 📊 Dashboard de Calificaciones y Enlaces Únicos Generados"
         )
-        if submit_quiz:
-          score = 0
-          if "Ignorarlo" in q1:
-            score += int(100 / 3)
-          if "Combinación" in q2:
-            score += int(100 / 3)
-          if "Bloquear" in q3:
-            score += int(100 / 3)
+        emp_df = get_employees_df()
+        if not emp_df.empty:
+          st.dataframe(emp_df, use_container_width=True)
 
-          # Ajuste exacto de puntaje redondo si acierta las 3
-          if score > 90:
-            score = 100
+          # Generar enlaces únicos para cada empleado registrado
+          st.markdown("#### 🔗 Enlaces personalizados para enviar a colaboradores:")
+          conn = sqlite3.connect("cyber_audits.db")
+          c = conn.cursor()
+          c.execute("SELECT email FROM employees")
+          all_emps = c.fetchall()
+          conn.close()
 
+          base_url = st.get_option("server.baseUrlPath") or ""  # o app url
+          for (emp_mail,) in all_emps:
+            link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={emp_mail}"
+            st.text_input(f"Enlace para: {emp_mail}", value=link, key=f"lnk_{emp_mail}")
+
+          if st.button("🗑️ Vaciar Lista de Empleados"):
+            conn = sqlite3.connect("cyber_audits.db")
+            conn.execute("DELETE FROM employees")
+            conn.commit()
+            conn.close()
+            st.rerun()
+        else:
+          st.info(
+              "No hay empleados registrados. Añade uno a la izquierda para"
+              " generar su enlace único."
+          )
+
+    with sub_tab2:
+      st.markdown("### 📚 Contenido Teórico Integrado")
+      st.write("Módulos activos para los colaboradores.")
+      st.markdown("""
+            <div class="training-card">
+                <h4>📌 Phishing, Contraseñas y Dispositivos Seguros</h4>
+                <p>El material formativo estándar se muestra de forma limpia al ingresar mediante el enlace único del empleado.</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with sub_tab3:
+      st.markdown("### 📝 Simulación de Cuestionario (Vista Administrador)")
+      test_email = st.selectbox(
+          "Seleccionar Empleado a Evaluar de prueba",
+          [
+              row["Correo Electrónico"]
+              for _, row in get_employees_df().iterrows()
+              if not get_employees_df().empty
+          ],
+      )
+      if test_email:
+        if st.button("Simular Aprobación para " + test_email):
           timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
           conn = sqlite3.connect("cyber_audits.db")
           conn.execute(
-              "UPDATE employees SET status = 'Completado', score = ?,"
+              "UPDATE employees SET status = 'Completado', score = 100,"
               " last_completed = ? WHERE email = ?",
-              (score, timestamp, test_email),
+              (timestamp, test_email),
           )
           conn.commit()
           conn.close()
-          st.success(
-              f"¡Evaluación completada con éxito! Calificación registrada:"
-              f" {score}%"
-          )
+          st.success("¡Simulación completada con éxito!")
           st.rerun()
-    else:
-      st.info(
-          "Primero debes registrar al menos un empleado en la primera sub-pestaña"
-          " para realizar la simulación."
+
+  else:
+    # PESTAÑAS PÚBLICAS DE AUDITORÍA PERIMETRAL
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🔍 Perimeter Scan",
+        "📊 Security Analytics",
+        "📜 Historial de Escaneos",
+        "ℹ️ About CyberAudits",
+    ])
+
+    with tab1:
+      st.markdown("### 🎯 Quick Test Targets")
+      col_btn1, col_btn2, col_btn3 = st.columns(3)
+      quick_domain = ""
+      if col_btn1.button("🌐 example.com"):
+        quick_domain = "example.com"
+      if col_btn2.button("🌐 scanme.nmap.org"):
+        quick_domain = "scanme.nmap.org"
+      if col_btn3.button("🌐 testphp.vulnweb.com"):
+        quick_domain = "testphp.vulnweb.com"
+
+      target_url = st.text_input(
+          "URL Objetivo (ej. mi-empresa.com)",
+          value=quick_domain if quick_domain else "https://",
       )
 
-else:
-  # PESTAÑAS PRINCIPALES DE AUDITORÍA PERIMETRAL (PÚBLICAS)
-  tab1, tab2, tab3, tab4 = st.tabs([
-      "🔍 Perimeter Scan",
-      "📊 Security Analytics",
-      "📜 Historial de Escaneos",
-      "ℹ️ About CyberAudits",
-  ])
+      if st.button("🚀 Ejecutar Análisis Completo"):
+        if not target_url or target_url == "https://":
+          st.error("Por favor, introduce una URL válida.")
+        else:
+          if not target_url.startswith("http"):
+            target_url = "https://" + target_url
 
-  with tab1:
-    st.markdown("### 🎯 Quick Test Targets")
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    quick_domain = ""
-    if col_btn1.button("🌐 example.com"):
-      quick_domain = "example.com"
-    if col_btn2.button("🌐 scanme.nmap.org"):
-      quick_domain = "scanme.nmap.org"
-    if col_btn3.button("🌐 testphp.vulnweb.com"):
-      quick_domain = "testphp.vulnweb.com"
+          with st.status(
+              "🔍 Analizando perímetro, SSL/TLS, Compliance y Risk Score...",
+              expanded=True,
+          ) as status:
+            (
+                findings,
+                stats,
+                open_ports,
+                hostname,
+                subdomains,
+                geo,
+                email_sec,
+                ssl_info,
+                risk_score,
+            ) = scan_target(target_url)
 
-    target_url = st.text_input(
-        "URL Objetivo (ej. mi-empresa.com)",
-        value=quick_domain if quick_domain else "https://",
-    )
+            save_scan_to_db(
+                hostname,
+                geo["ip"],
+                risk_score,
+                len(findings),
+                report_type,
+            )
 
-    if st.button("🚀 Ejecutar Análisis Completo"):
-      if not target_url or target_url == "https://":
-        st.error("Por favor, introduce una URL válida.")
-      else:
-        if not target_url.startswith("http"):
-          target_url = "https://" + target_url
+            chart_b64 = generate_chart(stats)
+            logo_b64 = (
+                base64.b64encode(logo_file.getvalue()).decode("utf-8")
+                if logo_file
+                else ""
+            )
 
-        with st.status(
-            "🔍 Analizando perímetro, SSL/TLS, Compliance y Risk Score...",
-            expanded=True,
-        ) as status:
-          (
-              findings,
-              stats,
-              open_ports,
-              hostname,
-              subdomains,
-              geo,
-              email_sec,
-              ssl_info,
-              risk_score,
-          ) = scan_target(target_url)
+            pdf_filename = f"auditoria_{hostname}.pdf"
+            generate_pdf(
+                target_url,
+                findings,
+                stats,
+                chart_b64,
+                open_ports,
+                hostname,
+                subdomains,
+                geo,
+                email_sec,
+                ssl_info,
+                risk_score,
+                agency_name,
+                agency_tagline,
+                report_type,
+                recipient_name,
+                report_subject,
+                logo_b64,
+                pdf_filename,
+            )
 
-          save_scan_to_db(
-              hostname,
-              geo["ip"],
-              risk_score,
-              len(findings),
-              report_type,
-          )
+            docx_bytes = generate_docx(
+                hostname,
+                geo,
+                email_sec,
+                ssl_info,
+                open_ports,
+                subdomains,
+                findings,
+                risk_score,
+                agency_name,
+                agency_tagline,
+                report_type,
+                recipient_name,
+                report_subject,
+            )
 
-          chart_b64 = generate_chart(stats)
-          logo_b64 = (
-              base64.b64encode(logo_file.getvalue()).decode("utf-8")
-              if logo_file
-              else ""
-          )
+            status.update(
+                label="✅ ¡Análisis corporativo completado!",
+                state="complete",
+                expanded=False,
+            )
 
-          pdf_filename = f"auditoria_{hostname}.pdf"
-          generate_pdf(
-              target_url,
-              findings,
-              stats,
-              chart_b64,
-              open_ports,
-              hostname,
-              subdomains,
-              geo,
-              email_sec,
-              ssl_info,
-              risk_score,
-              agency_name,
-              agency_tagline,
-              report_type,
-              recipient_name,
-              report_subject,
-              logo_b64,
-              pdf_filename,
-          )
+          st.session_state.scanned = True
+          st.session_state.findings = findings
+          st.session_state.stats = stats
+          st.session_state.open_ports = open_ports
+          st.session_state.hostname = hostname
+          st.session_state.subdomains = subdomains
+          st.session_state.geo = geo
+          st.session_state.email_sec = email_sec
+          st.session_state.ssl_info = ssl_info
+          st.session_state.risk_score = risk_score
+          st.session_state.pdf_filename = pdf_filename
+          st.session_state.docx_bytes = docx_bytes
 
-          docx_bytes = generate_docx(
-              hostname,
-              geo,
-              email_sec,
-              ssl_info,
-              open_ports,
-              subdomains,
-              findings,
-              risk_score,
-              agency_name,
-              agency_tagline,
-              report_type,
-              recipient_name,
-              report_subject,
-          )
+      if st.session_state.scanned:
+        st.success(f"¡Análisis completado para {st.session_state.hostname}!")
+        g1, g2, g3, g4, g5 = st.columns(5)
+        g1.metric("Dirección IP", st.session_state.geo["ip"])
+        g2.metric("Risk Score", f"{st.session_state.risk_score} / 100")
+        g3.metric(
+            "Certificado SSL",
+            (
+                "Válido"
+                if st.session_state.ssl_info["valid"]
+                and not st.session_state.ssl_info["expires_soon"]
+                else "Revisar"
+            ),
+        )
+        g4.metric(
+            "Registro SPF",
+            "Protegido" if st.session_state.email_sec["spf"] else "Ausente",
+        )
+        g5.metric(
+            "DMARC",
+            "Protegido" if st.session_state.email_sec["dmarc"] else "Ausente",
+        )
 
-          status.update(
-              label="✅ ¡Análisis corporativo completado!",
-              state="complete",
-              expanded=False,
-          )
-
-        st.session_state.scanned = True
-        st.session_state.findings = findings
-        st.session_state.stats = stats
-        st.session_state.open_ports = open_ports
-        st.session_state.hostname = hostname
-        st.session_state.subdomains = subdomains
-        st.session_state.geo = geo
-        st.session_state.email_sec = email_sec
-        st.session_state.ssl_info = ssl_info
-        st.session_state.risk_score = risk_score
-        st.session_state.pdf_filename = pdf_filename
-        st.session_state.docx_bytes = docx_bytes
-
-    if st.session_state.scanned:
-      st.success(f"¡Análisis completado para {st.session_state.hostname}!")
-      g1, g2, g3, g4, g5 = st.columns(5)
-      g1.metric("Dirección IP", st.session_state.geo["ip"])
-      g2.metric("Risk Score", f"{st.session_state.risk_score} / 100")
-      g3.metric(
-          "Certificado SSL",
-          (
-              "Válido"
-              if st.session_state.ssl_info["valid"]
-              and not st.session_state.ssl_info["expires_soon"]
-              else "Revisar"
-          ),
-      )
-      g4.metric(
-          "Registro SPF",
-          "Protegido" if st.session_state.email_sec["spf"] else "Ausente",
-      )
-      g5.metric(
-          "DMARC",
-          "Protegido" if st.session_state.email_sec["dmarc"] else "Ausente",
-      )
-
-      st.markdown("---")
-      col_dl1, col_dl2, col_dl3 = st.columns(3)
-      with col_dl1:
-        if os.path.exists(st.session_state.pdf_filename):
-          with open(st.session_state.pdf_filename, "rb") as pdf_file:
+        st.markdown("---")
+        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        with col_dl1:
+          if os.path.exists(st.session_state.pdf_filename):
+            with open(st.session_state.pdf_filename, "rb") as pdf_file:
+              st.download_button(
+                  "📥 Descargar PDF Ejecutivo",
+                  pdf_file,
+                  file_name=st.session_state.pdf_filename,
+                  mime="application/pdf",
+                  type="primary",
+              )
+        with col_dl2:
+          if "docx_bytes" in st.session_state:
             st.download_button(
-                "📥 Descargar PDF Ejecutivo",
-                pdf_file,
-                file_name=st.session_state.pdf_filename,
-                mime="application/pdf",
+                "📝 Descargar Word Editable",
+                st.session_state.docx_bytes,
+                file_name=f"auditoria_{st.session_state.hostname}.docx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ),
                 type="primary",
             )
-      with col_dl2:
-        if "docx_bytes" in st.session_state:
-          st.download_button(
-              "📝 Descargar Word Editable",
-              st.session_state.docx_bytes,
-              file_name=f"auditoria_{st.session_state.hostname}.docx",
-              mime=(
-                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              ),
-              type="primary",
-          )
-      with col_dl3:
-        df_findings = pd.DataFrame(st.session_state.findings)
-        if not df_findings.empty:
-          st.download_button(
-              "📊 Exportar Hallazgos (CSV)",
-              df_findings.to_csv(index=False, sep=";").encode("utf-8-sig"),
-              file_name=f"hallazgos_{st.session_state.hostname}.csv",
-              mime="text/csv",
-          )
+        with col_dl3:
+          df_findings = pd.DataFrame(st.session_state.findings)
+          if not df_findings.empty:
+            st.download_button(
+                "📊 Exportar Hallazgos (CSV)",
+                df_findings.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                file_name=f"hallazgos_{st.session_state.hostname}.csv",
+                mime="text/csv",
+            )
 
-  with tab2:
-    st.subheader("Infrastructure Health & Risk Score Analytics")
-    if st.session_state.scanned:
-      st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
-      for f in st.session_state.findings:
-        with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
-          st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
-          st.write(f"**Descripción:** {f['desc']}")
-          st.write(f"**Remediación:** {f['fix']}")
-    else:
-      st.info("Ejecuta un escaneo en la primera pestaña.")
+    with tab2:
+      st.subheader("Infrastructure Health & Risk Score Analytics")
+      if st.session_state.scanned:
+        st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
+        for f in st.session_state.findings:
+          with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
+            st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
+            st.write(f"**Descripción:** {f['desc']}")
+            st.write(f"**Remediación:** {f['fix']}")
+      else:
+        st.info("Ejecuta un escaneo en la primera pestaña.")
 
-  with tab3:
-    st.subheader("📜 Historial de Escaneos Corporativos (SQLite)")
-    history_df = get_scan_history()
-    if not history_df.empty:
-      st.dataframe(history_df, use_container_width=True)
-      if st.button("🗑️ Limpiar Historial"):
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute("DELETE FROM history")
-        conn.commit()
-        conn.close()
-        st.rerun()
-    else:
-      st.info("Aún no hay escaneos guardados.")
+    with tab3:
+      st.subheader("📜 Historial de Escaneos Corporativos (SQLite)")
+      history_df = get_scan_history()
+      if not history_df.empty:
+        st.dataframe(history_df, use_container_width=True)
+        if st.button("🗑️ Limpiar Historial"):
+          conn = sqlite3.connect("cyber_audits.db")
+          conn.execute("DELETE FROM history")
+          conn.commit()
+          conn.close()
+          st.rerun()
+      else:
+        st.info("Aún no hay escaneos guardados.")
 
-  with tab4:
-    st.subheader("About CyberAudits Enterprise Suite")
-    st.markdown("""
-        **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
-        * **Módulos:** Auditoría perimetral y gestión del factor humano.
-        * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
-        """)
+    with tab4:
+      st.subheader("About CyberAudits Enterprise Suite")
+      st.markdown("""
+            **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
+            * **Módulos:** Auditoría perimetral y gestión del factor humano.
+            * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
+            """)
