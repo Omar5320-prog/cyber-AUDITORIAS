@@ -9,11 +9,119 @@ import requests
 from weasyprint import HTML
 import streamlit as st
 
-# Configuración de la página web limpia y profesional por defecto
+# Configuración de la página web
 st.set_page_config(
     page_title="CyberAudits - Escáner Perimetral",
     page_icon="🛡️",
-    layout="centered",
+    layout="wide",
+)
+
+# Estilos CSS inspirados en CrowdStrike y Qualys (Dark Obsidian & Enterprise Red Accent)
+st.markdown(
+    """
+    <style>
+        /* Fondo general de la aplicación estilo Enterprise Dark */
+        .stApp {
+            background-color: #0d1117;
+            color: #e6edf3;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        
+        /* Barra lateral (Sidebar) elegante */
+        [data-testid="stSidebar"] {
+            background-color: #161b22;
+            border-right: 1px solid #30363d;
+        }
+        [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span {
+            color: #f3f4f6 !important;
+        }
+
+        /* Banner superior estilo CrowdStrike Alert */
+        .enterprise-banner {
+            background: linear-gradient(90deg, #991b1b, #dc2626);
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            box-shadow: 0 4px 20px rgba(220, 38, 38, 0.25);
+        }
+
+        /* Títulos limpios y modernos */
+        h1, h2, h3 {
+            color: #ffffff !important;
+            letter-spacing: -0.5px;
+        }
+
+        /* Tarjetas de métricas con borde superior rojo corporativo */
+        div[data-testid="stMetric"] {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-top: 3px solid #dc2626;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        div[data-testid="stMetric"] label {
+            color: #8b949e !important;
+            font-size: 0.85rem !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            color: #f87171 !important;
+            font-weight: 700 !important;
+        }
+
+        /* Pestañas (Tabs) con diseño táctico de alta gama */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: #161b22 !important;
+            border-radius: 6px !important;
+            border: 1px solid #30363d !important;
+            padding: 8px 18px !important;
+        }
+        .stTabs [data-baseweb="tab"] p {
+            color: #e6edf3 !important;
+            font-weight: 600 !important;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #dc2626 !important;
+            border-color: #ef4444 !important;
+        }
+        .stTabs [aria-selected="true"] p {
+            color: #ffffff !important;
+        }
+
+        /* Botones principales con el rojo icónico de CrowdStrike y texto blanco garantizado */
+        .stButton>button {
+            background-color: #dc2626 !important;
+            color: #ffffff !important;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            padding: 0.5rem 1.2rem;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+            transition: all 0.2s ease;
+        }
+        .stButton>button:hover {
+            background-color: #b91c1c !important;
+            color: #ffffff !important;
+            box-shadow: 0 6px 16px rgba(220, 38, 38, 0.5);
+            transform: translateY(-1px);
+        }
+
+        /* Cajas de éxito y contenedores */
+        .stSuccess {
+            background-color: #064e3b !important;
+            color: #6ee7b7 !important;
+            border: 1px solid #059669;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -331,25 +439,28 @@ def generate_chart(stats):
   l_filt, s_filt, c_filt = zip(*non_zero_data)
 
   fig, ax = plt.subplots(figsize=(4.5, 2.8))
+  fig.patch.set_facecolor("#161b22")
+  ax.set_facecolor("#161b22")
+
   ax.pie(
       s_filt,
       labels=l_filt,
       colors=c_filt,
       autopct="%1.1f%%",
       startangle=90,
-      textprops={"fontsize": 8.5, "weight": "bold"},
+      textprops={"fontsize": 8.5, "weight": "bold", "color": "#e6edf3"},
   )
   ax.axis("equal")
   plt.title(
       "Distribución de Riesgos en la Infraestructura",
       fontsize=9.5,
       fontweight="bold",
-      color="#1e293b",
+      color="#ffffff",
   )
   plt.tight_layout()
 
   chart_path = "vulnerability_chart.png"
-  plt.savefig(chart_path, dpi=300, bbox_inches="tight", transparent=True)
+  plt.savefig(chart_path, dpi=300, bbox_inches="tight", facecolor="#161b22")
   plt.close()
 
   with open(chart_path, "rb") as f:
@@ -505,11 +616,11 @@ def generate_pdf(
                 .meta-table {{ width: 100%; margin-bottom: 12px; border-collapse: collapse; font-size: 8.5pt; }}
                 .meta-table td {{ padding: 3px 0; border-bottom: 1px solid #e2e8f0; }}
                 .meta-table td.label {{ font-weight: bold; color: #475569; width: 20%; }}
-                .memo-body h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 6px; margin-top: 10px; margin-bottom: 4px; }}
+                .memo-body h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #dc2626; padding-left: 6px; margin-top: 10px; margin-bottom: 4px; }}
                 .memo-body p {{ margin: 4px 0; }}
                 .memo-body ul {{ margin: 4px 0; padding-left: 15px; }}
                 .memo-body li {{ margin-bottom: 3px; }}
-                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }}
+                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #dc2626; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }}
                 .signature-section {{ margin-top: 20px; page-break-inside: avoid; }}
                 .disclaimer {{ font-size: 7.5pt; color: #94a3b8; margin-top: 15px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; }}
             </style>
@@ -685,14 +796,14 @@ def generate_pdf(
                 .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
                 .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
                 .meta-value {{ font-size: 8.5pt; font-weight: 600; color: #0f172a; }}
-                h2 {{ color: #0f172a; font-size: 10pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
+                h2 {{ color: #0f172a; font-size: 10pt; border-left: 3px solid #dc2626; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
                 .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
                 .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
                 .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
                 .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
                 .chart-container {{ text-align: center; }}
                 .chart-container img {{ max-width: 70%; height: auto; }}
-                .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
+                .executive-box {{ background-color: #fef2f2; border-left: 3px solid #dc2626; padding: 5px 8px; margin-bottom: 5px; }}
                 .cta-box {{ background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px 12px; border-radius: 5px; margin-top: 8px; text-align: center; page-break-inside: avoid; }}
                 .cta-box h3 {{ margin: 0; color: #166534; font-size: 9.5pt; }}
                 .cta-box p {{ margin: 0; color: #15803d; font-size: 8pt; }}
@@ -831,20 +942,22 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Banner superior limpio
+# Banner superior estilo Enterprise Alert
 st.markdown(
     """
-    <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
-        🚀 <strong>Product Hunt Launch Special:</strong> Full Executive PDF Reports are <b>100% FREE</b> for a limited time! Enjoy your audit.
+    <div class="enterprise-banner">
+        🔥 <strong>CyberAudits Threat Intelligence:</strong> Executive PDF Generation & Security Suite is <b>Active & Ready</b>.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
-st.write(
-    "Analiza la seguridad de cualquier dominio web y evalúa la postura de"
-    " correo y servidores."
+st.markdown(
+    "<p style='color: #8b949e; font-size: 1.05rem;'>Plataforma de inteligencia"
+    " perimetral y auditoría automatizada para agencias y analistas de"
+    " seguridad.</p>",
+    unsafe_allow_html=True,
 )
 
 # Panel de Configuración Comercial y Modelos de Informe
@@ -879,9 +992,9 @@ report_subject = st.sidebar.text_input(
     value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
 )
 
+st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Personaliza la identidad visual, subtítulos y destinatarios de los"
-    " reportes."
+    "CyberAudits Enterprise • Security Suite v2.6"
 )
 
 tab1, tab2, tab3 = st.tabs(
@@ -1001,8 +1114,8 @@ with tab1:
     st.markdown("---")
     st.markdown("### 📥 Descarga de Informes y Datos (Workflow Pentest)")
     st.success(
-        "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga de reportes"
-        " y datos en bruto es **100% GRATIS**!"
+        "💎 **Promoción de Lanzamiento:** ¡La descarga de reportes ejecutivos en"
+        " PDF y datos es **100% GRATIS**!"
     )
 
     col_dl1, col_dl2, col_dl3 = st.columns(3)
@@ -1084,5 +1197,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Fully customizable white-label corporate delivery with optimized single-page executive memos.
+    * **Reporting:** Fully customizable white-label corporate delivery with large logos, custom taglines, and editable subjects.
     """)
