@@ -16,7 +16,7 @@ st.set_page_config(
 
 
 def get_geolocation(hostname):
-  """Obtiene la IP, país, ciudad y proveedor usando ip-api.com (más estable)."""
+  """Obtiene la IP, país, ciudad y proveedor usando ip-api.com."""
   geo_data = {
       "ip": "N/A",
       "country": "Desconocido",
@@ -26,7 +26,6 @@ def get_geolocation(hostname):
   try:
     ip = socket.gethostbyname(hostname)
     geo_data["ip"] = ip
-    # Usamos ip-api.com que es altamente confiable para planes gratuitos
     url = f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp"
     response = requests.get(url, timeout=5)
     if response.status_code == 200:
@@ -38,6 +37,36 @@ def get_geolocation(hostname):
   except Exception:
     pass
   return geo_data
+
+
+def check_email_security(hostname):
+  """Verifica la existencia de registros SPF y DMARC para prevenir Email Spoofing."""
+  email_sec = {"spf": False, "dmarc": False}
+  try:
+    # Comprobar SPF en el dominio raíz
+    res_spf = requests.get(
+        f"https://cloudflare-dns.com/dns-query?name={hostname}&type=TXT",
+        headers={"Accept": "application/dns-json"},
+        timeout=4,
+    )
+    if res_spf.status_code == 200:
+      for ans in res_spf.json().get("Answer", []):
+        if "v=spf1" in ans.get("data", ""):
+          email_sec["spf"] = True
+
+    # Comprobar DMARC en _dmarc.dominio
+    res_dmarc = requests.get(
+        f"https://cloudflare-dns.com/dns-query?name=_dmarc.{hostname}&type=TXT",
+        headers={"Accept": "application/dns-json"},
+        timeout=4,
+    )
+    if res_dmarc.status_code == 200:
+      for ans in res_dmarc.json().get("Answer", []):
+        if "v=DMARC1" in ans.get("data", ""):
+          email_sec["dmarc"] = True
+  except Exception:
+    pass
+  return email_sec
 
 
 def discover_subdomains(domain):
@@ -94,6 +123,56 @@ def scan_target(url):
   open_ports = scan_ports(hostname)
   subdomains = discover_subdomains(hostname)
   geo = get_geolocation(hostname)
+  email_sec = check_email_security(hostname)
+
+  # Validar SPF
+  if email_sec["spf"]:
+    stats["Seguras"] += 1
+  else:
+    stats["Medias"] += 1
+    findings.append({
+        "vector": "Ausencia de Registro SPF (Riesgo de Phishing)",
+        "severity": "MEDIO",
+        "badge": "badge-medium",
+        "exec_title": "Vulnerabilidad en la Postura de Correo (Sin SPF)",
+        "desc": (
+            "El dominio no cuenta con un registro SPF válido que autorice qué"
+            " servidores pueden enviar correos en su nombre."
+        ),
+        "impact": (
+            "Facilita que actores maliciosos envíen correos fraudulentos de"
+            " suplantación de identidad (phishing) hacia clientes o"
+            " colaboradores."
+        ),
+        "fix": (
+            "Publicar un registro TXT con directivas SPF (ej: v=spf1"
+            " include:_spf.example.com ~all)."
+        ),
+    })
+
+  # Validar DMARC
+  if email_sec["dmarc"]:
+    stats["Seguras"] += 1
+  else:
+    stats["Medias"] += 1
+    findings.append({
+        "vector": "Ausencia de Política DMARC",
+        "severity": "MEDIO",
+        "badge": "badge-medium",
+        "exec_title": "Falta de Control de Autenticación de Correo (DMARC)",
+        "desc": (
+            "El dominio carece de una política DMARC para indicar qué hacer"
+            " con los correos que fallan las validaciones."
+        ),
+        "impact": (
+            "La organización pierde visibilidad sobre intentos de fraude por"
+            " correo y aumenta el riesgo de que dominios falsos pasen desapercibidos."
+        ),
+        "fix": (
+            "Configurar un registro TXT en _dmarc con directivas de monitoreo o"
+            " rechazo."
+        ),
+    })
 
   for p in open_ports:
     if p["port"] in [21, 3306, 8080, 8443]:
@@ -239,7 +318,7 @@ def scan_target(url):
   except Exception:
     pass
 
-  return findings, stats, open_ports, hostname, subdomains, geo
+  return findings, stats, open_ports, hostname, subdomains, geo, email_sec
 
 
 def generate_chart(stats):
@@ -287,7 +366,26 @@ def translate_finding_en(f):
   sev_en = (
       "CRITICAL" if sev == "CRÍTICO" else ("MEDIUM" if sev == "MEDIO" else "LOW")
   )
-  if "Puerto" in vec:
+  if "SPF" in vec:
+    title_en = "SPF Record Missing (Phishing Risk)"
+    exec_t_en = "Email Security Posture Vulnerability (No SPF)"
+    desc_en = (
+        "The domain lacks a valid SPF record authorizing sending servers."
+    )
+    impact_en = (
+        "Allows malicious actors to send fraudulent phishing emails"
+        " impersonating the organization."
+    )
+    fix_en = "Publish a TXT record with SPF policies."
+  elif "DMARC" in vec:
+    title_en = "DMARC Policy Missing"
+    exec_t_en = "Lack of Email Authentication Control (DMARC)"
+    desc_en = "The domain lacks a DMARC policy for validation failures."
+    impact_en = (
+        "Increases the risk of unnoticed email spoofing and fraud attempts."
+    )
+    fix_en = "Configure a TXT record in _dmarc."
+  elif "Puerto" in vec:
     title_en = (
         f"Port {f.get('port', '')} ({f.get('service', '')}) Open to Public"
     )
@@ -378,6 +476,7 @@ def generate_pdf(
     hostname,
     subdomains,
     geo,
+    email_sec,
     output_filename,
 ):
   ports_html = (
@@ -392,6 +491,17 @@ def generate_pdf(
   sub_html = (
       "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
       or "<li>No additional subdomains found.</li>"
+  )
+
+  spf_badge = (
+      "<span style='color:green;'><b>Configurado (OK)</b></span>"
+      if email_sec["spf"]
+      else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
+  )
+  dmarc_badge = (
+      "<span style='color:green;'><b>Configurado (OK)</b></span>"
+      if email_sec["dmarc"]
+      else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
   )
 
   items_html_en = ""
@@ -479,28 +589,21 @@ def generate_pdf(
         </style>
     </head>
     <body>
-        <!-- ========================================== -->
-        <!-- BLOQUE 1: INGLÉS (Páginas 1 y 2)            -->
-        <!-- ========================================== -->
+        <!-- INGLÉS -->
         <div class="header-banner">
             <h1>Cybersecurity Executive Report</h1>
-            <p>Perimeter Diagnosis, Ports, Subdomains & Server Intelligence</p>
+            <p>Perimeter Diagnosis, Ports, DNS & Server Intelligence</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Target / IP</div><div class="meta-value">{hostname} ({geo['ip']})</div></div>
-                </td>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Hosting / ASN</div><div class="meta-value">{geo['org'][:25]}</div></div>
-                </td>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div>
-                </td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Target / IP</div><div class="meta-value">{hostname}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF Record</div><div class="meta-value">{spf_badge}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
             </tr>
         </table>
         <h2>1. Management Vision & Infrastructure</h2>
-        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> (Hosted in {geo['country']}, {geo['org']}) was analyzed combining web security, open ports, and infrastructure intelligence.</p></div>
+        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> was analyzed combining web security, open ports, and email security posture.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -527,33 +630,22 @@ def generate_pdf(
         {items_html_en}
         <div class="disclaimer">Note: External perimeter findings in real time.</div>
 
-        <!-- ========================================== -->
-        <!-- SALTO DE PÁGINA PARA PASAR AL ESPAÑOL    -->
-        <!-- ========================================== -->
+        <!-- ESPAÑOL -->
         <div style="page-break-after: always;"></div>
-
-        <!-- ========================================== -->
-        <!-- BLOQUE 2: ESPAÑOL (Páginas 3 y 4)          -->
-        <!-- ========================================== -->
         <div class="header-banner">
             <h1>Informe Ejecutivo de Ciberseguridad</h1>
-            <p>Diagnóstico Perimetral, Puertos, Subdominios e Inteligencia de Servidor</p>
+            <p>Diagnóstico Perimetral, Puertos, DNS e Inteligencia de Servidor</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname} ({geo['ip']})</div></div>
-                </td>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Proveedor / ASN</div><div class="meta-value">{geo['org'][:25]}</div></div>
-                </td>
-                <td style="border: none; width: 33%;">
-                    <div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div>
-                </td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Registro SPF</div><div class="meta-value">{spf_badge}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
             </tr>
         </table>
         <h2>1. Visión Gerencial e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> (Alojado en {geo['country']}, {geo['org']}) combinando seguridad web, puertos y geolocalización.</p></div>
+        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> evaluando seguridad web, puertos y la postura de seguridad de correo electrónico.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -588,11 +680,11 @@ def generate_pdf(
   HTML(string=html_content).write_pdf(output_filename)
 
 
-# Inicializar memoria de sesión
+# Inicializar sesión
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Banner superior limpio
+# Banner superior
 st.markdown(
     """
     <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
@@ -604,11 +696,10 @@ st.markdown(
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.write(
-    "Analiza la seguridad de cualquier dominio web y obtén métricas de"
-    " infraestructura e inteligencia de servidores."
+    "Analiza la seguridad de cualquier dominio web y evalúa la postura de"
+    " correo y servidores."
 )
 
-# Pestañas de Navegación
 tab1, tab2, tab3 = st.tabs(
     ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
 )
@@ -638,14 +729,14 @@ with tab1:
         target_url = "https://" + target_url
 
       with st.status(
-          "🔍 Analizando superficie e infraestructura...", expanded=True
+          "🔍 Analizando perímetro, geolocalización y DNS...", expanded=True
       ) as status:
-        st.write("Resolviendo IP, geolocalización y ASN del servidor...")
-        st.write("Inspeccionando puertos, cabeceras y subdominios...")
-        findings, stats, open_ports, hostname, subdomains, geo = scan_target(
-            target_url
+        st.write("Verificando registros DNS (SPF y DMARC anti-spoofing)...")
+        st.write("Resolviendo geolocalización y puertos expuestos...")
+        findings, stats, open_ports, hostname, subdomains, geo, email_sec = (
+            scan_target(target_url)
         )
-        st.write("Compilando informe ejecutivo corporativo con WeasyPrint...")
+        st.write("Generando gráficos y compilando PDF corporativo...")
         chart_b64 = generate_chart(stats)
 
         pdf_filename = f"auditoria_{hostname}.pdf"
@@ -658,15 +749,15 @@ with tab1:
             hostname,
             subdomains,
             geo,
+            email_sec,
             pdf_filename,
         )
         status.update(
-            label="✅ ¡Análisis e inteligencia completados!",
+            label="✅ ¡Análisis de pentest completado!",
             state="complete",
             expanded=False,
         )
 
-      # Guardar en la sesión
       st.session_state.scanned = True
       st.session_state.findings = findings
       st.session_state.stats = stats
@@ -674,19 +765,26 @@ with tab1:
       st.session_state.hostname = hostname
       st.session_state.subdomains = subdomains
       st.session_state.geo = geo
+      st.session_state.email_sec = email_sec
       st.session_state.pdf_filename = pdf_filename
 
   if st.session_state.scanned:
     st.success(
-        f"¡Análisis completado para {st.session_state.hostname} ({st.session_state.geo['ip']})!"
+        f"¡Análisis completado para {st.session_state.hostname}!"
     )
 
-    # Mostrar métricas visuales incluyendo geolocalización en pantalla
-    st.markdown("### 📍 Inteligencia de Servidor Detectada")
-    g_col1, g_col2, g_col3 = st.columns(3)
-    g_col1.metric("Dirección IP", st.session_state.geo["ip"])
-    g_col2.metric("Ubicación", f"{st.session_state.geo['city']}, {st.session_state.geo['country']}")
-    g_col3.metric("Proveedor (ASN)", st.session_state.geo["org"])
+    st.markdown("### 📍 Inteligencia de Servidor y DNS")
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("Dirección IP", st.session_state.geo["ip"])
+    g2.metric("Ubicación", st.session_state.geo["country"])
+    g3.metric(
+        "Registro SPF",
+        "Protegido" if st.session_state.email_sec["spf"] else "Ausente",
+    )
+    g4.metric(
+        "DMARC",
+        "Protegido" if st.session_state.email_sec["dmarc"] else "Ausente",
+    )
 
     st.markdown("---")
     st.subheader("📊 Resumen del Estado de Seguridad")
@@ -700,13 +798,13 @@ with tab1:
     st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico")
     st.success(
         "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga del reporte"
-        " completo con inteligencia de servidor es **100% GRATIS**!"
+        " completo es **100% GRATIS**!"
     )
 
     if os.path.exists(st.session_state.pdf_filename):
       with open(st.session_state.pdf_filename, "rb") as pdf_file:
         st.download_button(
-            label="📥 Descargar Informe PDF con Geolocalización",
+            label="📥 Descargar Informe PDF con Auditoría DNS",
             data=pdf_file,
             file_name=st.session_state.pdf_filename,
             mime="application/pdf",
@@ -714,21 +812,22 @@ with tab1:
         )
 
 with tab2:
-  st.subheader("Infrastructure Health & Intelligence")
+  st.subheader("Infrastructure Health & DNS Posture")
   if st.session_state.scanned:
     st.write(f"Target: **{st.session_state.hostname}**")
     st.write(f"Resolved IP: `{st.session_state.geo['ip']}`")
     st.write(f"Hosting Provider: `{st.session_state.geo['org']}`")
-    st.write(f"Location: `{st.session_state.geo['city']}, {st.session_state.geo['country']}`")
+    st.write(f"SPF Status: `{'Configured' if st.session_state.email_sec['spf'] else 'Missing'}`")
+    st.write(f"DMARC Status: `{'Configured' if st.session_state.email_sec['dmarc'] else 'Missing'}`")
     st.write(f"Open ports count: {len(st.session_state.open_ports)}")
     st.write(f"Subdomains discovered: {len(st.session_state.subdomains)}")
   else:
-    st.info("Run a scan in the first tab to view advanced infrastructure intelligence.")
+    st.info("Run a scan in the first tab to view infrastructure and DNS security details.")
 
 with tab3:
   st.subheader("About CyberAudits")
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
-    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh, ip-api.
-    * **Reporting:** Automated corporate delivery with geolocation metadata.
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh.
+    * **Reporting:** Automated corporate delivery with DNS anti-spoofing metadata.
     """)
