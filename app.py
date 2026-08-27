@@ -785,7 +785,6 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Control de intentos fallidos en sesión para evitar ataques de fuerza bruta
 if "failed_attempts" not in st.session_state:
   st.session_state.failed_attempts = 0
 
@@ -820,15 +819,14 @@ else:
       "🔑 Contraseña de Administrador", type="password"
   )
 
-  # Hash SHA-256 de la contraseña maestra (Contraseña por defecto: CyberAdmin2026!)
-  # Puedes cambiar la contraseña cambiando el string original antes de hashear
-  MASTER_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # Corresponde a 'admin' o puedes usar otra clave
+  # Hash SHA-256 actualizado para la contraseña Morita020302-
+  MASTER_HASH = "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
 
   if admin_password_input:
     input_hash = hashlib.sha256(admin_password_input.encode()).hexdigest()
     if input_hash == MASTER_HASH:
       is_admin = True
-      st.session_state.failed_attempts = 0  # Reiniciar contador en éxito
+      st.session_state.failed_attempts = 0
     else:
       st.session_state.failed_attempts += 1
       st.sidebar.error("Contraseña incorrecta.")
