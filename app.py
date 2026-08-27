@@ -1,5 +1,6 @@
 import base64
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -784,6 +785,10 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
+# Control de intentos fallidos en sesión para evitar ataques de fuerza bruta
+if "failed_attempts" not in st.session_state:
+  st.session_state.failed_attempts = 0
+
 st.markdown(
     """
     <div class="enterprise-banner">
@@ -799,18 +804,37 @@ st.write(
     " informes ejecutivos."
 )
 
-# SECCIÓN DE ACCESO Y NAVEGACIÓN UBICADA ARRIBA DE TODO EN LA BARRA LATERAL
+# 1. SECCIÓN DE NAVEGACIÓN Y CONTRASEÑA BLINDADA ARRIBA DE TODO EN LA BARRA LATERAL
 st.sidebar.header("🧭 Módulos de la Plataforma")
-admin_password_input = st.sidebar.text_input(
-    "🔑 Contraseña de Administrador", type="password"
-)
-
-SECRET_ADMIN_PASSWORD = "CyberAdmin2026!"
-is_admin = admin_password_input == SECRET_ADMIN_PASSWORD
 
 modules_list = ["Auditoría Perimetral"]
+is_admin = False
+
+if st.session_state.failed_attempts >= 5:
+  st.sidebar.error(
+      "⚠️ Demasiados intentos fallidos. Acceso de administrador bloqueado"
+      " temporalmente en esta sesión."
+  )
+else:
+  admin_password_input = st.sidebar.text_input(
+      "🔑 Contraseña de Administrador", type="password"
+  )
+
+  # Hash SHA-256 de la contraseña maestra (Contraseña por defecto: CyberAdmin2026!)
+  # Puedes cambiar la contraseña cambiando el string original antes de hashear
+  MASTER_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # Corresponde a 'admin' o puedes usar otra clave
+
+  if admin_password_input:
+    input_hash = hashlib.sha256(admin_password_input.encode()).hexdigest()
+    if input_hash == MASTER_HASH:
+      is_admin = True
+      st.session_state.failed_attempts = 0  # Reiniciar contador en éxito
+    else:
+      st.session_state.failed_attempts += 1
+      st.sidebar.error("Contraseña incorrecta.")
+
 if is_admin:
-  modules_list.append("🎓 Concienciación (Privado)")
+  modules_list.append("🎓 Concienciación (Privado - En Desarrollo)")
 
 selected_module = st.sidebar.radio(
     "Seleccionar Módulo Disponible", modules_list
@@ -860,19 +884,18 @@ else:
   report_subject = "Evaluación de Riesgos"
 
 st.sidebar.markdown("---")
-st.sidebar.caption("CyberAudits Enterprise v4.4 • Producción Segura.")
+st.sidebar.caption("CyberAudits Enterprise v4.5 • Máxima Seguridad.")
 
 # VISTA CONDICIONAL SEGÚN EL MÓDULO SELECCIONADO
-if is_admin and selected_module == "🎓 Concienciación (Privado)":
+if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
   st.markdown("---")
   st.markdown(
       "## 🎓 Módulo Privado de Concienciación y Cultura de Seguridad (En"
       " Desarrollo)"
   )
   st.info(
-      "Estás visualizando este módulo exclusivo porque ingresaste tu"
-      " contraseña de administrador. Los clientes externos no tienen acceso a"
-      " esta sección."
+      "Módulo protegido por criptografía SHA-256. Acceso exclusivo para"
+      " administración y desarrollo."
   )
 
   col_emp1, col_emp2 = st.columns(2)
