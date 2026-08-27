@@ -797,7 +797,7 @@ with tab1:
         " y datos en bruto es **100% GRATIS**!"
     )
 
-    # Botones de descarga organizados (PDF, JSON y CSV)
+    # Botones de descarga organizados (PDF, JSON y CSV optimizado para Excel)
     col_dl1, col_dl2, col_dl3 = st.columns(3)
 
     with col_dl1:
@@ -812,7 +812,6 @@ with tab1:
           )
 
     with col_dl2:
-      # Preparar exportación JSON
       export_data = {
           "target": st.session_state.hostname,
           "ip": st.session_state.geo["ip"],
@@ -832,10 +831,10 @@ with tab1:
       )
 
     with col_dl3:
-      # Preparar exportación CSV de hallazgos
       df_findings = pd.DataFrame(st.session_state.findings)
       if not df_findings.empty:
-        csv_data = df_findings.to_csv(index=False).encode("utf-8")
+        # Configurado con sep=";" y utf-8-sig para abrir impecable en Excel en español
+        csv_data = df_findings.to_csv(index=False, sep=";").encode("utf-8-sig")
         st.download_button(
             label="📊 Exportar Hallazgos (CSV)",
             data=csv_data,
