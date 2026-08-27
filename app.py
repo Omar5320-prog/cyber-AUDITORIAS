@@ -16,17 +16,15 @@ from weasyprint import HTML
 import streamlit as st
 
 st.set_page_config(
-    page_title="CyberAudits - Escáner Perimetral y Concienciación",
+    page_title="CyberAudits - Escáner Perimetral Enterprise",
     page_icon="🛡️",
     layout="wide",
 )
 
 
-# Inicialización de Base de Datos Enterprise (Historial + Concienciación)
 def init_db():
   conn = sqlite3.connect("cyber_audits.db")
   c = conn.cursor()
-  # Tabla de Historial de Escaneos
   c.execute("""
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +36,6 @@ def init_db():
             report_type TEXT
         )
     """)
-  # Tabla de Empleados para Concienciación
   c.execute("""
         CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -790,7 +787,7 @@ if "scanned" not in st.session_state:
 st.markdown(
     """
     <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Enterprise Suite:</strong> Escáner perimetral, 3 plantillas de informes y Módulo de Concienciación Activo.
+        🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.
     </div>
     """,
     unsafe_allow_html=True,
@@ -799,7 +796,7 @@ st.markdown(
 st.title("🛡️ CyberAudits - Suite Enterprise")
 st.write(
     "Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de"
-    " cultura humana."
+    " informes ejecutivos."
 )
 
 st.sidebar.header("⚙️ Configuración del Informe")
@@ -833,18 +830,31 @@ report_subject = st.sidebar.text_input(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.caption(
-    "CyberAudits Enterprise v4.0 • Preparado para Auditoría de Venta."
+# INTERRUPTOR PRIVADO PARA MANTENER OCULTO EL MÓDULO EN PRODUCCIÓN
+st.sidebar.subheader("🔒 Panel de Administración")
+admin_mode = st.sidebar.checkbox(
+    "Activar Modo Desarrollador (Concienciación)", value=False
 )
 
-# Pestañas principales incluyendo el nuevo módulo
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🔍 Perimeter Scan",
-    "📊 Security Analytics",
-    "📜 Historial de Escaneos",
-    "🎓 Concienciación (Quiz)",
-    "ℹ️ About CyberAudits",
-])
+st.sidebar.markdown("---")
+st.sidebar.caption("CyberAudits Enterprise v4.1 • Producción Segura.")
+
+# GESTIÓN DINÁMICA DE TABS SEGÚN MODO ADMIN
+if admin_mode:
+  tab1, tab2, tab3, tab4, tab5 = st.tabs([
+      "🔍 Perimeter Scan",
+      "📊 Security Analytics",
+      "📜 Historial de Escaneos",
+      "🎓 Concienciación (Quiz - En Desarrollo)",
+      "ℹ️ About CyberAudits",
+  ])
+else:
+  tab1, tab2, tab3, tab4 = st.tabs([
+      "🔍 Perimeter Scan",
+      "📊 Security Analytics",
+      "📜 Historial de Escaneos",
+      "ℹ️ About CyberAudits",
+  ])
 
 with tab1:
   st.markdown("### 🎯 Quick Test Targets")
@@ -1039,122 +1049,131 @@ with tab3:
   else:
     st.info("Aún no hay escaneos guardados.")
 
-with tab4:
-  st.subheader("🎓 Módulo de Concienciación y Cultura de Seguridad")
-  st.write(
-      "Gestiona la lista de empleados y evalúa su preparación frente a"
-      " ingeniería social."
-  )
+# PESTAÑA CONDICIONAL DE CONCIENCIACIÓN (SOLO SE MUESTRA SI ADMIN_MODE ESTÁ ACTIVO)
+if admin_mode:
+  with tab4:
+    st.subheader(
+        "🎓 Módulo de Concienciación y Cultura de Seguridad (En Desarrollo)"
+    )
+    st.write(
+        "Módulo interno en pruebas. Los clientes externos no pueden ver esta"
+        " sección."
+    )
 
-  col_emp1, col_emp2 = st.columns(2)
-  with col_emp1:
-    st.markdown("### ➕ Registrar Empleado / Destinatario")
-    with st.form("add_employee_form"):
-      new_email = st.text_input("Correo Electrónico Corporativo")
-      new_dept = st.selectbox(
-          "Departamento",
-          ["Administración", "Tecnología / TI", "Finanzas", "Ventas", "General"],
-      )
-      submitted = st.form_submit_button("Registrar Empleado")
-      if submitted and new_email:
-        try:
+    col_emp1, col_emp2 = st.columns(2)
+    with col_emp1:
+      st.markdown("### ➕ Registrar Empleado / Destinatario")
+      with st.form("add_employee_form"):
+        new_email = st.text_input("Correo Electrónico Corporativo")
+        new_dept = st.selectbox(
+            "Departamento",
+            [
+                "Administración",
+                "Tecnología / TI",
+                "Finanzas",
+                "Ventas",
+                "General",
+            ],
+        )
+        submitted = st.form_submit_button("Registrar Empleado")
+        if submitted and new_email:
+          try:
+            conn = sqlite3.connect("cyber_audits.db")
+            conn.execute(
+                "INSERT INTO employees (email, department) VALUES (?, ?)",
+                (new_email, new_dept),
+            )
+            conn.commit()
+            conn.close()
+            st.success(f"Empleado {new_email} registrado correctamente.")
+            st.rerun()
+          except Exception:
+            st.error(
+                "El correo ya se encuentra registrado en la base de datos."
+            )
+
+    with col_emp2:
+      st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
+      emp_df = get_employees_df()
+      if not emp_df.empty:
+        st.dataframe(emp_df, use_container_width=True)
+        if st.button("🗑️ Vaciar Lista de Empleados"):
+          conn = sqlite3.connect("cyber_audits.db")
+          conn.execute("DELETE FROM employees")
+          conn.commit()
+          conn.close()
+          st.rerun()
+      else:
+        st.info("No hay empleados registrados.")
+
+    st.markdown("---")
+    st.markdown("### 📝 Simulación de Cuestionario Interactivo")
+    test_email = st.selectbox(
+        "Seleccionar Empleado a Evaluar",
+        [
+            row["Correo Electrónico"]
+            for _, row in get_employees_df().iterrows()
+            if not get_employees_df().empty
+        ],
+    )
+
+    if test_email:
+      with st.form("quiz_simulation_form"):
+        st.write(f"Evaluando a: **{test_email}**")
+        q1 = st.radio(
+            "1. ¿Qué debe hacer si recibe un correo urgente del banco pidiendo"
+            " verificar su contraseña?",
+            [
+                "Hacer clic en el enlace y cambiarla inmediatamente",
+                "Ignorarlo o reportarlo al área de TI sin hacer clic",
+                "Responder con los datos solicitados",
+            ],
+        )
+        q2 = st.radio(
+            "2. ¿Cuál es una característica clave de una contraseña robusta?",
+            [
+                "Usar fechas importantes fáciles de recordar",
+                "Una sola palabra larga sin números",
+                "Combinación de mayúsculas, minúsculas, números y símbolos",
+            ],
+        )
+
+        submit_quiz = st.form_submit_button("Enviar Respuestas del Quiz")
+        if submit_quiz:
+          score = 0
+          if "Ignorarlo" in q1:
+            score += 50
+          if "Combinación" in q2:
+            score += 50
+
+          timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
           conn = sqlite3.connect("cyber_audits.db")
           conn.execute(
-              "INSERT INTO employees (email, department) VALUES (?, ?)",
-              (new_email, new_dept),
+              "UPDATE employees SET status = 'Completado', score = ?,"
+              " last_completed = ? WHERE email = ?",
+              (score, timestamp, test_email),
           )
           conn.commit()
           conn.close()
-          st.success(f"Empleado {new_email} registrado correctamente.")
-          st.rerun()
-        except Exception:
-          st.error(
-              "El correo ya se encuentra registrado en la base de datos."
+          st.success(
+              f"¡Evaluación enviada con éxito! Calificación obtenida: {score}%"
           )
+          st.rerun()
 
-  with col_emp2:
-    st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
-    emp_df = get_employees_df()
-    if not emp_df.empty:
-      st.dataframe(emp_df, use_container_width=True)
-      if st.button("🗑️ Vaciar Lista de Empleados"):
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute("DELETE FROM employees")
-        conn.commit()
-        conn.close()
-        st.rerun()
-    else:
-      st.info(
-          "No hay empleados registrados. Agrega correos a la izquierda para"
-          " iniciar el seguimiento."
-      )
-
-  st.markdown("---")
-  st.markdown("### 📝 Simulación de Cuestionario Interactivo para el Usuario")
-  st.write(
-      "Prueba cómo visualiza el empleado el test de concienciación en seguridad:"
-  )
-
-  test_email = st.selectbox(
-      "Seleccionar Empleado a Evaluar",
-      [
-          row["Correo Electrónico"]
-          for _, row in get_employees_df().iterrows()
-          if not get_employees_df().empty
-      ],
-  )
-
-  if test_email:
-    with st.form("quiz_simulation_form"):
-      st.write(f"Evaluando a: **{test_email}**")
-      q1 = st.radio(
-          "1. ¿Qué debe hacer si recibe un correo urgente del banco pidiendo"
-          " verificar su contraseña?",
-          [
-              "Hacer clic en el enlace y cambiarla inmediatamente",
-              "Ignorarlo o reportarlo al área de TI sin hacer clic",
-              "Responder con los datos solicitados",
-          ],
-      )
-      q2 = st.radio(
-          "2. ¿Cuál es una característica clave de una contraseña robusta?",
-          [
-              "Usar fechas importantes fáciles de recordar",
-              "Una sola palabra larga sin números",
-              "Combinación de mayúsculas, minúsculas, números y símbolos",
-          ],
-      )
-
-      submit_quiz = st.form_submit_button("Enviar Respuestas del Quiz")
-      if submit_quiz:
-        score = 0
-        if (
-            "Ignorarlo" in q1
-        ):  # Respuesta correcta Q1
-          score += 50
-        if (
-            "Combinación" in q2
-        ):  # Respuesta correcta Q2
-          score += 50
-
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        conn = sqlite3.connect("cyber_audits.db")
-        conn.execute(
-            "UPDATE employees SET status = 'Completado', score = ?, last_completed"
-            " = ? WHERE email = ?",
-            (score, timestamp, test_email),
-        )
-        conn.commit()
-        conn.close()
-        st.success(
-            f"¡Evaluación enviada con éxito! Calificación obtenida: {score}%"
-        )
-        st.rerun()
-
-with tab5:
-  st.subheader("About CyberAudits Enterprise Suite")
-  st.markdown("""
-    **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
-    * **Módulos:** Auditoría perimetral (Risk Score, normativas ISO/PCI, exportación DOCX/PDF) y gestión del factor humano (Módulo de Concienciación y Quizzes).
-    * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
-    """)
+  # Última pestaña (About) pasa a ser la quinta si el modo admin está activo
+  with tab5:
+    st.subheader("About CyberAudits Enterprise Suite")
+    st.markdown("""
+        **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
+        * **Módulos:** Auditoría perimetral y gestión del factor humano.
+        * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
+        """)
+else:
+  # Si el modo admin está apagado, la última pestaña (About) es la cuarta
+  with tab4:
+    st.subheader("About CyberAudits Enterprise Suite")
+    st.markdown("""
+        **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
+        * **Módulos:** Auditoría perimetral y gestión del factor humano.
+        * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
+        """)
