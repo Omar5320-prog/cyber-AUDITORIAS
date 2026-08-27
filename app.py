@@ -37,9 +37,13 @@ def init_db():
             report_type TEXT
         )
     """)
-  # Tabla con restricción única compuesta (email + topic) para permitir múltiples cursos por usuario
-  c.execute("""
-        CREATE TABLE IF NOT EXISTS employees_new (
+  
+  c.execute("PRAGMA table_info(employees)")
+  employees_cols = c.fetchall()
+  
+  if not employees_cols:
+    c.execute("""
+        CREATE TABLE employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             department TEXT,
@@ -50,19 +54,29 @@ def init_db():
             UNIQUE(email, topic)
         )
     """)
-  c.execute(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='employees'"
-  )
-  if c.fetchone():
+  else:
     try:
+      c.execute("DROP TABLE IF EXISTS employees_new")
       c.execute("""
-                INSERT OR IGNORE INTO employees_new (id, email, department, topic, status, score, last_completed)
-                SELECT id, email, department, topic, status, score, last_completed FROM employees
-            """)
+            CREATE TABLE employees_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                department TEXT,
+                topic TEXT DEFAULT 'Módulo 1 — Phishing',
+                status TEXT DEFAULT 'Pendiente',
+                score INTEGER DEFAULT 0,
+                last_completed TEXT,
+                UNIQUE(email, topic)
+            )
+        """)
+      c.execute("""
+            INSERT OR IGNORE INTO employees_new (id, email, department, topic, status, score, last_completed)
+            SELECT id, email, department, topic, status, score, last_completed FROM employees
+        """)
       c.execute("DROP TABLE employees")
+      c.execute("ALTER TABLE employees_new RENAME TO employees")
     except Exception:
       pass
-  c.execute("ALTER TABLE employees_new RENAME TO employees")
 
   c.execute("PRAGMA table_info(history)")
   hist_cols = [col[1] for col in c.fetchall()]
@@ -1567,7 +1581,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.5 • Multi-Curso & Carga Masiva CSV."
+      "CyberAudits Enterprise v5.6 • Fix de Migración y Multi-Curso."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
