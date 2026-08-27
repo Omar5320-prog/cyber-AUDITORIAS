@@ -481,15 +481,14 @@ def generate_pdf(
     logo_b64,
     output_filename,
 ):
-  # Logo más grande (max-height: 65px)
   logo_html = (
-      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 65px;'
+      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 55px;'
       ' width: auto; float: right; margin-top: 2px;" alt="Logo">'
       if logo_b64
       else ""
   )
 
-  # Si se seleccionó el formato Carta / Informe Ejecutivo Narrativo
+  # Si se seleccionó el formato Carta / Informe Ejecutivo Narrativo (Optimizado para 1 sola página)
   if "Carta" in report_type or "Narrativo" in report_type:
     html_content = f"""
         <!DOCTYPE html>
@@ -497,24 +496,27 @@ def generate_pdf(
         <head>
             <meta charset="UTF-8">
             <style>
-                @page {{ size: A4; margin: 15mm 15mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 8pt; color: #64748b; }} }}
-                body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10pt; line-height: 1.6; }}
-                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; overflow: hidden; }}
+                @page {{ size: A4; margin: 10mm 12mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 7.5pt; color: #64748b; }} }}
+                body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 9pt; line-height: 1.35; }}
+                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; overflow: hidden; }}
                 .memo-header-left {{ float: left; width: 70%; }}
                 .memo-header-right {{ float: right; width: 28%; text-align: right; }}
-                .memo-header h1 {{ margin: 0; font-size: 15pt; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }}
-                .memo-header p {{ margin: 3px 0; color: #64748b; font-size: 9pt; }}
-                .meta-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 9.5pt; }}
-                .meta-table td {{ padding: 5px 0; border-bottom: 1px solid #e2e8f0; }}
+                .memo-header h1 {{ margin: 0; font-size: 13pt; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }}
+                .memo-header p {{ margin: 2px 0; color: #64748b; font-size: 8.5pt; }}
+                .meta-table {{ width: 100%; margin-bottom: 12px; border-collapse: collapse; font-size: 8.5pt; }}
+                .meta-table td {{ padding: 3px 0; border-bottom: 1px solid #e2e8f0; }}
                 .meta-table td.label {{ font-weight: bold; color: #475569; width: 20%; }}
-                .memo-body h2 {{ color: #0f172a; font-size: 11pt; border-left: 3px solid #3b82f6; padding-left: 8px; margin-top: 15px; margin-bottom: 8px; }}
-                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 12px 15px; border-radius: 4px; margin: 15px 0; }}
-                .signature-section {{ margin-top: 40px; page-break-inside: avoid; }}
-                .disclaimer {{ font-size: 8pt; color: #94a3b8; margin-top: 30px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px; }}
+                .memo-body h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 6px; margin-top: 10px; margin-bottom: 4px; }}
+                .memo-body p {{ margin: 4px 0; }}
+                .memo-body ul {{ margin: 4px 0; padding-left: 15px; }}
+                .memo-body li {{ margin-bottom: 3px; }}
+                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }}
+                .signature-section {{ margin-top: 20px; page-break-inside: avoid; }}
+                .disclaimer {{ font-size: 7.5pt; color: #94a3b8; margin-top: 15px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; }}
             </style>
         </head>
         <body>
-            <!-- INFORME EJECUTIVO EN FORMATO CARTA -->
+            <!-- INFORME EJECUTIVO EN FORMATO CARTA (UNA SOLA PÁGINA) -->
             <div class="memo-header">
                 <div class="memo-header-left">
                     <h1>Informe Ejecutivo de Seguridad</h1>
@@ -554,8 +556,8 @@ def generate_pdf(
             </div>
 
             <div class="signature-section">
-                <p>Atentamente,</p>
-                <p><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name} — {agency_tagline}</p>
+                <p style="margin:2px 0;">Atentamente,</p>
+                <p style="margin:2px 0;"><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name} — {agency_tagline}</p>
             </div>
 
             <div class="disclaimer">Documento confidencial preparado para la gerencia de {hostname}. Todos los derechos reservados.</div>
@@ -1047,7 +1049,7 @@ with tab1:
       if not df_findings.empty:
         csv_data = df_findings.to_csv(index=False, sep=";").encode("utf-8-sig")
         st.download_button(
-            label="📊 Exportar Hallazgos (CSV)",
+            label="📊 Exportار Hallazgos (CSV)",
             data=csv_data,
             file_name=f"hallazgos_{st.session_state.hostname}.csv",
             mime="text/csv",
@@ -1084,5 +1086,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Fully customizable white-label corporate delivery with large logos, custom taglines, and editable subjects.
+    * **Reporting:** Fully customizable white-label corporate delivery with optimized single-page executive memos.
     """)
