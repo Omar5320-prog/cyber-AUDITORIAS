@@ -37,27 +37,32 @@ def init_db():
             report_type TEXT
         )
     """)
+  # Tabla con restricción única compuesta (email + topic) para permitir múltiples cursos por usuario
   c.execute("""
-        CREATE TABLE IF NOT EXISTS employees (
+        CREATE TABLE IF NOT EXISTS employees_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE,
+            email TEXT,
             department TEXT,
             topic TEXT DEFAULT 'Módulo 1 — Phishing',
             status TEXT DEFAULT 'Pendiente',
             score INTEGER DEFAULT 0,
-            last_completed TEXT
+            last_completed TEXT,
+            UNIQUE(email, topic)
         )
     """)
-  c.execute("PRAGMA table_info(employees)")
-  columns = [col[1] for col in c.fetchall()]
-  if "topic" not in columns:
+  c.execute(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='employees'"
+  )
+  if c.fetchone():
     try:
-      c.execute(
-          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Módulo 1 —"
-          " Phishing'"
-      )
+      c.execute("""
+                INSERT OR IGNORE INTO employees_new (id, email, department, topic, status, score, last_completed)
+                SELECT id, email, department, topic, status, score, last_completed FROM employees
+            """)
+      c.execute("DROP TABLE employees")
     except Exception:
       pass
+  c.execute("ALTER TABLE employees_new RENAME TO employees")
 
   c.execute("PRAGMA table_info(history)")
   hist_cols = [col[1] for col in c.fetchall()]
@@ -1561,7 +1566,9 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v5.4 • Cuestionarios Oficiales.")
+  st.sidebar.caption(
+      "CyberAudits Enterprise v5.5 • Multi-Curso & Carga Masiva CSV."
+  )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
@@ -1569,12 +1576,13 @@ else:
         "## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo"
     )
     st.info(
-        "Asigna módulos, sincroniza con tu directorio o genera y exporta"
-        " enlaces personalizados para envíos masivos."
+        "Ahora puedes registrar al mismo colaborador en múltiples cursos"
+        " diferentes. Utiliza la asignación individual, el importador CSV o la"
+        " sincronización AD."
     )
 
     sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-        "👥 Registro, AD Sync y Campañas",
+        "👥 Registro, Importación CSV y AD",
         "📊 Dashboard de Resultados",
         "🔗 Generador y Exportador de Enlaces",
     ])
@@ -1611,14 +1619,53 @@ else:
               conn.commit()
               conn.close()
               st.success(
-                  f"Módulo '{chosen_campaign}' asignado a {emp_mail_input}."
+                  f"Módulo '{chosen_campaign}' asignado con éxito a"
+                  f" {emp_mail_input}."
               )
               st.rerun()
             except Exception:
-              st.error(
-                  "El correo ya se encuentra registrado con ese módulo o en la"
-                  " base de datos."
+              st.warning(
+                  "Este colaborador ya se encuentra registrado específicamente"
+                  " en este módulo."
               )
+
+        st.markdown("---")
+        st.markdown("### 📁 Importación Masiva por Archivo CSV")
+        st.write(
+            "Sube un archivo CSV con cabeceras: `email`, `department`,"
+            " `topic`."
+        )
+        uploaded_csv = st.file_uploader(
+            "Seleccionar CSV de Empleados", type=["csv"]
+        )
+        if uploaded_csv is not None:
+          try:
+            df_upload = pd.read_csv(uploaded_csv)
+            conn = sqlite3.connect("cyber_audits.db")
+            imported = 0
+            for _, row in df_upload.iterrows():
+              try:
+                conn.execute(
+                    "INSERT INTO employees (email, department, topic) VALUES"
+                    " (?, ?, ?)",
+                    (
+                        str(row["email"]),
+                        str(row.get("department", "General")),
+                        str(row.get("topic", "Módulo 1 — Phishing")),
+                    ),
+                )
+                imported += 1
+              except Exception:
+                pass
+            conn.commit()
+            conn.close()
+            st.success(
+                f"¡Importación completada! Se registraron {imported} asignaciones"
+                " de cursos."
+            )
+            st.rerun()
+          except Exception as e:
+            st.error(f"Error procesando el archivo CSV: {e}")
 
       with col_add2:
         st.markdown("### 🔄 Sincronización Masiva (Simulador Active Directory)")
@@ -1628,10 +1675,36 @@ else:
         )
         if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
           mock_directory = [
-              ("carlos.gomez@empresa.com", "Tecnología / TI", "Módulo 1 — Phishing"),
-              ("ana.martinez@empresa.com", "Finanzas", "Módulo 2 — Contraseñas seguras"),
-              ("lucas.pereira@empresa.com", "Ventas", "Módulo 3 — Seguridad en el puesto de trabajo"),
-              ("sofia.benitez@empresa.com", "Operaciones", "Módulo 4 — Vishing y Smishing"),
+              (
+                  "carlos.gomez@empresa.com",
+                  "Tecnología / TI",
+                  "Módulo 1 — Phishing",
+              ),
+              (
+                  "torrealba8100@gmail.com",
+                  "Administración",
+                  "Módulo 1 — Phishing",
+              ),
+              (
+                  "torrealba8100@gmail.com",
+                  "Administración",
+                  "Módulo 2 — Contraseñas seguras",
+              ),
+              (
+                  "ana.martinez@empresa.com",
+                  "Finanzas",
+                  "Módulo 2 — Contraseñas seguras",
+              ),
+              (
+                  "lucas.pereira@empresa.com",
+                  "Ventas",
+                  "Módulo 3 — Seguridad en el puesto de trabajo",
+              ),
+              (
+                  "sofia.benitez@empresa.com",
+                  "Operaciones",
+                  "Módulo 4 — Vishing y Smishing",
+              ),
           ]
           conn = sqlite3.connect("cyber_audits.db")
           added_count = 0
@@ -1650,8 +1723,7 @@ else:
           conn.close()
           st.success(
               f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count}"
-              f" nuevos colaboradores ({skipped_count} ya se encontraban"
-              " registrados)."
+              f" asignaciones nuevas ({skipped_count} ya existían)."
           )
           st.rerun()
 
@@ -1687,7 +1759,9 @@ else:
         for mail, top in records:
           link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={mail}&tema={top}"
           link_data.append({"Correo": mail, "Módulo": top, "Enlace": link})
-          st.text_input(f"{mail} -> [{top}]", value=link, key=f"url_{mail}_{top}")
+          st.text_input(
+              f"{mail} -> [{top}]", value=link, key=f"url_{mail}_{top}"
+          )
 
         st.markdown("---")
         df_links = pd.DataFrame(link_data)
@@ -1699,7 +1773,10 @@ else:
             type="primary",
         )
       else:
-        st.info("Registra colaboradores en la primera sub-pestaña para ver y exportar sus enlaces.")
+        st.info(
+            "Registra colaboradores en la primera sub-pestaña para ver y"
+            " exportar sus enlaces."
+        )
 
   else:
     tab1, tab2, tab3, tab4 = st.tabs([
