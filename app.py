@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 
-# Inicializar Base de Datos SQLite para el Historial de Escaneos
+# Inicializar Base de Datos SQLite con migración automática segura
 def init_db():
   conn = sqlite3.connect("cyber_audits.db")
   c = conn.cursor()
@@ -38,6 +38,14 @@ def init_db():
             report_type TEXT
         )
     """)
+  # Migración automática si la tabla antigua no tiene la columna risk_score
+  c.execute("PRAGMA table_info(history)")
+  columns = [col[1] for col in c.fetchall()]
+  if "risk_score" not in columns:
+    try:
+      c.execute("ALTER TABLE history ADD COLUMN risk_score INTEGER DEFAULT 0")
+    except Exception:
+      pass
   conn.commit()
   conn.close()
 
@@ -479,13 +487,11 @@ def scan_target(url):
   except Exception:
     pass
 
-  # Cálculo del Risk Score (0 a 100, donde 100 es seguro y 0 es crítico)
   total_findings = len(findings)
   critical_count = stats["Críticas"]
   medium_count = stats["Medias"]
   low_count = stats["Bajas"]
 
-  # Fórmula de penalización de riesgo
   penalty = (critical_count * 25) + (medium_count * 10) + (low_count * 5)
   risk_score = max(0, 100 - penalty)
 
