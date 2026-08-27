@@ -1,4 +1,5 @@
-base64import datetime
+import base64
+import datetime
 import hashlib
 import io
 import json
@@ -1582,7 +1583,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.11 • Importador CSV de Doble Motor Robusto."
+      "CyberAudits Enterprise v5.12 • Importador CSV con corrección sintáctica."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
