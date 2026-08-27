@@ -1232,7 +1232,7 @@ def generate_pdf(
         <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional:</p>
         <ul>
             <li><strong>Cifrado y Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo de phishing.'}</li>
+            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo di phishing.'}</li>
             <li><strong>Superficie Perimetral:</strong> Se identificaron puertos expuestos que requieren supervisión.</li>
         </ul>
         """
@@ -1581,7 +1581,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.7 • Detección automática de separadores CSV (,) y (;)."
+      "CyberAudits Enterprise v5.8 • Mapeo flexible de cabeceras en CSV (Español/Inglés)."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1646,28 +1646,35 @@ else:
         st.markdown("---")
         st.markdown("### 📁 Importación Masiva por Archivo CSV")
         st.write(
-            "Sube un archivo CSV con cabeceras: `email`, `department`,"
-            " `topic` (soporta separación por comas `,` o punto y coma `;`)."
+            "Sube tu CSV con cabeceras en inglés (`email`, `department`, `topic`) o en español (`correo`, `departamento`, `curso` / `módulo`). Soporta separación por `,` o `;`."
         )
         uploaded_csv = st.file_uploader(
             "Seleccionar CSV de Empleados", type=["csv"]
         )
         if uploaded_csv is not None:
           try:
-            # sep=None junto con engine='python' detecta automáticamente si usa coma (,) o punto y coma (;)
             df_upload = pd.read_csv(uploaded_csv, sep=None, engine="python")
+            df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+            
             conn = sqlite3.connect("cyber_audits.db")
             imported = 0
             for _, row in df_upload.iterrows():
               try:
+                mail_val = row.get("email") if "email" in row else row.get("correo")
+                if not mail_val or pd.isna(mail_val):
+                  continue
+                
+                dept_val = row.get("department") if "department" in row else row.get("departamento")
+                if pd.isna(dept_val):
+                  dept_val = "General"
+                  
+                top_val = row.get("topic") if "topic" in row else (row.get("curso") if "curso" in row else row.get("módulo"))
+                if pd.isna(top_val):
+                  top_val = "Módulo 1 — Phishing"
+                
                 conn.execute(
-                    "INSERT INTO employees (email, department, topic) VALUES"
-                    " (?, ?, ?)",
-                    (
-                        str(row["email"]),
-                        str(row.get("department", "General")),
-                        str(row.get("topic", "Módulo 1 — Phishing")),
-                    ),
+                    "INSERT INTO employees (email, department, topic) VALUES (?, ?, ?)",
+                    (str(mail_val).strip(), str(dept_val).strip(), str(top_val).strip()),
                 )
                 imported += 1
               except Exception:
