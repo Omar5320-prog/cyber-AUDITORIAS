@@ -33,6 +33,7 @@ def get_db_connection():
 
     return sqlite3.connect("cyber_audits.db")
 
+
 def init_db():
   conn = get_db_connection()
   c = conn.cursor()
