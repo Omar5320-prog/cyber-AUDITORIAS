@@ -9,31 +9,31 @@ import requests
 from weasyprint import HTML
 import streamlit as st
 
-# Configuración de la página web con diseño ancho
+# Configuración de la página web
 st.set_page_config(
     page_title="CyberAudits - Escáner Perimetral",
     page_icon="🛡️",
     layout="wide",
 )
 
-# Estilos CSS personalizados para darle una personalidad de SaaS de Ciberseguridad de Élite (Dark Mode)
+# Estilos CSS corregidos con alto contraste y legibilidad impecable
 st.markdown(
     """
     <style>
-        /* Fondo general y tipografía */
+        /* Fondo general y tipografía legible */
         .stApp {
             background-color: #0b0f19;
             color: #f8fafc;
             font-family: 'Inter', Helvetica, Arial, sans-serif;
         }
         
-        /* Barra lateral (Sidebar) personalizada */
+        /* Barra lateral (Sidebar) */
         [data-testid="stSidebar"] {
             background-color: #111827;
             border-right: 1px solid #1f2937;
         }
-        [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown {
-            color: #d1d5db !important;
+        [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span {
+            color: #f3f4f6 !important;
         }
 
         /* Banner superior especial */
@@ -48,13 +48,13 @@ st.markdown(
             box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
         }
 
-        /* Títulos principales */
+        /* Títulos */
         h1, h2, h3 {
-            color: #f8fafc !important;
+            color: #ffffff !important;
             letter-spacing: -0.5px;
         }
 
-        /* Tarjetas y métricas personalizadas */
+        /* Tarjetas de métricas */
         div[data-testid="stMetric"] {
             background-color: #111827;
             border: 1px solid #1f2937;
@@ -63,7 +63,7 @@ st.markdown(
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
         }
         div[data-testid="stMetric"] label {
-            color: #9ca3af !important;
+            color: #94a3b8 !important;
             font-size: 0.85rem !important;
         }
         div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
@@ -71,7 +71,29 @@ st.markdown(
             font-weight: 700 !important;
         }
 
-        /* Botones de acción principales con gradiente */
+        /* Pestañas (Tabs) con alto contraste corregido */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 10px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: #1e293b !important;
+            border-radius: 6px !important;
+            border: 1px solid #334155 !important;
+            padding: 8px 16px !important;
+        }
+        .stTabs [data-baseweb="tab"] p {
+            color: #ffffff !important;
+            font-weight: 600 !important;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #2563eb !important;
+            border: 1px solid #3b82f6 !important;
+        }
+        .stTabs [aria-selected="true"] p {
+            color: #ffffff !important;
+        }
+
+        /* Botones de acción principales */
         .stButton>button {
             background: linear-gradient(90deg, #2563eb, #3b82f6);
             color: white;
@@ -86,30 +108,6 @@ st.markdown(
             background: linear-gradient(90deg, #1d4ed8, #2563eb);
             box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
             transform: translateY(-1px);
-        }
-
-        /* Cajas de éxito y advertencia */
-        .stSuccess {
-            background-color: #064e3b !important;
-            color: #6ee7b7 !important;
-            border: 1px solid #059669;
-        }
-        
-        /* Pestañas (Tabs) */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: #111827;
-            border-radius: 6px;
-            color: #9ca3af;
-            border: 1px solid #1f2937;
-            padding: 8px 16px;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #2563eb !important;
-            color: white !important;
-            border: 1px solid #3b82f6 !important;
         }
     </style>
     """,
@@ -812,6 +810,7 @@ def generate_pdf(
             </style>
         </head>
         <body>
+            <!-- INGLÉS -->
             <div class="header-banner">
                 <div class="banner-left">
                     <h1>{report_title_en}</h1>
@@ -865,6 +864,7 @@ def generate_pdf(
             {items_html_en}
             <div class="disclaimer">Note: External perimeter findings generated in real time.</div>
 
+            <!-- ESPAÑOL -->
             <div style="page-break-after: always;"></div>
             <div class="header-banner">
                 <div class="banner-left">
@@ -932,7 +932,7 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Interfaz Principal con Diseño Oscuro Profesional
+# Banner superior
 st.markdown(
     """
     <div class="ph-banner">
@@ -944,13 +944,13 @@ st.markdown(
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.markdown(
-    "<p style='color: #9ca3af; font-size: 1.1rem;'>Plataforma de inteligencia"
+    "<p style='color: #94a3b8; font-size: 1.1rem;'>Plataforma de inteligencia"
     " perimetral y auditoría automatizada para agencias y analistas de"
     " seguridad.</p>",
     unsafe_allow_html=True,
 )
 
-# Sidebar de Configuración Comercial
+# Panel de Configuración Comercial y Modelos de Informe
 st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
@@ -1028,6 +1028,7 @@ with tab1:
         )
         chart_b64 = generate_chart(stats)
 
+        # Procesar logo en base64 si el usuario cargó uno
         logo_b64 = ""
         if logo_file is not None:
           logo_b64 = base64.b64encode(logo_file.getvalue()).decode("utf-8")
