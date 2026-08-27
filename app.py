@@ -610,7 +610,7 @@ Los atacantes no solo utilizan correos electrónicos, sino también canales dire
             },
             {
                 "q": (
-                    "4. ¿Cuál is una señal frecuente de una llamada"
+                    "4. ¿Cuál es una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -1581,7 +1581,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v5.9 • Importador CSV Tolerante y Robusto."
+      "CyberAudits Enterprise v5.10 • Importador CSV con manejo de BOM UTF-8."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -1653,22 +1653,13 @@ else:
         )
         if uploaded_csv is not None:
           try:
-            uploaded_csv.seek(0)
-            raw_bytes = uploaded_csv.read()
-            try:
-              text_content = raw_bytes.decode("utf-8")
-            except Exception:
-              text_content = raw_bytes.decode("latin-1")
-            
-            lines = [line.strip() for line in text_content.splitlines() if line.strip()]
-            
             parsed_rows = []
             
-            # Intentar lectura con pandas primero
+            # Intentar lectura con pandas usando utf-8-sig para eliminar BOM automáticamente
             try:
               uploaded_csv.seek(0)
-              df_upload = pd.read_csv(uploaded_csv, sep=None, engine="python")
-              df_upload.columns = [str(c).strip().lower() for c in df_upload.columns]
+              df_upload = pd.read_csv(uploaded_csv, encoding="utf-8-sig", sep=None, engine="python")
+              df_upload.columns = [str(c).strip().lower().lstrip("\ufeff") for c in df_upload.columns]
               
               for _, row in df_upload.iterrows():
                 mail_val = None
@@ -1698,9 +1689,17 @@ else:
             except Exception:
               pass
             
-            # Fallback robusto línea por línea si pandas no capturó filas
+            # Fallback robusto línea por línea
             if not parsed_rows:
-              start_idx = 1 if ("email" in lines[0].lower() or "correo" in lines[0].lower()) else 0
+              uploaded_csv.seek(0)
+              raw_bytes = uploaded_csv.read()
+              try:
+                text_content = raw_bytes.decode("utf-8-sig")
+              except Exception:
+                text_content = raw_bytes.decode("latin-1")
+              
+              lines = [line.strip() for line in text_content.splitlines() if line.strip()]
+              start_idx = 1 if any(k in lines[0].lower() for k in ["email", "correo", "mail"]) else 0
               for line in lines[start_idx:]:
                 parts = [p.strip().strip('"\'') for p in line.replace(";", ",").replace("\t", ",").split(",")]
                 mail_val = next((p for p in parts if "@" in p), None)
