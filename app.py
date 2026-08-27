@@ -473,6 +473,7 @@ def generate_pdf(
     subdomains,
     geo,
     email_sec,
+    agency_name,
     output_filename,
 ):
   ports_html = (
@@ -588,7 +589,7 @@ def generate_pdf(
         <!-- INGLÉS -->
         <div class="header-banner">
             <h1>Cybersecurity Executive Report</h1>
-            <p>Perimeter Diagnosis, Ports, DNS & Server Intelligence</p>
+            <p>Prepared by: <strong>{agency_name}</strong> | Perimeter Diagnosis & DNS Intelligence</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
@@ -621,7 +622,7 @@ def generate_pdf(
         </div>
         <div style="page-break-after: always;"></div>
         
-        <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Engineering Specifications</p></div>
+        <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Prepared by: {agency_name}</p></div>
         <h2>2. Exhaustive Details</h2>
         {items_html_en}
         <div class="disclaimer">Note: External perimeter findings in real time.</div>
@@ -630,7 +631,7 @@ def generate_pdf(
         <div style="page-break-after: always;"></div>
         <div class="header-banner">
             <h1>Informe Ejecutivo de Ciberseguridad</h1>
-            <p>Diagnóstico Perimetral, Puertos, DNS e Inteligencia de Servidor</p>
+            <p>Elaborado por: <strong>{agency_name}</strong> | Diagnóstico Perimetral y DNS</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
@@ -662,7 +663,7 @@ def generate_pdf(
             <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_es}</ul>
         </div>
         <div style="page-break-after: always;"></div>
-        <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Especificaciones de Ingeniería</p></div>
+        <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Elaborado por: {agency_name}</p></div>
         <h2>2. Detalle Exhaustivo</h2>
         {items_html_es}
         <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
@@ -695,6 +696,17 @@ st.write(
     "Analiza la seguridad de cualquier dominio web y evalúa la postura de"
     " correo y servidores."
 )
+
+# Panel de Configuración de Marca Blanca para Agencias
+with st.expander("💼 Configuración de Marca Blanca (Agencias / Consultoras)"):
+  agency_name = st.text_input(
+      "Nombre de tu Agencia o Consultora de Ciberseguridad",
+      value="SecOps Global Partners",
+  )
+  st.caption(
+      "Este nombre aparecerá en los encabezados del informe ejecutivo en PDF"
+      " entregado a tu cliente."
+  )
 
 tab1, tab2, tab3 = st.tabs(
     ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
@@ -732,7 +744,10 @@ with tab1:
         findings, stats, open_ports, hostname, subdomains, geo, email_sec = (
             scan_target(target_url)
         )
-        st.write("Generando gráficos y compilando PDF corporativo...")
+        st.write(
+            "Generando gráficos y compilando PDF con marca blanca de"
+            f" {agency_name}..."
+        )
         chart_b64 = generate_chart(stats)
 
         pdf_filename = f"auditoria_{hostname}.pdf"
@@ -746,6 +761,7 @@ with tab1:
             subdomains,
             geo,
             email_sec,
+            agency_name,
             pdf_filename,
         )
         status.update(
@@ -762,6 +778,7 @@ with tab1:
       st.session_state.subdomains = subdomains
       st.session_state.geo = geo
       st.session_state.email_sec = email_sec
+      st.session_state.agency_name = agency_name
       st.session_state.pdf_filename = pdf_filename
 
   if st.session_state.scanned:
@@ -797,7 +814,6 @@ with tab1:
         " y datos en bruto es **100% GRATIS**!"
     )
 
-    # Botones de descarga organizados (PDF, JSON y CSV optimizado para Excel)
     col_dl1, col_dl2, col_dl3 = st.columns(3)
 
     with col_dl1:
@@ -821,6 +837,7 @@ with tab1:
           "open_ports": st.session_state.open_ports,
           "subdomains": st.session_state.subdomains,
           "findings": st.session_state.findings,
+          "prepared_by": st.session_state.agency_name,
       }
       json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
       st.download_button(
@@ -833,7 +850,6 @@ with tab1:
     with col_dl3:
       df_findings = pd.DataFrame(st.session_state.findings)
       if not df_findings.empty:
-        # Configurado con sep=";" y utf-8-sig para abrir impecable en Excel en español
         csv_data = df_findings.to_csv(index=False, sep=";").encode("utf-8-sig")
         st.download_button(
             label="📊 Exportar Hallazgos (CSV)",
@@ -873,5 +889,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Automated corporate delivery with JSON/CSV developer workflows.
+    * **Reporting:** Automated white-label corporate delivery for security agencies.
     """)
