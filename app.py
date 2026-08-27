@@ -3,8 +3,14 @@ import datetime
 import io
 import json
 import os
+import smtplib
 import socket
 import ssl
+import sqlite3
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -21,22 +27,73 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS limpios y profesionales (Barra lateral clara y moderna)
+
+# Inicializar Base de Datos SQLite para el Historial de Escaneos
+def init_db():
+  conn = sqlite3.connect("cyber_audits.db")
+  c = conn.cursor()
+  c.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            hostname TEXT,
+            ip TEXT,
+            findings_count INTEGER,
+            ports_count INTEGER,
+            report_type TEXT
+        )
+    """)
+  conn.commit()
+  conn.close()
+
+
+init_db()
+
+
+def save_scan_to_db(
+    hostname, ip, findings_count, ports_count, report_type_val
+):
+  try:
+    conn = sqlite3.connect("cyber_audits.db")
+    c = conn.cursor()
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute(
+        "INSERT INTO history (timestamp, hostname, ip, findings_count,"
+        " ports_count, report_type) VALUES (?, ?, ?, ?, ?, ?)",
+        (timestamp, hostname, ip, findings_count, ports_count, report_type_val),
+    )
+    conn.commit()
+    conn.close()
+  except Exception:
+    pass
+
+
+def get_scan_history():
+  conn = sqlite3.connect("cyber_audits.db")
+  df = pd.read_sql_query(
+      "SELECT timestamp AS 'Fecha y Hora', hostname AS 'Dominio / Host', ip AS"
+      " 'Dirección IP', findings_count AS 'Vulnerabilidades', ports_count AS"
+      " 'Puertos Abiertos', report_type AS 'Plantilla' FROM history ORDER BY id"
+      " DESC",
+      conn,
+  )
+  conn.close()
+  return df
+
+
+# Estilos CSS limpios y profesionales
 st.markdown(
     """
     <style>
-        /* Fondo general y barra lateral en modo claro impecable */
         .stApp {
             background-color: #f8fafc;
             color: #1e293b;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        
         [data-testid="stSidebar"] {
             background-color: #f0f2f6 !important;
             border-right: 1px solid #e2e8f0;
         }
-        
         [data-testid="stSidebar"] label, 
         [data-testid="stSidebar"] .stMarkdown, 
         [data-testid="stSidebar"] span, 
@@ -44,7 +101,6 @@ st.markdown(
         [data-testid="stSidebar"] h2 {
             color: #1e293b !important;
         }
-
         [data-testid="stSidebar"] input, 
         [data-testid="stSidebar"] div[data-baseweb="select"] > div,
         [data-testid="stSidebar"] textarea {
@@ -52,8 +108,6 @@ st.markdown(
             color: #1e293b !important;
             border-color: #cbd5e1 !important;
         }
-
-        /* Banner superior corporativo */
         .enterprise-banner {
             background: linear-gradient(90deg, #1e3a8a, #3b82f6);
             padding: 12px 20px;
@@ -71,7 +125,6 @@ st.markdown(
 
 
 def get_geolocation(hostname):
-  """Obtiene la IP, país, ciudad y proveedor usando ip-api.com."""
   geo_data = {
       "ip": "N/A",
       "country": "Desconocido",
@@ -95,7 +148,6 @@ def get_geolocation(hostname):
 
 
 def check_ssl_certificate(hostname):
-  """Inspección profunda del certificado SSL/TLS (Emisor y Expiración)."""
   ssl_info = {
       "valid": False,
       "issuer": "Desconocido",
@@ -116,14 +168,12 @@ def check_ssl_certificate(hostname):
           days_left = (expires_date - datetime.datetime.utcnow()).days
           ssl_info["days_remaining"] = days_left
           ssl_info["valid"] = True
-
           issuer_dict = dict(
               x[0] for x in cert.get("issuer", ((("commonName", ""),),))
           )
           ssl_info["issuer"] = issuer_dict.get(
               "commonName", issuer_dict.get("organizationName", "Desconocido")
           )
-
           if days_left < 30:
             ssl_info["expires_soon"] = True
             ssl_info["details"] = (
@@ -140,7 +190,6 @@ def check_ssl_certificate(hostname):
 
 
 def check_email_security(hostname):
-  """Verifica la existencia de registros SPF y DMARC para prevenir Email Spoofing."""
   email_sec = {"spf": False, "dmarc": False}
   try:
     res_spf = requests.get(
@@ -224,7 +273,6 @@ def scan_target(url):
   email_sec = check_email_security(hostname)
   ssl_info = check_ssl_certificate(hostname)
 
-  # Análisis de SSL/TLS
   if not ssl_info["valid"]:
     stats["Críticas"] += 1
     findings.append({
@@ -235,11 +283,11 @@ def scan_target(url):
         "desc": ssl_info["details"],
         "impact": (
             "Los navegadores bloquearán el acceso a la web advirtiendo a los"
-            " usuarios sobre fraude o suplantación."
+            " usuarios sobre fraude."
         ),
         "fix": (
             "Renovar o instalar un certificado SSL/TLS válido emitido por una"
-            " Autoridad de Certificación reconocida."
+            " Autoridad reconocida."
         ),
     })
   elif ssl_info["expires_soon"]:
@@ -253,10 +301,7 @@ def scan_target(url):
         "badge": "badge-medium",
         "exec_title": "Riesgo de Expiración Próxima de Certificado SSL",
         "desc": ssl_info["details"],
-        "impact": (
-            "Si el certificado expira, los servicios web dejarán de estar"
-            " disponibles de forma segura."
-        ),
+        "impact": "Si el certificado expira, los servicios web dejarán de operar.",
         "fix": "Renovar el certificado SSL antes de la fecha límite.",
     })
   else:
@@ -273,11 +318,11 @@ def scan_target(url):
         "exec_title": "Vulnerabilidad en la Postura de Correo (Sin SPF)",
         "desc": (
             "El dominio no cuenta con un registro SPF válido que autorice qué"
-            " servidores pueden enviar correos en su nombre."
+            " servidores pueden enviar correos."
         ),
         "impact": (
-            "Facilita que actores maliciosos envíen correos fraudulentos de"
-            " suplantación de identidad (phishing)."
+            "Facilita que actores maliciosos envíen correos de suplantación de"
+            " identidad (phishing)."
         ),
         "fix": (
             "Publicar un registro TXT con directivas SPF (ej: v=spf1"
@@ -295,12 +340,11 @@ def scan_target(url):
         "badge": "badge-medium",
         "exec_title": "Falta de Control de Autenticación de Correo (DMARC)",
         "desc": (
-            "El dominio carece de una política DMARC para indicar qué hacer"
-            " con los correos que fallan las validaciones."
+            "El dominio carece de una política DMARC para validar correos."
         ),
         "impact": (
             "La organización pierde visibilidad sobre intentos de fraude y"
-            " aumenta el riesgo de suplantación."
+            " suplantación."
         ),
         "fix": (
             "Configurar un registro TXT en _dmarc con directivas de monitoreo o"
@@ -323,7 +367,7 @@ def scan_target(url):
           ),
           "desc": (
               f"El puerto {p['port']} ({p['service']}) se encuentra accesible"
-              " de forma directa desde internet sin restricciones."
+              " directamente desde internet."
           ),
           "impact": (
               "Invita a atacantes a realizar ataques de fuerza bruta para"
@@ -350,13 +394,10 @@ def scan_target(url):
           "exec_title": (
               "Ausencia de Encriptación Forzada (Riesgo de Intercepción)"
           ),
-          "desc": (
-              "La cabecera HSTS no está configurada en la respuesta del"
-              " servidor web."
-          ),
+          "desc": "La cabecera HSTS no está configurada en el servidor web.",
           "impact": (
-              "Un atacante en una red Wi-Fi pública puede interceptar la"
-              " conexión y robar contraseñas o tokens."
+              "Un atacante en una red Wi-Fi pública puede interceptar"
+              " credenciales."
           ),
           "fix": (
               "Configurar la cabecera: Strict-Transport-Security:"
@@ -372,17 +413,13 @@ def scan_target(url):
           "badge": "badge-medium",
           "exec_title": "Fuga de Información Tecnológica del Servidor",
           "desc": (
-              "La cabecera HTTP expone el software y versión exacta:"
+              "La cabecera HTTP expone el software exacto:"
               f" {headers.get('Server')}"
           ),
           "impact": (
-              "Facilita que actores maliciosos busquen vulnerabilidades"
-              " públicas asociadas."
+              "Facilita la búsqueda de vulnerabilidades públicas asociadas."
           ),
-          "fix": (
-              "Ocultar o enmascarar la firma del servidor en la configuración"
-              " global."
-          ),
+          "fix": "Ocultar o enmascarar la firma del servidor.",
       })
     else:
       stats["Seguras"] += 1
@@ -399,17 +436,13 @@ def scan_target(url):
           "badge": "badge-low",
           "exec_title": "Riesgo de Secuestro de Clics (Clickjacking)",
           "desc": (
-              "El sitio web no emite directivas para evitar su carga dentro de"
-              " marcos externos."
+              "El sitio web no emite directivas para evitar su carga en marcos"
+              " externos."
           ),
           "impact": (
-              "Un sitio malicioso externo puede cargar tu web bajo un botón"
-              " trampa para engañar al usuario."
+              "Un sitio malicioso puede cargar tu web bajo un botón trampa."
           ),
-          "fix": (
-              "Añadir la cabecera de seguridad X-Frame-Options: DENY o"
-              " SAMEORIGIN."
-          ),
+          "fix": "Añadir cabecera X-Frame-Options: DENY o SAMEORIGIN.",
       })
 
   except Exception:
@@ -431,13 +464,11 @@ def generate_chart(stats):
   labels = list(stats.keys())
   sizes = list(stats.values())
   colors = ["#dc2626", "#f59e0b", "#3b82f6", "#10b981"]
-
   non_zero_data = [
       (l, s, c) for l, s, c in zip(labels, sizes, colors) if s > 0
   ]
   if not non_zero_data:
     non_zero_data = [("Seguras", 1, "#10b981")]
-
   l_filt, s_filt, c_filt = zip(*non_zero_data)
 
   fig, ax = plt.subplots(figsize=(4.5, 2.8))
@@ -461,7 +492,6 @@ def generate_chart(stats):
   chart_path = "vulnerability_chart.png"
   plt.savefig(chart_path, dpi=300, bbox_inches="tight", transparent=True)
   plt.close()
-
   with open(chart_path, "rb") as f:
     return base64.b64encode(f.read()).decode("utf-8")
 
@@ -480,7 +510,6 @@ def generate_docx(
     recipient_name,
     report_subject,
 ):
-  """Genera un documento Word (.docx) editable con el informe ejecutivo."""
   doc = Document()
   for section in doc.sections:
     section.top_margin = Inches(1)
@@ -528,8 +557,7 @@ def generate_docx(
   doc.add_paragraph(
       f"El análisis perimetral automatizado realizado sobre {hostname} bajo el"
       f" estándar '{report_type}' ha identificado un total de {len(findings)}"
-      " áreas de vulnerabilidad o exposición que requieren atención"
-      " gerencial y técnica."
+      " áreas de vulnerabilidad o exposición."
   )
 
   doc.add_heading("3. Detalle de Hallazgos y Guía de Remediación", level=2)
@@ -538,7 +566,6 @@ def generate_docx(
     run_h = h.add_run(f"#{idx} - {f['vector']} [{f['severity']}]")
     run_h.font.bold = True
     run_h.font.size = Pt(11)
-
     doc.add_paragraph(f"Descripción Técnica: {f['desc']}")
     doc.add_paragraph(f"Impacto de Negocio: {f['impact']}")
     p_fix = doc.add_paragraph()
@@ -552,6 +579,40 @@ def generate_docx(
   return buffer.getvalue()
 
 
+def send_email_report(
+    smtp_server,
+    smtp_port,
+    sender_email,
+    sender_password,
+    recipient_email,
+    subject,
+    body,
+    file_bytes,
+    filename,
+):
+  try:
+    msg = MIMEMultipart()
+    msg["From"] = sender_email
+    msg["To"] = recipient_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(file_bytes)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f"attachment; filename= {filename}")
+    msg.attach(part)
+
+    server = smtplib.SMTP(smtp_server, int(smtp_port))
+    server.starttls()
+    server.login(sender_email, sender_password)
+    server.sendmail(sender_email, recipient_email, msg.as_string())
+    server.quit()
+    return True, "¡Correo enviado con éxito!"
+  except Exception as e:
+    return False, f"Error al enviar correo: {str(e)}"
+
+
 def translate_finding_en(f):
   vec = f["vector"]
   sev = f["severity"]
@@ -560,82 +621,36 @@ def translate_finding_en(f):
   )
   if "SSL" in vec:
     title_en = "SSL/TLS Certificate Invalid or Missing"
-    exec_t_en = "HTTPS Encryption Critical Failure (Untrusted Cert)"
+    exec_t_en = "HTTPS Encryption Critical Failure"
     desc_en = f.get("desc", "")
     impact_en = f.get("impact", "")
     fix_en = f.get("fix", "")
   elif "SPF" in vec:
     title_en = "SPF Record Missing (Phishing Risk)"
     exec_t_en = "Email Security Posture Vulnerability (No SPF)"
-    desc_en = (
-        "The domain lacks a valid SPF record authorizing sending servers."
-    )
-    impact_en = (
-        "Allows malicious actors to send fraudulent phishing emails"
-        " impersonating the organization."
-    )
+    desc_en = "The domain lacks a valid SPF record."
+    impact_en = "Allows fraudulent phishing emails."
     fix_en = "Publish a TXT record with SPF policies."
   elif "DMARC" in vec:
     title_en = "DMARC Policy Missing"
     exec_t_en = "Lack of Email Authentication Control (DMARC)"
-    desc_en = "The domain lacks a DMARC policy for validation failures."
-    impact_en = (
-        "Increases the risk of unnoticed email spoofing and fraud attempts."
-    )
+    desc_en = "The domain lacks a DMARC policy."
+    impact_en = "Increases risk of email spoofing."
     fix_en = "Configure a TXT record in _dmarc."
   elif "Puerto" in vec:
     title_en = (
         f"Port {f.get('port', '')} ({f.get('service', '')}) Open to Public"
     )
-    exec_t_en = (
-        f"Administrative Service / Database Exposed on Port {f.get('port', '')}"
-    )
-    desc_en = (
-        f"Port {f.get('port', '')} ({f.get('service', '')}) is directly"
-        " accessible from the internet without visible perimeter"
-        " restrictions."
-    )
-    impact_en = (
-        "Invites attackers to perform brute-force attacks to guess"
-        " credentials and gain full control of the platform."
-    )
-    fix_en = (
-        f"Restrict access to port {f.get('port', '')} using a Network Firewall"
-        " or Security Groups."
-    )
+    exec_t_en = f"Service Exposed on Port {f.get('port', '')}"
+    desc_en = f.get("desc", "")
+    impact_en = f.get("impact", "")
+    fix_en = f.get("fix", "")
   elif "HSTS" in vec:
     title_en = "HTTP Strict Transport Security (HSTS) Missing"
-    exec_t_en = "Lack of Forced Encryption (Interception Risk)"
-    desc_en = "The HSTS header is not configured in the web server response."
-    impact_en = (
-        "An attacker on a public Wi-Fi network can intercept the connection"
-        " and steal passwords or tokens in real time."
-    )
-    fix_en = (
-        "Configure header: Strict-Transport-Security: max-age=31536000;"
-        " includeSubDomains; preload."
-    )
-  elif "Servidor" in vec or "Server" in vec:
-    title_en = "Server Version Disclosure (Server Banner)"
-    exec_t_en = "Technological Information Leak from Server"
-    desc_en = f"The HTTP header exposes the exact software and version."
-    impact_en = (
-        "Facilitates malicious actors in searching for public vulnerabilities"
-        " associated with that exact software version."
-    )
-    fix_en = "Hide or mask the server signature in global configuration."
-  elif "Clickjacking" in vec:
-    title_en = "Clickjacking Protection Missing (X-Frame-Options)"
-    exec_t_en = "Clickjacking Risk"
-    desc_en = (
-        "The website does not issue directives to prevent loading inside"
-        " external frames."
-    )
-    impact_en = (
-        "An external malicious site can invisibly load your web under a trap"
-        " button to trick the user."
-    )
-    fix_en = "Add security header X-Frame-Options: DENY or SAMEORIGIN."
+    exec_t_en = "Lack of Forced Encryption"
+    desc_en = f.get("desc", "")
+    impact_en = f.get("impact", "")
+    fix_en = f.get("fix", "")
   else:
     title_en = vec
     exec_t_en = f.get("exec_title", "")
@@ -679,304 +694,138 @@ def generate_pdf(
       if logo_b64
       else ""
   )
+  active_findings = findings
+  ports_html = (
+      "".join([
+          (
+              f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
+              " (Open)</td></tr>"
+          )
+          for p in open_ports
+      ])
+      or "<tr><td colspan='2' style='text-align:center;'>No ports detected.</td></tr>"
+  )
+  sub_html = (
+      "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
+      or "<li>No subdomains found.</li>"
+  )
 
-  if "Carta" in report_type or "Narrativo" in report_type:
-    html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                @page {{ size: A4; margin: 10mm 12mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 7.5pt; color: #64748b; }} }}
-                body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 9pt; line-height: 1.35; }}
-                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; overflow: hidden; }}
-                .memo-header-left {{ float: left; width: 70%; }}
-                .memo-header-right {{ float: right; width: 28%; text-align: right; }}
-                .memo-header h1 {{ margin: 0; font-size: 13pt; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }}
-                .memo-header p {{ margin: 2px 0; color: #64748b; font-size: 8.5pt; }}
-                .meta-table {{ width: 100%; margin-bottom: 12px; border-collapse: collapse; font-size: 8.5pt; }}
-                .meta-table td {{ padding: 3px 0; border-bottom: 1px solid #e2e8f0; }}
-                .meta-table td.label {{ font-weight: bold; color: #475569; width: 20%; }}
-                .memo-body h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 6px; margin-top: 10px; margin-bottom: 4px; }}
-                .memo-body p {{ margin: 4px 0; }}
-                .memo-body ul {{ margin: 4px 0; padding-left: 15px; }}
-                .memo-body li {{ margin-bottom: 3px; }}
-                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }}
-                .signature-section {{ margin-top: 20px; page-break-inside: avoid; }}
-                .disclaimer {{ font-size: 7.5pt; color: #94a3b8; margin-top: 15px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 6px; }}
-            </style>
-        </head>
-        <body>
-            <div class="memo-header">
-                <div class="memo-header-left">
-                    <h1>Informe Ejecutivo de Seguridad</h1>
-                    <p>Emitido por: <strong>{agency_name}</strong></p>
-                    <p>{agency_tagline}</p>
-                </div>
-                <div class="memo-header-right">
-                    {logo_html}
-                </div>
-            </div>
-            
-            <table class="meta-table">
-                <tr><td class="label">PARA:</td><td>{recipient_name}</td></tr>
-                <tr><td class="label">DE:</td><td>{agency_name} ({agency_tagline})</td></tr>
-                <tr><td class="label">ASUNTO:</td><td>{report_subject}</td></tr>
-                <tr><td class="label">OBJETIVO:</td><td>{hostname} ({geo['city']}, {geo['country']} - IP: {geo['ip']})</td></tr>
-            </table>
+  spf_badge = (
+      "<span style='color:green;'><b>OK</b></span>"
+      if email_sec["spf"]
+      else "<span style='color:red;'><b>Ausente</b></span>"
+  )
+  dmarc_badge = (
+      "<span style='color:green;'><b>OK</b></span>"
+      if email_sec["dmarc"]
+      else "<span style='color:red;'><b>Ausente</b></span>"
+  )
+  ssl_badge = (
+      "<span style='color:green;'><b>Válido</b></span>"
+      if ssl_info["valid"] and not ssl_info["expires_soon"]
+      else "<span style='color:orange;'><b>Revisar</b></span>"
+  )
 
-            <div class="memo-body">
-                <h2>1. Resumen Gerencial y Hallazgo General</h2>
-                <p>Por medio del presente informe, nos dirigimos a usted para presentar las conclusiones gerenciales derivadas del análisis de seguridad perimetral realizado sobre el dominio <strong>{hostname}</strong>.</p>
-                
-                <div class="highlight-box">
-                    <p style="margin:0;"><strong>Estado Actual de Riesgo:</strong> La infraestructura evaluada presenta un total de <strong>{len(findings)} áreas de vulnerabilidad y exposición perimetral</strong> que requieren atención prioritaria.</p>
-                </div>
-
-                <h2>2. Análisis de Riesgos Críticos para el Negocio</h2>
-                <ul>
-                    <li><strong>Certificado SSL/TLS:</strong> {ssl_info['details']} (Emisor: {ssl_info['issuer']})</li>
-                    <li><strong>Protección de Correo (SPF / DMARC):</strong> {"Configurado correctamente." if email_sec['spf'] and email_sec['dmarc'] else "Ausencia de directivas estrictas. Riesgo de phishing y suplantación de identidad."}</li>
-                    <li><strong>Exposición Perimetral:</strong> Presencia de puertos y servicios con exposición directa a internet.</li>
-                </ul>
+  items_html_es = ""
+  for idx, f in enumerate(active_findings, 1):
+    items_html_es += f"""
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-num">#{idx}</span>
+                <span class="finding-title">{f['vector']}</span>
+                <span class="{f['badge']}">{f['severity']}</span>
             </div>
-
-            <div class="signature-section">
-                <p style="margin:2px 0;">Atentamente,</p>
-                <p style="margin:2px 0;"><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name}</p>
+            <div class="finding-body">
+                <p><strong>Descripción:</strong> {f['desc']}</p>
+                <p><strong>Impacto:</strong> {f['impact']}</p>
+                <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
             </div>
-            <div class="disclaimer">Documento confidencial preparado para la gerencia de {hostname}.</div>
-        </body>
-        </html>
-        """
-  else:
-    active_findings = findings
-    if "Correo" in report_type:
-      active_findings = [
-          f
-          for f in findings
-          if "SPF" in f["vector"] or "DMARC" in f["vector"]
-      ]
-    elif "Ejecutivo" in report_type:
-      active_findings = findings[:3]
-
-    ports_html = (
-        "".join([
-            (
-                f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
-                " (Open)</td></tr>"
-            )
-            for p in open_ports
-        ])
-        or "<tr><td colspan='2' style='text-align:center;'>No ports detected.</td></tr>"
-    )
-    sub_html = (
-        "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
-        or "<li>No subdomains found.</li>"
-    )
-
-    spf_badge = (
-        "<span style='color:green;'><b>OK</b></span>"
-        if email_sec["spf"]
-        else "<span style='color:red;'><b>Ausente</b></span>"
-    )
-    dmarc_badge = (
-        "<span style='color:green;'><b>OK</b></span>"
-        if email_sec["dmarc"]
-        else "<span style='color:red;'><b>Ausente</b></span>"
-    )
-    ssl_badge = (
-        "<span style='color:green;'><b>Válido</b></span>"
-        if ssl_info["valid"] and not ssl_info["expires_soon"]
-        else "<span style='color:orange;'><b>Revisar</b></span>"
-    )
-
-    items_html_en = ""
-    for idx, f in enumerate(active_findings, 1):
-      f_en = translate_finding_en(f)
-      items_html_en += f"""
-            <div class="finding-card">
-                <div class="finding-header">
-                    <span class="finding-num">#{idx}</span>
-                    <span class="finding-title">{f_en['vector']}</span>
-                    <span class="{f_en['badge']}">{f_en['severity']}</span>
-                </div>
-                <div class="finding-body">
-                    <p><strong>Technical Description:</strong> {f_en['desc']}</p>
-                    <p><strong>Business Impact:</strong> {f_en['impact']}</p>
-                    <div class="solution-box"><p><strong>Remediation:</strong> <code>{f_en['fix']}</code></p></div>
-                </div>
-            </div>
-            """
-    exec_bullets_en = "".join([
-        (
-            f"<li><strong>{translate_finding_en(f)['exec_title']}</strong>:"
-            f" {translate_finding_en(f)['impact']}</li>"
-        )
-        for f in active_findings
-    ])
-
-    items_html_es = ""
-    for idx, f in enumerate(active_findings, 1):
-      items_html_es += f"""
-            <div class="finding-card">
-                <div class="finding-header">
-                    <span class="finding-num">#{idx}</span>
-                    <span class="finding-title">{f['vector']}</span>
-                    <span class="{f['badge']}">{f['severity']}</span>
-                </div>
-                <div class="finding-body">
-                    <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
-                    <p><strong>Impacto de Negocio:</strong> {f['impact']}</p>
-                    <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
-                </div>
-            </div>
-            """
-    exec_bullets_es = "".join([
-        f"<li><strong>{f['exec_title']}</strong>: {f['impact']}</li>"
-        for f in active_findings
-    ])
-
-    html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #64748b; }} }}
-                body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
-                .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
-                .banner-left {{ float: left; width: 70%; }}
-                .banner-right {{ float: right; width: 28%; text-align: right; }}
-                .header-banner h1 {{ margin: 0; font-size: 13pt; }}
-                .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
-                .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
-                .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
-                .meta-value {{ font-size: 8pt; font-weight: 600; color: #0f172a; }}
-                h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
-                .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
-                .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-                .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-                .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-                .chart-container {{ text-align: center; }}
-                .chart-container img {{ max-width: 65%; height: auto; }}
-                .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
-                table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
-                table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
-                table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
-                .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
-                .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
-                .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
-                .finding-body {{ padding: 5px 6px; }}
-                .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
-                .solution-box code {{ color: #0369a1; font-size: 7pt; }}
-                .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
-            </style>
-        </head>
-        <body>
-            <!-- ENGLISH REPORT -->
-            <div class="header-banner">
-                <div class="banner-left">
-                    <h1>Cybersecurity Assessment Report</h1>
-                    <p>Prepared by: <strong>{agency_name}</strong> ({agency_tagline})</p>
-                </div>
-                <div class="banner-right">{logo_html}</div>
-            </div>
-            <table style="width: 100%; margin-bottom: 6px; border: none;">
-                <tr>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Target</div><div class="meta-value">{hostname}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SSL Status</div><div class="meta-value">{ssl_badge}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
-                </tr>
-            </table>
-            <h2>1. Management Vision & Infrastructure</h2>
-            <div class="executive-box"><p style="margin:0;">The exposed perimeter of <strong>{hostname}</strong> was assessed under the <em>{report_type}</em> standard.</p></div>
-            <table style="width: 100%; border: none; margin-bottom: 6px;">
-                <tr>
-                    <td style="width: 50%; vertical-align: top; border: none;">
-                        <div class="card"><h3 style="margin:0; font-size:8.5pt;">Critical Ports:</h3>
-                        <table class="ports-table"><thead><tr><th>Port</th><th>Service</th></tr></thead><tbody>{ports_html}</tbody></table></div>
-                    </td>
-                    <td style="width: 50%; vertical-align: top; border: none;">
-                        <div class="card"><h3 style="margin:0; font-size:8.5pt;">Subdomains:</h3>
-                        <ul style="margin:0; padding-left:14px; font-size:7pt; max-height:75px; overflow:hidden;">{sub_html}</ul></div>
-                    </td>
-                </tr>
-            </table>
-            <div class="card" style="text-align: center; padding: 4px;">
-                <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Chart"></div>
-            </div>
-            <div class="card">
-                <h3 style="margin:0; font-size:8.5pt;">Impact Analysis:</h3>
-                <ul style="margin:0; padding-left:14px; font-size:7.5pt;">{exec_bullets_en}</ul>
-            </div>
-            <div style="page-break-after: always;"></div>
-            
-            <div class="header-banner">
-                <div class="banner-left">
-                    <h1>Technical Annex & Remediation</h1>
-                    <p>Prepared by: {agency_name}</p>
-                </div>
-                <div class="banner-right">{logo_html}</div>
-            </div>
-            <h2>2. Actionable Findings & Fixes</h2>
-            {items_html_en}
-            <div class="disclaimer">Real-time external perimeter assessment.</div>
-
-            <!-- SPANISH REPORT -->
-            <div style="page-break-after: always;"></div>
-            <div class="header-banner">
-                <div class="banner-left">
-                    <h1>Informe Ejecutivo de Ciberseguridad</h1>
-                    <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
-                </div>
-                <div class="banner-right">{logo_html}</div>
-            </div>
-            <table style="width: 100%; margin-bottom: 6px; border: none;">
-                <tr>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Certificado SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
-                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
-                </tr>
-            </table>
-            <h2>1. Visión Gerencial e Infraestructura</h2>
-            <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>{report_type}</em>.</p></div>
-            <table style="width: 100%; border: none; margin-bottom: 6px;">
-                <tr>
-                    <td style="width: 50%; vertical-align: top; border: none;">
-                        <div class="card"><h3 style="margin:0; font-size:8.5pt;">Puertos Críticos:</h3>
-                        <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
-                    </td>
-                    <td style="width: 50%; vertical-align: top; border: none;">
-                        <div class="card"><h3 style="margin:0; font-size:8.5pt;">Subdominios:</h3>
-                        <ul style="margin:0; padding-left:14px; font-size:7pt; max-height:75px; overflow:hidden;">{sub_html}</ul></div>
-                    </td>
-                </tr>
-            </table>
-            <div class="card" style="text-align: center; padding: 4px;">
-                <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
-            </div>
-            <div class="card">
-                <h3 style="margin:0; font-size:8.5pt;">Análisis de Impacto:</h3>
-                <ul style="margin:0; padding-left:14px; font-size:7.5pt;">{exec_bullets_es}</ul>
-            </div>
-            <div style="page-break-after: always;"></div>
-            <div class="header-banner">
-                <div class="banner-left">
-                    <h1>Anexo Técnico y Guía de Remediación</h1>
-                    <p>Elaborado por: {agency_name}</p>
-                </div>
-                <div class="banner-right">{logo_html}</div>
-            </div>
-            <h2>2. Detalle Exhaustivo de Hallazgos</h2>
-            {items_html_es}
-            <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
-        </body>
-        </html>
+        </div>
         """
 
+  html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #64748b; }} }}
+            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
+            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
+            .banner-left {{ float: left; width: 70%; }}
+            .banner-right {{ float: right; width: 28%; text-align: right; }}
+            .header-banner h1 {{ margin: 0; font-size: 13pt; }}
+            .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
+            .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
+            .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
+            .meta-value {{ font-size: 8pt; font-weight: 600; color: #0f172a; }}
+            h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
+            .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
+            .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .chart-container {{ text-align: center; }}
+            .chart-container img {{ max-width: 65%; height: auto; }}
+            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
+            table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
+            table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
+            table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
+            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
+            .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
+            .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
+            .finding-body {{ padding: 5px 6px; }}
+            .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
+            .solution-box code {{ color: #0369a1; font-size: 7pt; }}
+            .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
+        </style>
+    </head>
+    <body>
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Informe Ejecutivo de Ciberseguridad</h1>
+                <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
+        </div>
+        <table style="width: 100%; margin-bottom: 6px; border: none;">
+            <tr>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo</div><div class="meta-value">{hostname}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
+            </tr>
+        </table>
+        <h2>1. Visión Gerencial e Infraestructura</h2>
+        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>{report_type}</em>.</p></div>
+        <table style="width: 100%; border: none; margin-bottom: 6px;">
+            <tr>
+                <td style="width: 50%; vertical-align: top; border: none;">
+                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Puertos Críticos:</h3>
+                    <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
+                </td>
+                <td style="width: 50%; vertical-align: top; border: none;">
+                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Subdominios:</h3>
+                    <ul style="margin:0; padding-left:14px; font-size:7pt; max-height:75px; overflow:hidden;">{sub_html}</ul></div>
+                </td>
+            </tr>
+        </table>
+        <div class="card" style="text-align: center; padding: 4px;">
+            <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
+        </div>
+        <div style="page-break-after: always;"></div>
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Anexo Técnico y Guía de Remediación</h1>
+                <p>Elaborado por: {agency_name}</p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
+        </div>
+        <h2>2. Detalle Exhaustivo de Hallazgos</h2>
+        {items_html_es}
+        <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
+    </body>
+    </html>
+    """
   HTML(string=html_content).write_pdf(output_filename)
 
 
@@ -984,11 +833,10 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Banner superior limpio
 st.markdown(
     """
     <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Security Suite:</strong> SSL Inspection & Word (.docx) Export <b>Active & Ready</b>.
+        🚀 <strong>CyberAudits Security Suite:</strong> SSL Inspection, Word Export & SQLite History Active & Ready.
     </div>
     """,
     unsafe_allow_html=True,
@@ -996,8 +844,8 @@ st.markdown(
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.write(
-    "Plataforma de inteligencia perimetral, inspección SSL y auditoría"
-    " automatizada."
+    "Plataforma de inteligencia perimetral, inspección SSL, historial y"
+    " auditoría automatizada."
 )
 
 # Panel de Configuración Comercial (Sidebar)
@@ -1033,19 +881,29 @@ report_subject = st.sidebar.text_input(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Personaliza la identidad visual, subtítulos y destinatarios de los"
-    " reportes."
+st.sidebar.subheader("📧 Envío SMTP (Opcional)")
+smtp_server_input = st.sidebar.text_input(
+    "Servidor SMTP (ej: smtp.gmail.com)", value=""
+)
+smtp_port_input = st.sidebar.text_input("Puerto SMTP", value="587")
+sender_email_input = st.sidebar.text_input("Correo Remitente", value="")
+sender_pass_input = st.sidebar.text_input(
+    "Contraseña o Token App", type="password", value=""
+)
+recipient_email_input = st.sidebar.text_input(
+    "Correo Destinatario (Cliente)", value=""
 )
 
-tab1, tab2, tab3 = st.tabs(
-    ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
-)
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🔍 Perimeter Scan",
+    "📊 Security Analytics",
+    "📜 Historial de Escaneos",
+    "ℹ️ About CyberAudits",
+])
 
 with tab1:
   st.markdown("### 🎯 Quick Test Targets")
   col_btn1, col_btn2, col_btn3 = st.columns(3)
-
   quick_domain = ""
   if col_btn1.button("🌐 example.com"):
     quick_domain = "example.com"
@@ -1083,6 +941,15 @@ with tab1:
             email_sec,
             ssl_info,
         ) = scan_target(target_url)
+
+        # Guardar en SQLite Historial
+        save_scan_to_db(
+            hostname,
+            geo["ip"],
+            len(findings),
+            len(open_ports),
+            report_type,
+        )
 
         st.write(
             f"Generando plantillas y reportes para {agency_name}..."
@@ -1130,7 +997,9 @@ with tab1:
         )
 
         status.update(
-            label="✅ ¡Análisis perimetral y SSL completado!",
+            label=(
+                "✅ ¡Análisis perimetral completado y guardado en historial!"
+            ),
             state="complete",
             expanded=False,
         )
@@ -1145,11 +1014,6 @@ with tab1:
       st.session_state.email_sec = email_sec
       st.session_state.ssl_info = ssl_info
       st.session_state.agency_name = agency_name
-      st.session_state.agency_tagline = agency_tagline
-      st.session_state.report_type = report_type
-      st.session_state.recipient_name = recipient_name
-      st.session_state.report_subject = report_subject
-      st.session_state.logo_b64 = logo_b64
       st.session_state.pdf_filename = pdf_filename
       st.session_state.docx_bytes = docx_bytes
 
@@ -1182,18 +1046,13 @@ with tab1:
 
     st.markdown("---")
     st.subheader("📊 Resumen del Estado de Seguridad")
-
     col1, col2, col3 = st.columns(3)
     col1.metric("Vulnerabilidades", len(st.session_state.findings))
     col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
     col3.metric("Subdominios", len(st.session_state.subdomains))
 
     st.markdown("---")
-    st.markdown("### 📥 Descarga de Informes y Datos (Workflow Pentest)")
-    st.success(
-        "💎 **Promoción de Lanzamiento:** ¡La descarga de reportes ejecutivos en"
-        " PDF, Word editable y datos es **100% GRATIS**!"
-    )
+    st.markdown("### 📥 Descarga de Informes y Envío por Correo")
 
     col_dl1, col_dl2, col_dl3, col_dl4 = st.columns(4)
 
@@ -1201,7 +1060,7 @@ with tab1:
       if os.path.exists(st.session_state.pdf_filename):
         with open(st.session_state.pdf_filename, "rb") as pdf_file:
           st.download_button(
-              label="📥 Descargar PDF Ejecutivo",
+              label="📥 Descargar PDF",
               data=pdf_file,
               file_name=st.session_state.pdf_filename,
               mime="application/pdf",
@@ -1211,7 +1070,7 @@ with tab1:
     with col_dl2:
       if "docx_bytes" in st.session_state:
         st.download_button(
-            label="📝 Descargar Word (.docx)",
+            label="📝 Descargar Word",
             data=st.session_state.docx_bytes,
             file_name=f"auditoria_{st.session_state.hostname}.docx",
             mime=(
@@ -1221,24 +1080,28 @@ with tab1:
         )
 
     with col_dl3:
-      export_data = {
-          "target": st.session_state.hostname,
-          "ip": st.session_state.geo["ip"],
-          "location": st.session_state.geo["country"],
-          "hosting": st.session_state.geo["org"],
-          "ssl_inspection": st.session_state.ssl_info,
-          "email_security": st.session_state.email_sec,
-          "open_ports": st.session_state.open_ports,
-          "subdomains": st.session_state.subdomains,
-          "findings": st.session_state.findings,
-      }
-      json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
-      st.download_button(
-          label="📦 Exportar JSON",
-          data=json_str,
-          file_name=f"auditoria_{st.session_state.hostname}.json",
-          mime="application/json",
-      )
+      if os.path.exists(st.session_state.pdf_filename) and recipient_email_input:
+        if st.button("📧 Enviar PDF por Correo"):
+          with open(st.session_state.pdf_filename, "rb") as f:
+            pdf_bytes_data = f.read()
+          success, msg = send_email_report(
+              smtp_server_input,
+              smtp_port_input,
+              sender_email_input,
+              sender_pass_input,
+              recipient_email_input,
+              f"Informe de Ciberseguridad - {st.session_state.hostname}",
+              (
+                  f"Adjunto encontrará el informe de auditoría perimetral para"
+                  f" {st.session_state.hostname}."
+              ),
+              pdf_bytes_data,
+              st.session_state.pdf_filename,
+          )
+          if success:
+            st.success(msg)
+          else:
+            st.error(msg)
 
     with col_dl4:
       df_findings = pd.DataFrame(st.session_state.findings)
@@ -1259,29 +1122,29 @@ with tab2:
     st.write(f"Hosting Provider: `{st.session_state.geo['org']}`")
     st.write(f"SSL Status: `{st.session_state.ssl_info['details']}`")
     st.write(f"SSL Issuer: `{st.session_state.ssl_info['issuer']}`")
-    st.write(
-        "SPF Status:"
-        f" `{'Configured' if st.session_state.email_sec['spf'] else 'Missing'}`"
-    )
-    st.write(
-        "DMARC Status:"
-        f" `{'Configured' if st.session_state.email_sec['dmarc'] else 'Missing'}`"
-    )
-    st.write(f"Open ports count: {len(st.session_state.open_ports)}")
-    st.write(f"Subdomains discovered: {len(st.session_state.subdomains)}")
-
     if st.session_state.findings:
       st.markdown("### Raw Findings Table")
       st.dataframe(pd.DataFrame(st.session_state.findings))
   else:
-    st.info(
-        "Run a scan in the first tab to view infrastructure and SSL details."
-    )
+    st.info("Run a scan in the first tab to view details.")
 
 with tab3:
+  st.subheader("📜 Historial de Escaneos Realizados (SQLite)")
+  history_df = get_scan_history()
+  if not history_df.empty:
+    st.dataframe(history_df, use_container_width=True)
+    if st.button("🗑️ Limpiar Historial"):
+      conn = sqlite3.connect("cyber_audits.db")
+      conn.execute("DELETE FROM history")
+      conn.commit()
+      conn.close()
+      st.rerun()
+  else:
+    st.info("Aún no hay escaneos guardados en el historial de la base de datos.")
+
+with tab4:
   st.subheader("About CyberAudits")
   st.markdown("""
-    **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing, SSL verification, and executive reporting.
-    * **Tech Stack:** Python, Streamlit, WeasyPrint, Python-Docx, Socket, SSL, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Fully customizable white-label corporate delivery with PDF executive reports and fully editable Word (`.docx`) documents.
+    **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing, SSL verification, history tracking, and executive reporting.
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Python-Docx, SQLite3, SMTPLIB, Pandas.
     """)
