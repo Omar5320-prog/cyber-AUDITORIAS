@@ -28,21 +28,14 @@ st.set_page_config(
 def get_db_connection():
   if "postgres" in st.secrets:
     db_conf = st.secrets["postgres"]
-    # Si usas URL directa o campos separados, construimos la cadena con SSL obligatorio
-    if "url" in db_conf:
-      conn_url = db_conf["url"]
-    else:
-      conn_url = (
-          f"postgresql://{db_conf.get('user')}:{db_conf.get('password')}"
-          f"@{db_conf.get('host')}:{db_conf.get('port', 5432)}/{db_conf.get('database')}"
-      )
-
-    # Asegurar que incluya sslmode para Supabase
-    if "sslmode" not in conn_url:
-      sep = "&" if "?" in conn_url else "?"
-      conn_url += f"{sep}sslmode=require"
-
-    return psycopg2.connect(conn_url)
+    return psycopg2.connect(
+        host=db_conf.get("host"),
+        database=db_conf.get("database"),
+        user=db_conf.get("user"),
+        password=db_conf.get("password"),
+        port=int(db_conf.get("port", 6543)),
+        sslmode="require",
+    )
   else:
     import sqlite3
 
