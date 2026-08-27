@@ -474,8 +474,18 @@ def generate_pdf(
     geo,
     email_sec,
     agency_name,
+    report_type,
     output_filename,
 ):
+  # Filtrar hallazgos según el tipo de informe seleccionado
+  active_findings = findings
+  if "Correo" in report_type:
+    active_findings = [
+        f for f in findings if "SPF" in f["vector"] or "DMARC" in f["vector"]
+    ]
+  elif "Ejecutivo" in report_type:
+    active_findings = findings[:3]  # Mostrar solo los 3 principales
+
   ports_html = (
       "".join([
           f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
@@ -502,7 +512,7 @@ def generate_pdf(
   )
 
   items_html_en = ""
-  for idx, f in enumerate(findings, 1):
+  for idx, f in enumerate(active_findings, 1):
     f_en = translate_finding_en(f)
     items_html_en += f"""
         <div class="finding-card">
@@ -523,11 +533,11 @@ def generate_pdf(
   exec_bullets_en = "".join([
       f"<li><strong>{translate_finding_en(f)['exec_title']}</strong>:"
       f" {translate_finding_en(f)['impact']}</li>"
-      for f in findings
+      for f in active_findings
   ])
 
   items_html_es = ""
-  for idx, f in enumerate(findings, 1):
+  for idx, f in enumerate(active_findings, 1):
     items_html_es += f"""
         <div class="finding-card">
             <div class="finding-header">
@@ -544,8 +554,29 @@ def generate_pdf(
             </div>
         </div>
         """
-  exec_bullets_es = "".join(
-      [f"<li><strong>{f['exec_title']}</strong>: {f['impact']}</li>" for f in findings]
+  exec_bullets_es = "".join([
+      f"<li><strong>{f['exec_title']}</strong>: {f['impact']}</li>"
+      for f in active_findings
+  ])
+
+  # Título personalizado según el modelo
+  report_title_en = (
+      "Cybersecurity Executive Report"
+      if "Ejecutivo" in report_type
+      else (
+          "Email & DNS Posture Report"
+          if "Correo" in report_type
+          else "Comprehensive Cybersecurity Assessment"
+      )
+  )
+  report_title_es = (
+      "Informe Ejecutivo de Ciberseguridad"
+      if "Ejecutivo" in report_type
+      else (
+          "Informe de Postura de Correo y DNS"
+          if "Correo" in report_type
+          else "Informe Técnico Exhaustivo de Ciberseguridad"
+      )
   )
 
   html_content = f"""
@@ -588,8 +619,8 @@ def generate_pdf(
     <body>
         <!-- INGLÉS -->
         <div class="header-banner">
-            <h1>Cybersecurity Executive Report</h1>
-            <p>Prepared by: <strong>{agency_name}</strong> | Perimeter Diagnosis & DNS Intelligence</p>
+            <h1>{report_title_en}</h1>
+            <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
@@ -600,7 +631,7 @@ def generate_pdf(
             </tr>
         </table>
         <h2>1. Management Vision & Infrastructure</h2>
-        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> was analyzed combining web security, open ports, and email security posture.</p></div>
+        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> was analyzed under the <em>{report_type}</em> standard.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -623,15 +654,15 @@ def generate_pdf(
         <div style="page-break-after: always;"></div>
         
         <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Prepared by: {agency_name}</p></div>
-        <h2>2. Exhaustive Details</h2>
+        <h2>2. Exhaustive Details & Actionable Findings</h2>
         {items_html_en}
-        <div class="disclaimer">Note: External perimeter findings in real time.</div>
+        <div class="disclaimer">Note: External perimeter findings generated in real time.</div>
 
         <!-- ESPAÑOL -->
         <div style="page-break-after: always;"></div>
         <div class="header-banner">
-            <h1>Informe Ejecutivo de Ciberseguridad</h1>
-            <p>Elaborado por: <strong>{agency_name}</strong> | Diagnóstico Perimetral y DNS</p>
+            <h1>{report_title_es}</h1>
+            <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
@@ -642,7 +673,7 @@ def generate_pdf(
             </tr>
         </table>
         <h2>1. Visión Gerencial e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> evaluando seguridad web, puertos y la postura de seguridad de correo electrónico.</p></div>
+        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>{report_type}</em>.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -664,7 +695,7 @@ def generate_pdf(
         </div>
         <div style="page-break-after: always;"></div>
         <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Elaborado por: {agency_name}</p></div>
-        <h2>2. Detalle Exhaustivo</h2>
+        <h2>2. Detalle Exhaustivo de Hallazgos</h2>
         {items_html_es}
         <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
         <div class="cta-box">
@@ -697,16 +728,23 @@ st.write(
     " correo y servidores."
 )
 
-# Panel de Configuración de Marca Blanca para Agencias
-with st.expander("💼 Configuración de Marca Blanca (Agencias / Consultoras)"):
-  agency_name = st.text_input(
-      "Nombre de tu Agencia o Consultora de Ciberseguridad",
-      value="SecOps Global Partners",
-  )
-  st.caption(
-      "Este nombre aparecerá en los encabezados del informe ejecutivo en PDF"
-      " entregado a tu cliente."
-  )
+# Panel de Configuración Comercial y Modelos de Informe (White-Label + Templates)
+st.sidebar.header("⚙️ Configuración del Informe")
+agency_name = st.sidebar.text_input(
+    "Nombre de la Agencia", value="SecOps Global Partners"
+)
+report_type = st.sidebar.selectbox(
+    "Plantilla / Modelo de Informe",
+    [
+        "Informe Técnico Exhaustivo (Completo)",
+        "Informe Ejecutivo (Solo Gerencia)",
+        "Informe de Postura de Correo y DNS",
+    ],
+)
+st.sidebar.caption(
+    "Selecciona el modelo de reporte que mejor se adapte a las necesidades"
+    " de tu cliente."
+)
 
 tab1, tab2, tab3 = st.tabs(
     ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
@@ -745,8 +783,7 @@ with tab1:
             scan_target(target_url)
         )
         st.write(
-            "Generando gráficos y compilando PDF con marca blanca de"
-            f" {agency_name}..."
+            f"Generando plantilla '{report_type}' para {agency_name}..."
         )
         chart_b64 = generate_chart(stats)
 
@@ -762,6 +799,7 @@ with tab1:
             geo,
             email_sec,
             agency_name,
+            report_type,
             pdf_filename,
         )
         status.update(
@@ -779,11 +817,13 @@ with tab1:
       st.session_state.geo = geo
       st.session_state.email_sec = email_sec
       st.session_state.agency_name = agency_name
+      st.session_state.report_type = report_type
       st.session_state.pdf_filename = pdf_filename
 
   if st.session_state.scanned:
     st.success(
-        f"¡Análisis completado para {st.session_state.hostname}!"
+        f"¡Análisis completado para {st.session_state.hostname} usando el"
+        f" modelo '{st.session_state.report_type}'!"
     )
 
     st.markdown("### 📍 Inteligencia de Servidor y DNS")
@@ -838,6 +878,7 @@ with tab1:
           "subdomains": st.session_state.subdomains,
           "findings": st.session_state.findings,
           "prepared_by": st.session_state.agency_name,
+          "report_model": st.session_state.report_type,
       }
       json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
       st.download_button(
@@ -889,5 +930,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Automated white-label corporate delivery for security agencies.
+    * **Reporting:** Automated multi-template white-label corporate delivery for security agencies.
     """)
