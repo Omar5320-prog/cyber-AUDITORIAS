@@ -250,12 +250,22 @@ def scan_target(url):
         "vector": "Certificado SSL/TLS Inválido o Ausente",
         "severity": "CRÍTICO",
         "badge": "badge-critical",
-        "exec_title": "Fallo Crítico en Cifrado HTTPS",
+        "exec_title": "Fallo Crítico en Cifrado HTTPS (Certificado No Confiable)",
         "desc": ssl_info["details"],
-        "impact": "Bloqueo de navegación y alertas de fraude.",
-        "fix": "Instalar certificado SSL válido.",
+        "impact": (
+            "Los navegadores bloquearán el acceso a la web advirtiendo a los"
+            " usuarios sobre fraude."
+        ),
+        "fix": (
+            "Renovar o instalar un certificado SSL/TLS válido emitido por una"
+            " Autoridad reconocida."
+        ),
         "compliance": "PCI-DSS 4.1 / ISO 27001 A.10.1",
-        "snippet": f"certbot --nginx -d {hostname}",
+        "snippet": (
+            "# Instalar Certificado SSL válido (ej via Certbot / Let's"
+            " Encrypt)\ncertbot --nginx -d "
+            + hostname
+        ),
     })
   elif ssl_info["expires_soon"]:
     stats["Medias"] += 1
@@ -266,10 +276,10 @@ def scan_target(url):
         ),
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Riesgo de Expiración SSL",
+        "exec_title": "Riesgo de Expiración Próxima de Certificado SSL",
         "desc": ssl_info["details"],
-        "impact": "Caída temporal de servicios seguros.",
-        "fix": "Renovar certificado.",
+        "impact": "Si el certificado expira, los servicios web dejarán de operar.",
+        "fix": "Renovar el certificado SSL antes de la fecha límite.",
         "compliance": "ISO 27001 A.12.1",
         "snippet": "certbot renew --dry-run",
     })
@@ -281,13 +291,22 @@ def scan_target(url):
   else:
     stats["Medias"] += 1
     findings.append({
-        "vector": "Ausencia de Registro SPF (Phishing)",
+        "vector": "Ausencia de Registro SPF (Riesgo de Phishing)",
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Vulnerabilidad en Postura de Correo",
-        "desc": "El dominio carece de registro SPF.",
-        "impact": "Riesgo alto de suplantación y phishing.",
-        "fix": "Publicar registro TXT SPF.",
+        "exec_title": "Vulnerabilidad en la Postura de Correo (Sin SPF)",
+        "desc": (
+            "El dominio no cuenta con un registro SPF válido que autorice qué"
+            " servidores pueden enviar correos."
+        ),
+        "impact": (
+            "Facilita que actores maliciosos envíen correos de suplantación de"
+            " identidad (phishing)."
+        ),
+        "fix": (
+            "Publicar un registro TXT con directivas SPF (ej: v=spf1"
+            " include:_spf.example.com ~all)."
+        ),
         "compliance": "ISO 27001 A.13.2",
         "snippet": (
             f"{hostname}. 3600 IN TXT \"v=spf1 include:_spf.example.com ~all\""
@@ -302,13 +321,22 @@ def scan_target(url):
         "vector": "Ausencia de Política DMARC",
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Falta de Autenticación DMARC",
-        "desc": "El dominio carece de política DMARC.",
-        "impact": "Falta de control ante fraude de correo.",
-        "fix": "Configurar TXT _dmarc.",
+        "exec_title": "Falta de Control de Autenticación de Correo (DMARC)",
+        "desc": (
+            "El dominio carece de una política DMARC para validar correos."
+        ),
+        "impact": (
+            "La organización pierde visibilidad sobre intentos de fraude y"
+            " suplantación."
+        ),
+        "fix": (
+            "Configurar un registro TXT en _dmarc con directivas de monitoreo o"
+            " rechazo."
+        ),
         "compliance": "ISO 27001 A.13.1",
         "snippet": (
-            f"_dmarc.{hostname}. 3600 IN TXT \"v=DMARC1; p=reject;\""
+            f"_dmarc.{hostname}. 3600 IN TXT \"v=DMARC1; p=reject;"
+            ' sp=reject; rua=mailto:admin@' + hostname + '"'
         ),
     })
 
@@ -321,17 +349,32 @@ def scan_target(url):
           "vector": f"Puerto {p['port']} ({p['service']}) Abierto al Público",
           "severity": "MEDIO",
           "badge": "badge-medium",
-          "exec_title": f"Servicio Expuesto en Puerto {p['port']}",
-          "desc": f"El puerto {p['port']} es accesible desde internet.",
-          "impact": "Riesgo de ataques de fuerza bruta.",
-          "fix": "Restringir acceso por Firewall.",
+          "exec_title": (
+              f"Servicio Administrativo / Base de Datos Expuesto en Puerto"
+              f" {p['port']}"
+          ),
+          "desc": (
+              f"El puerto {p['port']} ({p['service']}) se encuentra accesible"
+              " directamente desde internet."
+          ),
+          "impact": (
+              "Invita a atacantes a realizar ataques de fuerza bruta para"
+              " adivinar credenciales."
+          ),
+          "fix": (
+              f"Restringir el acceso al puerto {p['port']} mediante un Firewall"
+              " de Red o Grupos de Seguridad."
+          ),
           "compliance": "PCI-DSS 1.3 / ISO 27001 A.13.1",
-          "snippet": f"sudo ufw deny {p['port']}/tcp",
+          "snippet": (
+              f"# UFW Firewall Rule\nsudo ufw deny {p['port']}/tcp"
+          ),
       })
 
   try:
     response = requests.get(url, timeout=10)
     headers = response.headers
+
     if "Strict-Transport-Security" in headers:
       stats["Seguras"] += 1
     else:
@@ -340,45 +383,75 @@ def scan_target(url):
           "vector": "HTTP Strict Transport Security (HSTS) Ausente",
           "severity": "CRÍTICO",
           "badge": "badge-critical",
-          "exec_title": "Ausencia de HSTS",
-          "desc": "Cabecera HSTS no configurada.",
-          "impact": "Intercepción de tráfico en redes públicas.",
-          "fix": "Añadir cabecera HSTS.",
+          "exec_title": (
+              "Ausencia de Encriptación Forzada (Riesgo de Intercepción)"
+          ),
+          "desc": "La cabecera HSTS no está configurada en el servidor web.",
+          "impact": (
+              "Un atacante en una red Wi-Fi pública puede interceptar"
+              " credenciales."
+          ),
+          "fix": (
+              "Configurar la cabecera: Strict-Transport-Security:"
+              " max-age=31536000; includeSubDomains; preload."
+          ),
           "compliance": "PCI-DSS 4.1 / ISO 27001 A.14.1",
           "snippet": (
-              'add_header Strict-Transport-Security "max-age=31536000;" always;'
+              "# Nginx HSTS Header Config\nadd_header"
+              " Strict-Transport-Security \"max-age=31536000;"
+              ' includeSubDomains; preload" always;'
           ),
       })
+
     if "Server" in headers:
       stats["Medias"] += 1
       findings.append({
-          "vector": "Exposición de Versión del Servidor",
+          "vector": "Exposición de Versión del Servidor (Server Banner)",
           "severity": "MEDIO",
           "badge": "badge-medium",
-          "exec_title": "Server Banner Leak",
-          "desc": f"Cabecera expone: {headers.get('Server')}",
-          "impact": "Facilita ataques orientados a versiones.",
-          "fix": "Ocultar firma del servidor.",
+          "exec_title": "Fuga de Información Tecnológica del Servidor",
+          "desc": (
+              "La cabecera HTTP expone el software exacto:"
+              f" {headers.get('Server')}"
+          ),
+          "impact": (
+              "Facilita la búsqueda de vulnerabilidades públicas asociadas."
+          ),
+          "fix": "Ocultar o enmascarar la firma del servidor.",
           "compliance": "ISO 27001 A.12.6",
-          "snippet": "server_tokens off;",
+          "snippet": (
+              "# Nginx Ocultar Server Banner\nserver_tokens off;"
+          ),
       })
     else:
       stats["Seguras"] += 1
+
     if "X-Frame-Options" in headers or "Content-Security-Policy" in headers:
       stats["Seguras"] += 1
     else:
       stats["Bajas"] += 1
       findings.append({
-          "vector": "Protección Clickjacking Ausente",
+          "vector": (
+              "Protección contra Clickjacking Ausente (X-Frame-Options)"
+          ),
           "severity": "BAJO",
           "badge": "badge-low",
-          "exec_title": "Riesgo Clickjacking",
-          "desc": "Falta de control en marcos externos.",
-          "impact": "Carga maliciosa bajo botones trampa.",
-          "fix": "Añadir X-Frame-Options.",
-          "compliance": "OWASP / ISO 27001 A.14.1",
-          "snippet": 'add_header X-Frame-Options "SAMEORIGIN";',
+          "exec_title": "Riesgo de Secuestro de Clics (Clickjacking)",
+          "desc": (
+              "El sitio web no emite directivas para evitar su carga en marcos"
+              " externos."
+          ),
+          "impact": (
+              "Un sitio malicioso puede cargar tu web bajo un botón trampa."
+          ),
+          "fix": "Añadir cabecera X-Frame-Options: DENY o SAMEORIGIN.",
+          "compliance": "OWASP Top 10 / ISO 27001 A.14.1",
+          "snippet": (
+              "# Nginx Clickjacking Header\nadd_header X-Frame-Options"
+              ' "SAMEORIGIN" always;'
+          ),
       })
+
   except Exception:
     pass
 
@@ -420,7 +493,7 @@ def generate_chart(stats):
   )
   ax.axis("equal")
   plt.title(
-      "Distribución de Riesgos",
+      "Distribución de Riesgos en la Infraestructura",
       fontsize=9.5,
       fontweight="bold",
       color="#1e293b",
@@ -455,28 +528,62 @@ def generate_docx(
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
 
-  doc.add_paragraph().add_run(f"INFORME: {report_type.upper()}").font.size = (
-      Pt(14)
-  )
-  doc.add_paragraph().add_run(
-      f"Objetivo: {hostname} | Risk Score: {risk_score}/100 | Emitido por:"
-      f" {agency_name}"
-  )
+  p_title = doc.add_paragraph()
+  run_title = p_title.add_run(f"INFORME: {report_type.upper()}")
+  run_title.font.size = Pt(15)
+  run_title.font.bold = True
+  run_title.font.color.rgb = RGBColor(15, 23, 42)
 
-  doc.add_heading("Resumen y Metadatos", level=2)
-  doc.add_paragraph(
-      f"IP: {geo['ip']} | Ubicación: {geo['city']}, {geo['country']}"
+  p_sub = doc.add_paragraph()
+  run_sub = p_sub.add_run(
+      f"Emitido por: {agency_name} ({agency_tagline})\nObjetivo analizado:"
+      f" {hostname} | Risk Score: {risk_score}/100"
   )
+  run_sub.font.size = Pt(10)
+  run_sub.font.color.rgb = RGBColor(100, 116, 139)
 
-  doc.add_heading("Hallazgos de Seguridad", level=2)
+  doc.add_heading("1. Datos Generales y Metadatos del Objetivo", level=2)
+  table = doc.add_table(rows=6, cols=2)
+  table.style = "Table Grid"
+  data = [
+      ("Dominio / Hostname", hostname),
+      ("Dirección IP", geo["ip"]),
+      ("Risk Score Global", f"{risk_score} / 100"),
+      (
+          "Ubicación Geográfica",
+          f"{geo['city']}, {geo['country']} ({geo['org']})",
+      ),
+      (
+          "Seguridad de Correo",
+          f"SPF: {'OK' if email_sec['spf'] else 'Ausente'} | DMARC:"
+          f" {'OK' if email_sec['dmarc'] else 'Ausente'}",
+      ),
+      ("Certificado SSL/TLS", f"{ssl_info['details']}"),
+  ]
+  for i, (k, v) in enumerate(data):
+    table.cell(i, 0).text = k
+    table.cell(i, 1).text = str(v)
+
+  doc.add_heading("2. Detalle de Hallazgos y Guía de Remediación", level=2)
   for idx, f in enumerate(findings, 1):
-    doc.add_paragraph(
-        f"#{idx} - {f['vector']} [{f['severity']}] (Norma:"
-        f" {f.get('compliance', 'N/A')})"
+    h = doc.add_paragraph()
+    run_h = h.add_run(
+        f"#{idx} - {f['vector']} [{f['severity']}] | Norma:"
+        f" {f.get('compliance', 'N/A')}"
     )
-    doc.add_paragraph(f"Impacto: {f['impact']}")
-    if "Informe de Normativa" in report_type and "snippet" in f:
-      doc.add_paragraph(f"Configuración: {f['snippet']}")
+    run_h.font.bold = True
+    run_h.font.size = Pt(11)
+    doc.add_paragraph(f"Descripción: {f['desc']}")
+    doc.add_paragraph(f"Impacto de Negocio: {f['impact']}")
+    p_fix = doc.add_paragraph()
+    p_fix.add_run("Remediación: ").font.bold = True
+    p_fix.add_run(f"{f['fix']}")
+    if "snippet" in f:
+      p_snip = doc.add_paragraph()
+      p_snip.add_run("Configuración sugerida:\n").font.bold = True
+      run_code = p_snip.add_run(f"{f['snippet']}")
+      run_code.font.name = "Courier New"
+      run_code.font.size = Pt(9.5)
 
   buffer = io.BytesIO()
   doc.save(buffer)
@@ -505,64 +612,174 @@ def generate_pdf(
     output_filename,
 ):
   logo_html = (
-      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 50px;'
-      ' float: right;" alt="Logo">'
+      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 55px;'
+      ' width: auto; float: right; margin-top: 2px;" alt="Logo">'
       if logo_b64
       else ""
   )
+  ports_html = (
+      "".join([
+          (
+              f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
+              " (Open)</td></tr>"
+          )
+          for p in open_ports
+      ])
+      or "<tr><td colspan='2' style='text-align:center;'>No ports detected.</td></tr>"
+  )
+  sub_html = (
+      "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
+      or "<li>No subdomains found.</li>"
+  )
 
-  # Filtrar o adaptar según el tipo de informe seleccionado
+  spf_badge = (
+      "<span style='color:green;'><b>OK</b></span>"
+      if email_sec["spf"]
+      else "<span style='color:red;'><b>Ausente</b></span>"
+  )
+  dmarc_badge = (
+      "<span style='color:green;'><b>OK</b></span>"
+      if email_sec["dmarc"]
+      else "<span style='color:red;'><b>Ausente</b></span>"
+  )
+  ssl_badge = (
+      "<span style='color:green;'><b>Válido</b></span>"
+      if ssl_info["valid"] and not ssl_info["expires_soon"]
+      else "<span style='color:orange;'><b>Revisar</b></span>"
+  )
+
+  # Renderizado dinámico según el tipo de informe elegido (Exactamente 3 opciones)
   if "Narrativo" in report_type:
-    # Formato corto y entendible para gerencia / no técnicos
+    # 1. Informe Ejecutivo Narrativo (Enfoque Gerencial, claro, fluido y menos técnico)
     content_html = f"""
-        <h2>Resumen Ejecutivo</h2>
-        <p>Estimado equipo de <strong>{recipient_name}</strong>,</p>
-        <p>Se ha realizado una evaluación perimetral sobre el dominio <strong>{hostname}</strong> por parte de <em>{agency_name}</em>. El objetivo de este informe es presentar de manera clara y sin tecnicismos complejos el estado actual de seguridad.</p>
-        <div style="background:#eff6ff; border-left:4px solid #3b82f6; padding:10px; margin:10px 0;">
-            <p style="margin:0;"><strong>Calificación de Riesgo (Risk Score):</strong> <span style="font-size:14pt; font-weight:bold; color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</span></p>
-            <p style="margin:5px 0 0 0;">Se detectaron un total de <strong>{len(findings)} áreas de mejora</strong> que deben ser atendidas para proteger la reputación y continuidad del negocio.</p>
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Informe Ejecutivo Narrativo</h1>
+                <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
         </div>
-        <h3>Puntos Clave a Considerar:</h3>
+        <h2>Resumen Gerencial y Contexto del Negocio</h2>
+        <div class="executive-box">
+            <p style="margin:0;">Estimada Dirección y Junta Directiva de <strong>{recipient_name}</strong>,</p>
+            <p>Se ha llevado a cabo una evaluación de seguridad perimetral sobre el activo digital <strong>{hostname}</strong>. El propósito de este informe es proveer una visión clara y comprensible sobre la postura de riesgo actual de la organización, alejándonos de tecnicismos complejos para centrarnos en el impacto operativo y financiero.</p>
+            <p style="margin-bottom:0;"><strong>Calificación de Riesgo Asignada (Risk Score):</strong> <span style="font-size:12pt; font-weight:bold; color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</span></p>
+        </div>
+        <h2>Análisis General del Perímetro</h2>
+        <p>Durante la auditoría automatizada, se examinaron los puntos de entrada expuestos a internet. Los hallazgos principales indican que el sitio web opera bajo la dirección IP <code>{geo['ip']}</code> ({geo['org']}, {geo['country']}).</p>
         <ul>
-            <li><strong>Cifrado Web (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Protección de Correo:</strong> {'Los registros de correo están seguros.' if email_sec['spf'] and email_sec['dmarc'] else 'Se detectó ausencia de protecciones de correo, lo que facilita el phishing a nombre de su marca.'}</li>
-            <li><strong>Superficie Expuesta:</strong> Se identificaron puertos abiertos accesibles desde internet que incrementan el riesgo de accesos no autorizados.</li>
+            <li><strong>Cifrado y Confianza (SSL/TLS):</strong> {ssl_info['details']}</li>
+            <li><strong>Postura de Correo Electrónico:</strong> {'Los registros de autenticación protegen contra suplantación.' if email_sec['spf'] and email_sec['dmarc'] else 'Se detectó la ausencia de directivas SPF y/o DMARC, lo que deja abierta la puerta a ataques de phishing utilizando el nombre de su dominio.'}</li>
+            <li><strong>Superficie de Exposición:</strong> Se identificaron puertos abiertos y servicios expuestos que podrían ser aprovechados por atacantes informáticos si no se protegen adecuadamente mediante cortafuegos.</li>
         </ul>
-        <p>Recomendamos autorizar al equipo técnico la aplicación de las medidas correctivas correspondientes.</p>
+        <p>Recomendamos encarecidamente priorizar la corrección de los hallazgos críticos para mitigar cualquier riesgo de interrupción de servicio o fraude corporativo.</p>
         """
   elif "Normativa" in report_type:
-    # Formato enfocado en normas ISO/PCI y remediación técnica pura
-    items_html = ""
+    # 2. Informe de Normativa, Remediación y Recomendaciones (Enfoque ISO / Compliance / Snippets)
+    items_html_norm = ""
     for idx, f in enumerate(findings, 1):
-      items_html += f"""
-            <div style="border:1px solid #cbd5e1; padding:8px; margin-bottom:8px; border-radius:4px;">
-                <strong>#{idx} {f['vector']}</strong> [{f['severity']}]<br>
-                <strong>Norma Asociada:</strong> <code>{f.get('compliance', 'N/A')}</code><br>
-                <strong>Remediación:</strong> {f['fix']}<br>
-                <pre style="background:#f1f5f9; padding:4px; font-size:7pt;"><code>{f.get('snippet', '')}</code></pre>
+      snippet_box = (
+          f"<pre"
+          f' style="background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;"><code>{f.get("snippet", "")}</code></pre>'
+          if "snippet" in f
+          else ""
+      )
+      items_html_norm += f"""
+            <div class="finding-card">
+                <div class="finding-header">
+                    <span class="finding-num">#{idx}</span>
+                    <span class="finding-title">{f['vector']}</span>
+                    <span class="{f['badge']}">{f['severity']}</span>
+                </div>
+                <div class="finding-body">
+                    <p><strong>Marco Normativo / Compliance:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
+                    <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
+                    <div class="solution-box"><p><strong>Guía de Remediación y Configuración:</strong></p><code>{f['fix']}</code></div>
+                    {snippet_box}
+                </div>
             </div>
             """
     content_html = f"""
-        <h2>Matriz de Compliance y Guía de Remediación</h2>
-        <p>Objetivo: <strong>{hostname}</strong> | Risk Score: <strong>{risk_score}/100</strong></p>
-        {items_html}
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Informe de Normativa y Remediación (ISO / Compliance)</h1>
+                <p>Elaborado por: <strong>{agency_name}</strong></p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
+        </div>
+        <h2>Matriz de Cumplimiento Normativo y Guía Técnica</h2>
+        <div class="executive-box"><p style="margin:0;">Objetivo analizado: <strong>{hostname}</strong> | Risk Score Global: <strong>{risk_score}/100</strong>. Este documento detalla las desviaciones frente a estándares internacionales (ISO 27001, PCI-DSS) junto con los comandos y fragmentos de configuración necesarios para su corrección.</p></div>
+        {items_html_norm}
         """
   else:
-    # Informe Técnico Completo Estándar
-    items_html = ""
+    # 3. Informe Técnico Exhaustivo Completo (Estándar con toda la información y gráficos detallados)
+    items_html_full = ""
     for idx, f in enumerate(findings, 1):
-      items_html += f"""
-            <div style="border:1px solid #cbd5e1; padding:6px; margin-bottom:5px;">
-                <strong>#{idx} {f['vector']}</strong> [{f['severity']}]<br>
-                Descripción: {f['desc']}<br>Impacto: {f['impact']}<br>Remediación: {f['fix']}
+      snippet_box = (
+          f"<pre"
+          f' style="background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;"><code>{f.get("snippet", "")}</code></pre>'
+          if "snippet" in f
+          else ""
+      )
+      items_html_full += f"""
+            <div class="finding-card">
+                <div class="finding-header">
+                    <span class="finding-num">#{idx}</span>
+                    <span class="finding-title">{f['vector']}</span>
+                    <span class="{f['badge']}">{f['severity']}</span>
+                </div>
+                <div class="finding-body">
+                    <p><strong>Norma:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
+                    <p><strong>Descripción:</strong> {f['desc']}</p>
+                    <p><strong>Impacto:</strong> {f['impact']}</p>
+                    <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
+                    {snippet_box}
+                </div>
             </div>
             """
     content_html = f"""
-        <h2>Informe Técnico Exhaustivo</h2>
-        <p>Objetivo: <strong>{hostname}</strong> | IP: {geo['ip']}</p>
-        <div style="text-align:center;"><img src="data:image/png;base64,{chart_base64}" style="max-width:50%;"></div>
-        <h3>Hallazgos Técnicos Detallados:</h3>
-        {items_html}
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Informe Técnico Exhaustivo (Completo)</h1>
+                <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
+        </div>
+        <table style="width: 100%; margin-bottom: 6px; border: none;">
+            <tr>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo</div><div class="meta-value">{hostname}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Risk Score</div><div class="meta-value" style="color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Certificado SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
+            </tr>
+        </table>
+        <h2>1. Visión Gerencial e Infraestructura</h2>
+        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>Informe Técnico Exhaustivo</em>, obteniendo un Risk Score corporativo de <strong>{risk_score}/100</strong>.</p></div>
+        <table style="width: 100%; border: none; margin-bottom: 6px;">
+            <tr>
+                <td style="width: 50%; vertical-align: top; border: none;">
+                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Puertos Críticos:</h3>
+                    <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
+                </td>
+                <td style="width: 50%; vertical-align: top; border: none;">
+                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Subdominios:</h3>
+                    <ul style="margin:0; padding-left:14px; font-size:7pt; max-height:75px; overflow:hidden;">{sub_html}</ul></div>
+                </td>
+            </tr>
+        </table>
+        <div class="card" style="text-align: center; padding: 4px;">
+            <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
+        </div>
+        <div style="page-break-after: always;"></div>
+        <div class="header-banner">
+            <div class="banner-left">
+                <h1>Anexo Técnico y Hallazgos Detallados</h1>
+                <p>Elaborado por: {agency_name}</p>
+            </div>
+            <div class="banner-right">{logo_html}</div>
+        </div>
+        <h2>2. Detalle Exhaustivo de Vulnerabilidades</h2>
+        {items_html_full}
         """
 
   html_content = f"""
@@ -571,18 +788,39 @@ def generate_pdf(
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 12mm; @bottom-right {{ content: "Página " counter(page); font-size: 8pt; color: #64748b; }} }}
-            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; font-size: 8.5pt; line-height: 1.4; }}
-            .header {{ background: #0f172a; color: white; padding: 12px; border-radius: 4px; overflow: hidden; }}
-            .header h1 {{ margin: 0; font-size: 12pt; }}
+            @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #64748b; }} }}
+            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
+            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
+            .banner-left {{ float: left; width: 70%; }}
+            .banner-right {{ float: right; width: 28%; text-align: right; }}
+            .header-banner h1 {{ margin: 0; font-size: 13pt; }}
+            .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
+            .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
+            .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
+            .meta-value {{ font-size: 8pt; font-weight: 600; color: #0f172a; }}
+            h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
+            .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
+            .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+            .chart-container {{ text-align: center; }}
+            .chart-container img {{ max-width: 65%; height: auto; }}
+            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
+            table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
+            table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
+            table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
+            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
+            .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
+            .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
+            .finding-body {{ padding: 5px 6px; }}
+            .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
+            .solution-box code {{ color: #0369a1; font-size: 7pt; }}
+            .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
         </style>
     </head>
     <body>
-        <div class="header">
-            <div style="float:left;"><h1>{report_type}</h1><p style="margin:0; font-size:7.5pt; color:#94a3b8;">{agency_name}</p></div>
-            <div style="float:right;">{logo_html}</div>
-        </div>
         {content_html}
+        <div class="disclaimer">Nota: Evaluaciones perimetrales externas en tiempo real con mapeo corporativo.</div>
     </body>
     </html>
     """
@@ -595,7 +833,7 @@ if "scanned" not in st.session_state:
 st.markdown(
     """
     <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Enterprise:</strong> 3 Modelos de Informe Activos (Completo, Narrativo y Normativa).
+        🚀 <strong>CyberAudits Enterprise:</strong> 3 Modelos de Informe Activos (Técnico Exhaustivo, Ejecutivo Narrativo y Normativa/Remediación).
     </div>
     """,
     unsafe_allow_html=True,
@@ -603,8 +841,8 @@ st.markdown(
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.write(
-    "Selecciona el modelo de informe deseado en la barra lateral y ejecuta el"
-    " análisis."
+    "Plataforma de inteligencia perimetral con cálculo de Risk Score, mapeo"
+    " normativo y 3 plantillas profesionales."
 )
 
 st.sidebar.header("⚙️ Configuración del Informe")
@@ -612,19 +850,20 @@ agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
 )
 agency_tagline = st.sidebar.text_input(
-    "Subtítulo / Área", value="División de Ciberseguridad"
+    "Subtítulo / Área de la Agencia",
+    value="División de Consultoría y Ciberseguridad",
 )
 logo_file = st.sidebar.file_uploader(
-    "Logo (PNG / JPG)", type=["png", "jpg", "jpeg"]
+    "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
 )
 
-# ÚNICAMENTE TRES TIPOS DE INFORMES
+# EXACTAMENTE LOS 3 TIPOS DE INFORME SOLICITADOS
 report_type = st.sidebar.selectbox(
     "Plantilla / Modelo de Informe",
     [
-        "Informe Técnico Completo (Estándar)",
+        "Informe Técnico Exhaustivo (Completo)",
         "Informe Ejecutivo Narrativo",
-        "Informe de Normativa y Remediación (ISO / Compliance)",
+        "Informe de Normativa, Remediación y Recomendaciones (ISO / Compliance)",
     ],
 )
 
@@ -633,7 +872,13 @@ recipient_name = st.sidebar.text_input(
     value="Dirección General / Junta Directiva",
 )
 report_subject = st.sidebar.text_input(
-    "Asunto", value="Evaluación de Riesgos Perimetrales"
+    "Asunto del Informe",
+    value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
+)
+
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "CyberAudits Enterprise v3.2 • 100% Autónomo y sin dependencias externas."
 )
 
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -655,19 +900,25 @@ with tab1:
     quick_domain = "testphp.vulnweb.com"
 
   target_url = st.text_input(
-      "URL Objetivo", value=quick_domain if quick_domain else "https://"
+      "URL Objetivo (ej. mi-empresa.com)",
+      value=quick_domain if quick_domain else "https://",
   )
 
   if st.button("🚀 Ejecutar Análisis Completo"):
     if not target_url or target_url == "https://":
-      st.error("Introduce una URL válida.")
+      st.error("Por favor, introduce una URL válida.")
     else:
       if not target_url.startswith("http"):
         target_url = "https://" + target_url
 
       with st.status(
-          "🔍 Analizando objetivo y generando reporte...", expanded=True
+          "🔍 Analizando perímetro, SSL/TLS, Compliance y Risk Score...",
+          expanded=True,
       ) as status:
+        st.write("Inspeccionando certificado SSL/TLS y emisor...")
+        st.write("Verificando registros DNS (SPF y DMARC)...")
+        st.write("Calculando Risk Score y mapeando normativas...")
+
         (
             findings,
             stats,
@@ -679,6 +930,7 @@ with tab1:
             ssl_info,
             risk_score,
         ) = scan_target(target_url)
+
         save_scan_to_db(
             hostname,
             geo["ip"],
@@ -687,12 +939,15 @@ with tab1:
             report_type,
         )
 
-        chart_b64 = generate_chart(stats)
-        logo_b64 = (
-            base64.b64encode(logo_file.getvalue()).decode("utf-8")
-            if logo_file
-            else ""
+        st.write(
+            f"Generando reportes profesionales para {agency_name} usando"
+            f" '{report_type}'..."
         )
+        chart_b64 = generate_chart(stats)
+
+        logo_b64 = ""
+        if logo_file is not None:
+          logo_b64 = base64.b64encode(logo_file.getvalue()).decode("utf-8")
 
         pdf_filename = f"auditoria_{hostname}.pdf"
         generate_pdf(
@@ -732,36 +987,85 @@ with tab1:
             report_subject,
         )
 
-        status.update(label="✅ ¡Análisis completado!", state="complete")
+        status.update(
+            label=(
+                "✅ ¡Análisis corporativo completado con la plantilla"
+                " seleccionada!"
+            ),
+            state="complete",
+            expanded=False,
+        )
 
       st.session_state.scanned = True
       st.session_state.findings = findings
+      st.session_state.stats = stats
+      st.session_state.open_ports = open_ports
       st.session_state.hostname = hostname
+      st.session_state.subdomains = subdomains
+      st.session_state.geo = geo
+      st.session_state.email_sec = email_sec
+      st.session_state.ssl_info = ssl_info
       st.session_state.risk_score = risk_score
+      st.session_state.agency_name = agency_name
       st.session_state.pdf_filename = pdf_filename
       st.session_state.docx_bytes = docx_bytes
 
   if st.session_state.scanned:
     st.success(
-        f"Análisis finalizado para {st.session_state.hostname} usando el modelo"
-        f" '{report_type}'."
+        f"¡Análisis completado para {st.session_state.hostname} usando el"
+        f" formato: '{report_type}'!"
     )
-    col1, col2 = st.columns(2)
-    with col1:
+
+    st.markdown("### 📍 Panel Ejecutivo y Risk Score")
+    g1, g2, g3, g4, g5 = st.columns(5)
+    g1.metric("Dirección IP", st.session_state.geo["ip"])
+    g2.metric("Risk Score", f"{st.session_state.risk_score} / 100")
+    g3.metric(
+        "Certificado SSL",
+        (
+            "Válido"
+            if st.session_state.ssl_info["valid"]
+            and not st.session_state.ssl_info["expires_soon"]
+            else "Revisar"
+        ),
+    )
+    g4.metric(
+        "Registro SPF",
+        "Protegido" if st.session_state.email_sec["spf"] else "Ausente",
+    )
+    g5.metric(
+        "DMARC",
+        "Protegido" if st.session_state.email_sec["dmarc"] else "Ausente",
+    )
+
+    st.markdown("---")
+    st.subheader("📊 Resumen del Estado de Seguridad")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Vulnerabilidades", len(st.session_state.findings))
+    col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
+    col3.metric("Subdominios", len(st.session_state.subdomains))
+
+    st.markdown("---")
+    st.markdown("### 📥 Descarga de Informes Corporativos")
+
+    col_dl1, col_dl2, col_dl3 = st.columns(3)
+
+    with col_dl1:
       if os.path.exists(st.session_state.pdf_filename):
-        with open(st.session_state.pdf_filename, "rb") as f:
+        with open(st.session_state.pdf_filename, "rb") as pdf_file:
           st.download_button(
-              "📥 Descargar PDF",
-              f,
+              label="📥 Descargar PDF Ejecutivo",
+              data=pdf_file,
               file_name=st.session_state.pdf_filename,
               mime="application/pdf",
               type="primary",
           )
-    with col2:
+
+    with col_dl2:
       if "docx_bytes" in st.session_state:
         st.download_button(
-            "📝 Descargar Word",
-            st.session_state.docx_bytes,
+            label="📝 Descargar Word Editable (.docx)",
+            data=st.session_state.docx_bytes,
             file_name=f"auditoria_{st.session_state.hostname}.docx",
             mime=(
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -769,18 +1073,54 @@ with tab1:
             type="primary",
         )
 
+    with col_dl3:
+      df_findings = pd.DataFrame(st.session_state.findings)
+      if not df_findings.empty:
+        csv_data = df_findings.to_csv(index=False, sep=";").encode("utf-8-sig")
+        st.download_button(
+            label="📊 Exportar Hallazgos (CSV)",
+            data=csv_data,
+            file_name=f"hallazgos_{st.session_state.hostname}.csv",
+            mime="text/csv",
+        )
+
 with tab2:
-  st.subheader("Security Analytics")
+  st.subheader("Infrastructure Health, Compliance & Risk Score")
   if st.session_state.scanned:
+    st.write(f"Target: **{st.session_state.hostname}**")
+    st.write(f"Resolved IP: `{st.session_state.geo['ip']}`")
     st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
-    st.dataframe(pd.DataFrame(st.session_state.findings))
+    if st.session_state.findings:
+      st.markdown("### Hallazgos con Mapeo de Compliance y Snippets")
+      for f in st.session_state.findings:
+        with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
+          st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
+          st.write(f"**Descripción:** {f['desc']}")
+          st.write(f"**Impacto:** {f['impact']}")
+          st.write(f"**Remediación:** {f['fix']}")
+          if "snippet" in f:
+            st.code(f["snippet"], language="bash")
   else:
-    st.info("Ejecuta un escaneo primero.")
+    st.info("Ejecuta un escaneo en la primera pestaña para ver los detalles.")
 
 with tab3:
-  st.subheader("Historial de Escaneos")
-  st.dataframe(get_scan_history(), use_container_width=True)
+  st.subheader("📜 Historial de Escaneos Corporativos (SQLite)")
+  history_df = get_scan_history()
+  if not history_df.empty:
+    st.dataframe(history_df, use_container_width=True)
+    if st.button("🗑️ Limpiar Historial"):
+      conn = sqlite3.connect("cyber_audits.db")
+      conn.execute("DELETE FROM history")
+      conn.commit()
+      conn.close()
+      st.rerun()
+  else:
+    st.info("Aún no hay escaneos guardados en el historial de la base de datos.")
 
 with tab4:
-  st.subheader("About")
-  st.markdown("CyberAudits Enterprise - Versión optimizada con 3 plantillas.")
+  st.subheader("About CyberAudits Enterprise")
+  st.markdown("""
+    **CyberAudits Enterprise** es una plataforma autónoma de auditoría perimetral orientada a consultorías de seguridad.
+    * **Características:** Cálculo automático de Risk Score, mapeo normativo (PCI-DSS, ISO 27001), generación de scripts de configuración (snippets), reportes en PDF/Word y persistencia local con SQLite.
+    * **Coste:** 100% Gratuito y sin dependencias de claves de API externas.
+    """)
