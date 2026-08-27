@@ -1,8 +1,10 @@
 import base64
+import json
 import os
 import socket
 from urllib.parse import urlparse
 import matplotlib.pyplot as plt
+import pandas as pd
 import requests
 from weasyprint import HTML
 import streamlit as st
@@ -43,7 +45,6 @@ def check_email_security(hostname):
   """Verifica la existencia de registros SPF y DMARC para prevenir Email Spoofing."""
   email_sec = {"spf": False, "dmarc": False}
   try:
-    # Comprobar SPF en el dominio raíz
     res_spf = requests.get(
         f"https://cloudflare-dns.com/dns-query?name={hostname}&type=TXT",
         headers={"Accept": "application/dns-json"},
@@ -54,7 +55,6 @@ def check_email_security(hostname):
         if "v=spf1" in ans.get("data", ""):
           email_sec["spf"] = True
 
-    # Comprobar DMARC en _dmarc.dominio
     res_dmarc = requests.get(
         f"https://cloudflare-dns.com/dns-query?name=_dmarc.{hostname}&type=TXT",
         headers={"Accept": "application/dns-json"},
@@ -125,7 +125,6 @@ def scan_target(url):
   geo = get_geolocation(hostname)
   email_sec = check_email_security(hostname)
 
-  # Validar SPF
   if email_sec["spf"]:
     stats["Seguras"] += 1
   else:
@@ -141,8 +140,7 @@ def scan_target(url):
         ),
         "impact": (
             "Facilita que actores maliciosos envíen correos fraudulentos de"
-            " suplantación de identidad (phishing) hacia clientes o"
-            " colaboradores."
+            " suplantación de identidad (phishing)."
         ),
         "fix": (
             "Publicar un registro TXT con directivas SPF (ej: v=spf1"
@@ -150,7 +148,6 @@ def scan_target(url):
         ),
     })
 
-  # Validar DMARC
   if email_sec["dmarc"]:
     stats["Seguras"] += 1
   else:
@@ -165,8 +162,8 @@ def scan_target(url):
             " con los correos que fallan las validaciones."
         ),
         "impact": (
-            "La organización pierde visibilidad sobre intentos de fraude por"
-            " correo y aumenta el riesgo de que dominios falsos pasen desapercibidos."
+            "La organización pierde visibilidad sobre intentos de fraude y"
+            " aumenta el riesgo de suplantación."
         ),
         "fix": (
             "Configurar un registro TXT en _dmarc con directivas de monitoreo o"
@@ -189,12 +186,11 @@ def scan_target(url):
           ),
           "desc": (
               f"El puerto {p['port']} ({p['service']}) se encuentra accesible"
-              " de forma directa desde internet sin restricciones perimetrales"
-              " visibles."
+              " de forma directa desde internet sin restricciones."
           ),
           "impact": (
               "Invita a atacantes a realizar ataques de fuerza bruta para"
-              " adivinar credenciales y lograr control total de la plataforma."
+              " adivinar credenciales."
           ),
           "fix": (
               f"Restringir el acceso al puerto {p['port']} mediante un Firewall"
@@ -223,7 +219,7 @@ def scan_target(url):
           ),
           "impact": (
               "Un atacante en una red Wi-Fi pública puede interceptar la"
-              " conexión y robar contraseñas o tokens en tiempo real."
+              " conexión y robar contraseñas o tokens."
           ),
           "fix": (
               "Configurar la cabecera: Strict-Transport-Security:"
@@ -244,7 +240,7 @@ def scan_target(url):
           ),
           "impact": (
               "Facilita que actores maliciosos busquen vulnerabilidades"
-              " públicas asociadas a esa versión exacta de software."
+              " públicas asociadas."
           ),
           "fix": (
               "Ocultar o enmascarar la firma del servidor en la configuración"
@@ -270,8 +266,8 @@ def scan_target(url):
               " marcos externos."
           ),
           "impact": (
-              "Un sitio malicioso externo puede cargar tu web de forma"
-              " invisible bajo un botón trampa para engañar al usuario."
+              "Un sitio malicioso externo puede cargar tu web bajo un botón"
+              " trampa para engañar al usuario."
           ),
           "fix": (
               "Añadir la cabecera de seguridad X-Frame-Options: DENY o"
@@ -303,7 +299,7 @@ def scan_target(url):
               ),
               "impact": (
                   "Scripts maliciosos (XSS) pueden robar la sesión activa del"
-                  " usuario y suplantar su identidad."
+                  " usuario."
               ),
               "fix": (
                   "Emitir cookies con los atributos: Secure; HttpOnly;"
@@ -795,20 +791,56 @@ with tab1:
     col3.metric("Subdominios", len(st.session_state.subdomains))
 
     st.markdown("---")
-    st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico")
+    st.markdown("### 📥 Descarga de Informes y Datos (Workflow Pentest)")
     st.success(
-        "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga del reporte"
-        " completo es **100% GRATIS**!"
+        "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga de reportes"
+        " y datos en bruto es **100% GRATIS**!"
     )
 
-    if os.path.exists(st.session_state.pdf_filename):
-      with open(st.session_state.pdf_filename, "rb") as pdf_file:
+    # Botones de descarga organizados (PDF, JSON y CSV)
+    col_dl1, col_dl2, col_dl3 = st.columns(3)
+
+    with col_dl1:
+      if os.path.exists(st.session_state.pdf_filename):
+        with open(st.session_state.pdf_filename, "rb") as pdf_file:
+          st.download_button(
+              label="📥 Descargar PDF Ejecutivo",
+              data=pdf_file,
+              file_name=st.session_state.pdf_filename,
+              mime="application/pdf",
+              type="primary",
+          )
+
+    with col_dl2:
+      # Preparar exportación JSON
+      export_data = {
+          "target": st.session_state.hostname,
+          "ip": st.session_state.geo["ip"],
+          "location": st.session_state.geo["country"],
+          "hosting": st.session_state.geo["org"],
+          "email_security": st.session_state.email_sec,
+          "open_ports": st.session_state.open_ports,
+          "subdomains": st.session_state.subdomains,
+          "findings": st.session_state.findings,
+      }
+      json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
+      st.download_button(
+          label="📦 Exportar Datos (JSON)",
+          data=json_str,
+          file_name=f"auditoria_{st.session_state.hostname}.json",
+          mime="application/json",
+      )
+
+    with col_dl3:
+      # Preparar exportación CSV de hallazgos
+      df_findings = pd.DataFrame(st.session_state.findings)
+      if not df_findings.empty:
+        csv_data = df_findings.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Descargar Informe PDF con Auditoría DNS",
-            data=pdf_file,
-            file_name=st.session_state.pdf_filename,
-            mime="application/pdf",
-            type="primary",
+            label="📊 Exportar Hallazgos (CSV)",
+            data=csv_data,
+            file_name=f"hallazgos_{st.session_state.hostname}.csv",
+            mime="text/csv",
         )
 
 with tab2:
@@ -817,17 +849,30 @@ with tab2:
     st.write(f"Target: **{st.session_state.hostname}**")
     st.write(f"Resolved IP: `{st.session_state.geo['ip']}`")
     st.write(f"Hosting Provider: `{st.session_state.geo['org']}`")
-    st.write(f"SPF Status: `{'Configured' if st.session_state.email_sec['spf'] else 'Missing'}`")
-    st.write(f"DMARC Status: `{'Configured' if st.session_state.email_sec['dmarc'] else 'Missing'}`")
+    st.write(
+        "SPF Status:"
+        f" `{'Configured' if st.session_state.email_sec['spf'] else 'Missing'}`"
+    )
+    st.write(
+        "DMARC Status:"
+        f" `{'Configured' if st.session_state.email_sec['dmarc'] else 'Missing'}`"
+    )
     st.write(f"Open ports count: {len(st.session_state.open_ports)}")
     st.write(f"Subdomains discovered: {len(st.session_state.subdomains)}")
+
+    if st.session_state.findings:
+      st.markdown("### Raw Findings Table")
+      st.dataframe(pd.DataFrame(st.session_state.findings))
   else:
-    st.info("Run a scan in the first tab to view infrastructure and DNS security details.")
+    st.info(
+        "Run a scan in the first tab to view infrastructure and DNS security"
+        " details."
+    )
 
 with tab3:
   st.subheader("About CyberAudits")
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
-    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh.
-    * **Reporting:** Automated corporate delivery with DNS anti-spoofing metadata.
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
+    * **Reporting:** Automated corporate delivery with JSON/CSV developer workflows.
     """)
