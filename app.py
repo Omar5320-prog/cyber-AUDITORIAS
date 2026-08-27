@@ -9,109 +9,11 @@ import requests
 from weasyprint import HTML
 import streamlit as st
 
-# Configuración de la página web
+# Configuración de la página web limpia y profesional por defecto
 st.set_page_config(
     page_title="CyberAudits - Escáner Perimetral",
     page_icon="🛡️",
-    layout="wide",
-)
-
-# Estilos CSS corregidos con alto contraste y legibilidad impecable
-st.markdown(
-    """
-    <style>
-        /* Fondo general y tipografía legible */
-        .stApp {
-            background-color: #0b0f19;
-            color: #f8fafc;
-            font-family: 'Inter', Helvetica, Arial, sans-serif;
-        }
-        
-        /* Barra lateral (Sidebar) */
-        [data-testid="stSidebar"] {
-            background-color: #111827;
-            border-right: 1px solid #1f2937;
-        }
-        [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span {
-            color: #f3f4f6 !important;
-        }
-
-        /* Banner superior especial */
-        .ph-banner {
-            background: linear-gradient(90deg, #1e3a8a, #3b82f6);
-            padding: 12px;
-            border-radius: 8px;
-            color: white;
-            text-align: center;
-            margin-bottom: 25px;
-            font-weight: 500;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-        }
-
-        /* Títulos */
-        h1, h2, h3 {
-            color: #ffffff !important;
-            letter-spacing: -0.5px;
-        }
-
-        /* Tarjetas de métricas */
-        div[data-testid="stMetric"] {
-            background-color: #111827;
-            border: 1px solid #1f2937;
-            padding: 16px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-        }
-        div[data-testid="stMetric"] label {
-            color: #94a3b8 !important;
-            font-size: 0.85rem !important;
-        }
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #38bdf8 !important;
-            font-weight: 700 !important;
-        }
-
-        /* Pestañas (Tabs) con alto contraste corregido */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 10px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: #1e293b !important;
-            border-radius: 6px !important;
-            border: 1px solid #334155 !important;
-            padding: 8px 16px !important;
-        }
-        .stTabs [data-baseweb="tab"] p {
-            color: #ffffff !important;
-            font-weight: 600 !important;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #2563eb !important;
-            border: 1px solid #3b82f6 !important;
-        }
-        .stTabs [aria-selected="true"] p {
-            color: #ffffff !important;
-        }
-
-        /* Botones de acción principales */
-        .stButton>button {
-            background: linear-gradient(90deg, #2563eb, #3b82f6);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            padding: 0.5rem 1rem;
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-            transition: all 0.3s ease;
-        }
-        .stButton>button:hover {
-            background: linear-gradient(90deg, #1d4ed8, #2563eb);
-            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.5);
-            transform: translateY(-1px);
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
+    layout="centered",
 )
 
 
@@ -418,7 +320,7 @@ def scan_target(url):
 def generate_chart(stats):
   labels = list(stats.keys())
   sizes = list(stats.values())
-  colors = ["#ef4444", "#f59e0b", "#3b82f6", "#10b981"]
+  colors = ["#dc2626", "#f59e0b", "#3b82f6", "#10b981"]
 
   non_zero_data = [
       (l, s, c) for l, s, c in zip(labels, sizes, colors) if s > 0
@@ -429,28 +331,25 @@ def generate_chart(stats):
   l_filt, s_filt, c_filt = zip(*non_zero_data)
 
   fig, ax = plt.subplots(figsize=(4.5, 2.8))
-  fig.patch.set_facecolor("#111827")
-  ax.set_facecolor("#111827")
-
-  wedges, texts, autotexts = ax.pie(
+  ax.pie(
       s_filt,
       labels=l_filt,
       colors=c_filt,
       autopct="%1.1f%%",
       startangle=90,
-      textprops={"fontsize": 8.5, "weight": "bold", "color": "#f8fafc"},
+      textprops={"fontsize": 8.5, "weight": "bold"},
   )
   ax.axis("equal")
   plt.title(
       "Distribución de Riesgos en la Infraestructura",
       fontsize=9.5,
       fontweight="bold",
-      color="#f8fafc",
+      color="#1e293b",
   )
   plt.tight_layout()
 
   chart_path = "vulnerability_chart.png"
-  plt.savefig(chart_path, dpi=300, bbox_inches="tight", facecolor="#111827")
+  plt.savefig(chart_path, dpi=300, bbox_inches="tight", transparent=True)
   plt.close()
 
   with open(chart_path, "rb") as f:
@@ -932,10 +831,10 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Banner superior
+# Banner superior limpio
 st.markdown(
     """
-    <div class="ph-banner">
+    <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
         🚀 <strong>Product Hunt Launch Special:</strong> Full Executive PDF Reports are <b>100% FREE</b> for a limited time! Enjoy your audit.
     </div>
     """,
@@ -943,11 +842,9 @@ st.markdown(
 )
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
-st.markdown(
-    "<p style='color: #94a3b8; font-size: 1.1rem;'>Plataforma de inteligencia"
-    " perimetral y auditoría automatizada para agencias y analistas de"
-    " seguridad.</p>",
-    unsafe_allow_html=True,
+st.write(
+    "Analiza la seguridad de cualquier dominio web y evalúa la postura de"
+    " correo y servidores."
 )
 
 # Panel de Configuración Comercial y Modelos de Informe
@@ -982,9 +879,9 @@ report_subject = st.sidebar.text_input(
     value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
 )
 
-st.sidebar.markdown("---")
 st.sidebar.caption(
-    "CyberAudits B2B SaaS • Versión 2.0 Comercial"
+    "Personaliza la identidad visual, subtítulos y destinatarios de los"
+    " reportes."
 )
 
 tab1, tab2, tab3 = st.tabs(
