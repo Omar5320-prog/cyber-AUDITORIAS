@@ -116,35 +116,29 @@ def get_employees_df():
   return df
 
 
-# BANCO DE CONTENIDOS AMPLIADOS Y PROFUNDOS (7 PREGUNTAS POR TEMA)
+# BANCO DE CONTENIDOS EN MARKDOWN PURO (SIN ERRORES DE HTML)
 TRAINING_TOPICS = {
     "Phishing e Ingeniería Social": {
         "title": "Módulo Avanzado: Detección y Defensa contra Phishing",
         "theory": """
-            <div class="training-card">
-                <h4>🎯 Anatomía de un Ataque de Phishing Corporativo</h4>
-                <p>El <strong>Phishing</strong> representa el vector inicial de compromiso más utilizado por los ciberdelincuentes a nivel global. No busca vulnerar sistemas mediante fuerza bruta técnica, sino manipular la psicología humana para inducir errores críticos.</p>
-                
-                <hr style="margin: 10px 0; border:0; border-top:1px solid #e2e8f0;">
-                
-                <h5>1. Tipos Principales de Fraude por Correo</h5>
-                <ul>
-                    <li><strong>Deception Phishing (Masivo):</strong> Campañas genéricas enviadas a miles de cuentas corporativas simulando bancos, servicios de paquetería o plataformas de streaming empresarial.</li>
-                    <li><strong>Spear Phishing (Dirigido):</strong> Ataques altamente personalizados donde el atacantes investiga previamente redes sociales y organigramas para suplantar a un ejecutivo de alta gerencia (CEO Fraud).</li>
-                    <li><strong>Whaling:</strong> Variante de spear phishing dirigida exclusivamente a directores, miembros de juntas directivas o directores financieros.</li>
-                </ul>
+### 🎯 Anatomía de un Ataque de Phishing Corporativo
+El **Phishing** representa el vector inicial de compromiso más utilizado por los ciberdelincuentes a nivel global. No busca vulnerar sistemas mediante fuerza bruta técnica, sino manipular la psicología humana para inducir errores críticos.
 
-                <h5>2. Indicadores Técnicos de Alerta Temprana (Red Flags)</h5>
-                <ul>
-                    <li><strong>Spoofing de Remitente:</strong> Discrepancias evidentes entre el nombre visible del remitente y la dirección de correo real subyacente (ej: <code>soporte@micros0ft-security.com</code>).</li>
-                    <li><strong>Ingeniería de Urgencia:</strong> Uso deliberado de lenguaje alarmista ("Su cuenta será suspendida en 2 horas", "Factura impaga con riesgo legal") para bloquear el pensamiento crítico del colaborador.</li>
-                    <li><strong>Enlaces Enmascarados:</strong> Textos ancla engañosos que al posicionar el cursor revelan un destino web completamente ajeno a la organización legítima.</li>
-                </ul>
+---
 
-                <h5>3. Protocolo de Actuación y Buenas Prácticas</h5>
-                <p>Ante cualquier sospecha: <strong>No haga clic en enlaces</strong>, no descargue archivos adjuntos inesperados y reporte inmediatamente el correo utilizando el botón de reporte corporativo o derivándolo al equipo de Ciberseguridad.</p>
-            </div>
-            """,
+#### 1. Tipos Principales de Fraude por Correo
+* **Deception Phishing (Masivo):** Campañas genéricas enviadas a miles de cuentas corporativas simulando bancos, servicios de paquetería o plataformas de streaming empresarial.
+* **Spear Phishing (Dirigido):** Ataques altamente personalizados donde el atacante investiga previamente redes sociales y organigramas para suplantar a un ejecutivo de alta gerencia (CEO Fraud).
+* **Whaling:** Variante de spear phishing dirigida exclusivamente a directores, miembros de juntas directivas o directores financieros.
+
+#### 2. Indicadores Técnicos de Alerta Temprana (Red Flags)
+* **Spoofing de Remitente:** Discrepancias evidentes entre el nombre visible del remitente y la dirección de correo real subyacente (ej: `soporte@micros0ft-security.com`).
+* **Ingeniería de Urgencia:** Uso deliberado de lenguaje alarmista ("Su cuenta será suspendida en 2 horas", "Factura impaga con riesgo legal") para bloquear el pensamiento crítico del colaborador.
+* **Enlaces Enmascarados:** Textos ancla engañosos que al posicionar el cursor revelan un destino web completamente ajeno a la organización legítima.
+
+#### 3. Protocolo de Actuación y Buenas Prácticas
+Ante cualquier sospecha: **No haga clic en enlaces**, no descargue archivos adjuntos inesperados y reporte inmediatamente el correo utilizando el botón de reporte corporativo o derivándolo al equipo de Ciberseguridad.
+        """,
         "questions": [
             {
                 "q": (
@@ -259,23 +253,19 @@ TRAINING_TOPICS = {
     "Gestión de Contraseñas Robustas": {
         "title": "Módulo Avanzado: Arquitectura y Fortaleza de Contraseñas",
         "theory": """
-            <div class="training-card">
-                <h4>🔒 Seguridad de Credenciales y Autenticación Multifactor</h4>
-                <p>Las contraseñas débiles o reutilizadas facilitan ataques automatizados de fuerza bruta y relleno de credenciales (Credential Stuffing). Proteger el acceso es blindar el perímetro corporativo.</p>
+### 🔒 Seguridad de Credenciales y Autenticación Multifactor
+Las contraseñas débiles o reutilizadas facilitan ataques automatizados de fuerza bruta y relleno de credenciales (*Credential Stuffing*). Proteger el acceso es blindar el perímetro corporativo.
 
-                <hr style="margin: 10px 0; border:0; border-top:1px solid #e2e8f0;">
+---
 
-                <h5>1. Principios de Complejidad de Claves</h5>
-                <ul>
-                    <li><strong>Longitud sobre Complejidad Simple:</strong> Una clave de 14-16 caracteres que combine frases aleatorias resulta exponencialmente más segura y fácil de recordar que claves cortas con símbolos complejos.</li>
-                    <li><strong>Prohibición de Datos Personales:</strong> Nunca incluir nombres de familiares, mascotas, fechas de nacimiento o números de documento identificativos.</li>
-                    <li><strong>Cero Reutilización:</strong> La filtración de credenciales en servicios externos no corporativos no debe comprometer jamás el acceso a los sistemas de la empresa.</li>
-                </ul>
+#### 1. Principios de Complejidad de Claves
+* **Longitud sobre Complejidad Simple:** Una clave de 14-16 caracteres que combine frases aleatorias resulta exponencialmente más segura y fácil de recordar que claves cortas con símbolos complejos.
+* **Prohibición de Datos Personales:** Nunca incluir nombres de familiares, mascotas, fechas de nacimiento o números de documento identificativos.
+* **Cero Reutilización:** La filtración de credenciales en servicios externos no corporativos no debe comprometer jamás el acceso a los sistemas de la empresa.
 
-                <h5>2. El Rol del Doble Factor de Autenticación (2FA / MFA)</h5>
-                <p>Contar con una contraseña robusta ya no es suficiente. El uso obligatorio de aplicaciones autenticadoras (como Google Authenticator, Microsoft Authenticator o tokens físicos) añade una capa indispensable que frena el acceso aun si la clave principal es comprometida.</p>
-            </div>
-            """,
+#### 2. El Rol del Doble Factor de Autenticación (2FA / MFA)
+Contar con una contraseña robusta ya no es suficiente. El uso obligatorio de aplicaciones autenticadoras (como Google Authenticator, Microsoft Authenticator o tokens físicos) añade una capa indispensable que frena el acceso aun si la clave principal es comprometida.
+        """,
         "questions": [
             {
                 "q": (
@@ -384,20 +374,16 @@ TRAINING_TOPICS = {
     "Seguridad en Dispositivos y Remoto": {
         "title": "Módulo Avanzado: Protección de Endpoints y Trabajo Remoto",
         "theory": """
-            <div class="training-card">
-                <h4>🛡️ Seguridad en Dispositivos y Movilidad Corporativa</h4>
-                <p>El modelo de trabajo híbrido desplaza la infraestructura fuera del perímetro físico seguro de la oficina. Los equipos portátiles y dispositivos móviles constituyen puntos críticos de exposición.</p>
+### 🛡️ Seguridad en Dispositivos y Movilidad Corporativa
+El modelo de trabajo híbrido desplaza la infraestructura fuera del perímetro físico seguro de la oficina. Los equipos portátiles y dispositivos móviles constituyen puntos críticos de exposición.
 
-                <hr style="margin: 10px 0; border:0; border-top:1px solid #e2e8f0;">
+---
 
-                <h5>1. Buenas Prácticas de Higiene Digital</h5>
-                <ul>
-                    <li><strong>Bloqueo Activo de Sesión:</strong> Todo colaborador debe bloquear obligatoriamente su pantalla (atajo <code>Windows + L</code> o <code>Control + Cmd + Q</code>) cada vez que se ausente del equipo.</li>
-                    <li><strong>Restricción de Periféricos USB:</strong> Conectar memorias USB ajenas o no verificadas expone al sistema operativo a la ejecución automatizada de código malicioso o malware de tipo Stuxnet/BadUSB.</li>
-                    <li><strong>Actualizaciones del Sistema:</strong> Los parches de seguridad liberados por los fabricantes solucionan fallos críticos que son explotados activamente por ciberdelincuentes.</li>
-                </ul>
-            </div>
-            """,
+#### 1. Buenas Prácticas de Higiene Digital
+* **Bloqueo Activo de Sesión:** Todo colaborador debe bloquear obligatoriamente su pantalla (atajo `Windows + L` o `Control + Cmd + Q`) cada vez que se ausente del equipo.
+* **Restricción de Periféricos USB:** Conectar memorias USB ajenas o no verificadas expone al sistema operativo a la ejecución automatizada de código malicioso o malware de tipo Stuxnet/BadUSB.
+* **Actualizaciones del Sistema:** Los parches de seguridad liberados por los fabricantes solucionan fallos críticos que son explotados activamente por ciberdelincuentes.
+        """,
         "questions": [
             {
                 "q": (
@@ -511,23 +497,19 @@ TRAINING_TOPICS = {
     "Prevención de Ransomware": {
         "title": "Módulo Avanzado: Mitigación y Respuesta ante Ransomware",
         "theory": """
-            <div class="training-card">
-                <h4>💥 Prevención y Contención de Ataques de Ransomware</h4>
-                <p>El <strong>Ransomware</strong> representa una amenaza destructiva capaz de paralizar las operaciones de una organización en minutos mediante el cifrado masivo de discos y recursos compartidos.</p>
+### 💥 Prevención y Contención de Ataques de Ransomware
+El **Ransomware** representa una amenaza destructiva capaz de paralizar las operaciones de una organización en minutos mediante el cifrado masivo de discos y recursos compartidos.
 
-                <hr style="margin: 10px 0; border:0; border-top:1px solid #e2e8f0;">
+---
 
-                <h5>1. Dinámica de Infección y Propagación</h5>
-                <p>Los códigos maliciosos ingresan típicamente mediante adjuntos de correo maliciosos o vulnerabilidades perimetrales abiertas. Una vez dentro, buscan cuentas con privilegios elevados para mapear y cifrar tanto unidades locales como servidores de respaldo conectados a la red.</p>
+#### 1. Dinámica de Infección y Propagación
+Los códigos maliciosos ingresan típicamente mediante adjuntos de correo maliciosos o vulnerabilidades perimetrales abiertas. Una vez dentro, buscan cuentas con privilegios elevados para mapear y cifrar tanto unidades locales como servidores de respaldo conectados a la red.
 
-                <h5>2. Protocolo Crítico de Respuesta (Kill Switch)</h5>
-                <ul>
-                    <li><strong>Desconexión Física Inmediata:</strong> Si un equipo muestra indicios de cifrado (archivos con extensiones anómalas, lentitud extrema, avisos en pantalla), desconecte el cable de red y desactive el Wi-Fi al instante.</li>
-                    <li><strong>Aviso a TI:</strong> La rapidez en la contención evita que el software malicioso salte a otros equipos de la red corporativa.</li>
-                    <li><strong>No Pagar Rescates:</strong> Las organizaciones internacionales de seguridad desaconsejan abonar extorsiones económicas ya que no garantizan la recuperación de los datos y financian redes delictivas.</li>
-                </ul>
-            </div>
-            """,
+#### 2. Protocolo Crítico de Respuesta (Kill Switch)
+* **Desconexión Física Inmediata:** Si un equipo muestra indicios de cifrado (archivos con extensiones anómalas, lentitud extrema, avisos en pantalla), desconecte el cable de red y desactive el Wi-Fi al instante.
+* **Aviso a TI:** La rapidez en la contención evita que el software malicioso salte a otros equipos de la red corporativa.
+* **No Pagar Rescates:** Las organizaciones internacionales de seguridad desaconsejan abonar extorsiones económicas ya que no garantizan la recuperación de los datos y financian redes delictivas.
+        """,
         "questions": [
             {
                 "q": (
@@ -1372,7 +1354,8 @@ if employee_token:
     )
   else:
     st.markdown(f"### 📚 Material Formativo Completo: {topic_token}")
-    st.markdown(selected_topic_data["theory"], unsafe_allow_html=True)
+    # Renderizado usando Markdown nativo de Streamlit (sin errores de etiquetas)
+    st.markdown(selected_topic_data["theory"])
 
     st.markdown("---")
     st.markdown(
@@ -1523,7 +1506,7 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v4.9 • Módulos Ampliados.")
+  st.sidebar.caption("CyberAudits Enterprise v5.0 • Markdown Nativo Activo.")
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
@@ -1614,9 +1597,9 @@ else:
           conn.commit()
           conn.close()
           st.success(
-              f"¡Sincronización AD ejecutada! Se añadieron {added_count}"
-              f" nuevos colaboradores ({skipped_count} ya existían en la base"
-              " de datos)."
+              f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count}"
+              f" nuevos colaboradores ({skipped_count} ya se encontraban"
+              " registrados)."
           )
           st.rerun()
 
