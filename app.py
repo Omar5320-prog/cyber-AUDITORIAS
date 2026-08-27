@@ -16,68 +16,44 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS profesionales (Tema Claro Ejecutivo de Alta Gama - 100% Legible)
+# Estilos CSS enfocados en perfeccionar la barra lateral de opciones y mantener la legibilidad
 st.markdown(
     """
     <style>
-        /* Fondo general limpio y moderno */
-        .stApp {
-            background-color: #f8fafc;
-            color: #1e293b;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        /* Estilo profesional para la barra lateral (Panel de Opciones) */
+        [data-testid="stSidebar"] {
+            background-color: #0f172a;
+            border-right: 1px solid #1e293b;
+            padding-top: 10px;
         }
         
-        /* Barra lateral (Sidebar) elegante y clara */
-        [data-testid="stSidebar"] {
-            background-color: #ffffff;
-            border-right: 1px solid #e2e8f0;
-        }
-        [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span {
-            color: #334155 !important;
-            font-weight: 500;
+        /* Textos y etiquetas dentro de la barra lateral en blanco nítido */
+        [data-testid="stSidebar"] label, 
+        [data-testid="stSidebar"] .stMarkdown, 
+        [data-testid="stSidebar"] span, 
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] h2 {
+            color: #f8fafc !important;
         }
 
-        /* Banner superior corporativo */
+        /* Campos de texto y selectores dentro de la barra lateral */
+        [data-testid="stSidebar"] input, 
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            background-color: #1e293b !important;
+            color: #ffffff !important;
+            border-color: #334155 !important;
+        }
+
+        /* Banner superior corporativo limpio */
         .enterprise-banner {
-            background: linear-gradient(90deg, #0f172a, #1e3a8a);
+            background: linear-gradient(90deg, #1e3a8a, #3b82f6);
             padding: 12px 20px;
             border-radius: 8px;
             color: white;
             text-align: center;
             margin-bottom: 25px;
             font-weight: 500;
-            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-        }
-
-        /* Títulos limpios */
-        h1, h2, h3 {
-            color: #0f172a !important;
-            letter-spacing: -0.5px;
-        }
-
-        /* Tarjetas de métricas con borde superior azul corporativo */
-        div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-top: 3px solid #2563eb;
-            padding: 16px;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-        }
-        div[data-testid="stMetric"] label {
-            color: #64748b !important;
-            font-size: 0.85rem !important;
-        }
-        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-            color: #2563eb !important;
-            font-weight: 700 !important;
-        }
-
-        /* Cajas de éxito y contenedores */
-        .stSuccess {
-            background-color: #f0fdf4 !important;
-            color: #166534 !important;
-            border: 1px solid #bbf7d0;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
         }
     </style>
     """,
@@ -899,7 +875,7 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# Banner superior limpio y elegante
+# Banner superior limpio
 st.markdown(
     """
     <div class="enterprise-banner">
@@ -910,14 +886,12 @@ st.markdown(
 )
 
 st.title("🛡️ CyberAudits - Escáner Perimetral")
-st.markdown(
-    "<p style='color: #64748b; font-size: 1.05rem;'>Plataforma de inteligencia"
-    " perimetral y auditoría automatizada para agencias y analistas de"
-    " seguridad.</p>",
-    unsafe_allow_html=True,
+st.write(
+    "Analiza la seguridad de cualquier dominio web y evalúa la postura de"
+    " correo y servidores."
 )
 
-# Panel de Configuración Comercial y Modelos de Informe
+# Panel de Configuración Comercial y Modelos de Informe (Sidebar estilizada)
 st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
