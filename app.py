@@ -474,13 +474,16 @@ def generate_pdf(
     geo,
     email_sec,
     agency_name,
+    agency_tagline,
     report_type,
     recipient_name,
+    report_subject,
     logo_b64,
     output_filename,
 ):
+  # Logo más grande (max-height: 65px)
   logo_html = (
-      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 40px;'
+      f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 65px;'
       ' width: auto; float: right; margin-top: 2px;" alt="Logo">'
       if logo_b64
       else ""
@@ -497,13 +500,13 @@ def generate_pdf(
                 @page {{ size: A4; margin: 15mm 15mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 8pt; color: #64748b; }} }}
                 body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10pt; line-height: 1.6; }}
                 .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; overflow: hidden; }}
-                .memo-header-left {{ float: left; width: 75%; }}
-                .memo-header-right {{ float: right; width: 22%; text-align: right; }}
+                .memo-header-left {{ float: left; width: 70%; }}
+                .memo-header-right {{ float: right; width: 28%; text-align: right; }}
                 .memo-header h1 {{ margin: 0; font-size: 15pt; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }}
                 .memo-header p {{ margin: 3px 0; color: #64748b; font-size: 9pt; }}
                 .meta-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 9.5pt; }}
                 .meta-table td {{ padding: 5px 0; border-bottom: 1px solid #e2e8f0; }}
-                .meta-table td.label {{ font-weight: bold; color: #475569; width: 25%; }}
+                .meta-table td.label {{ font-weight: bold; color: #475569; width: 20%; }}
                 .memo-body h2 {{ color: #0f172a; font-size: 11pt; border-left: 3px solid #3b82f6; padding-left: 8px; margin-top: 15px; margin-bottom: 8px; }}
                 .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 12px 15px; border-radius: 4px; margin: 15px 0; }}
                 .signature-section {{ margin-top: 40px; page-break-inside: avoid; }}
@@ -515,7 +518,8 @@ def generate_pdf(
             <div class="memo-header">
                 <div class="memo-header-left">
                     <h1>Informe Ejecutivo de Seguridad</h1>
-                    <p>Emitido por: <strong>{agency_name}</strong> | División de Consultoría</p>
+                    <p>Emitido por: <strong>{agency_name}</strong></p>
+                    <p>{agency_tagline}</p>
                 </div>
                 <div class="memo-header-right">
                     {logo_html}
@@ -524,8 +528,8 @@ def generate_pdf(
             
             <table class="meta-table">
                 <tr><td class="label">PARA:</td><td>{recipient_name}</td></tr>
-                <tr><td class="label">DE:</td><td>{agency_name}</td></tr>
-                <tr><td class="label">ASUNTO:</td><td>Evaluación de Riesgos Perimetrales y Postura de Negocio</td></tr>
+                <tr><td class="label">DE:</td><td>{agency_name} ({agency_tagline})</td></tr>
+                <tr><td class="label">ASUNTO:</td><td>{report_subject}</td></tr>
                 <tr><td class="label">OBJETIVO:</td><td>{hostname} ({geo['city']}, {geo['country']} - IP: {geo['ip']})</td></tr>
             </table>
 
@@ -551,7 +555,7 @@ def generate_pdf(
 
             <div class="signature-section">
                 <p>Atentamente,</p>
-                <p><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name}</p>
+                <p><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name} — {agency_tagline}</p>
             </div>
 
             <div class="disclaimer">Documento confidencial preparado para la gerencia de {hostname}. Todos los derechos reservados.</div>
@@ -582,7 +586,7 @@ def generate_pdf(
     )
     sub_html = (
         "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
-        or "<li>No additional subdomains found.</td></tr>"
+        or "<li>No additional subdomains found.</li>"
     )
 
     spf_badge = (
@@ -674,8 +678,8 @@ def generate_pdf(
                 @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page / Página " counter(page) " of / de " counter(pages); font-size: 8pt; color: #64748b; }} }}
                 body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
                 .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
-                .banner-left {{ float: left; width: 75%; }}
-                .banner-right {{ float: right; width: 22%; text-align: right; }}
+                .banner-left {{ float: left; width: 70%; }}
+                .banner-right {{ float: right; width: 28%; text-align: right; }}
                 .header-banner h1 {{ margin: 0; font-size: 14pt; }}
                 .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8.5pt; }}
                 .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
@@ -709,7 +713,7 @@ def generate_pdf(
             <div class="header-banner">
                 <div class="banner-left">
                     <h1>{report_title_en}</h1>
-                    <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
+                    <p>Prepared by: <strong>{agency_name}</strong> ({agency_tagline})</p>
                 </div>
                 <div class="banner-right">
                     {logo_html}
@@ -749,7 +753,7 @@ def generate_pdf(
             <div class="header-banner">
                 <div class="banner-left">
                     <h1>Technical Annex & Remediation Guide</h1>
-                    <p>Prepared by: {agency_name}</p>
+                    <p>Prepared by: {agency_name} ({agency_tagline})</p>
                 </div>
                 <div class="banner-right">
                     {logo_html}
@@ -764,7 +768,7 @@ def generate_pdf(
             <div class="header-banner">
                 <div class="banner-left">
                     <h1>{report_title_es}</h1>
-                    <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
+                    <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
                 </div>
                 <div class="banner-right">
                     {logo_html}
@@ -803,7 +807,7 @@ def generate_pdf(
             <div class="header-banner">
                 <div class="banner-left">
                     <h1>Anexo Técnico y Guía de Remediación</h1>
-                    <p>Elaborado por: {agency_name}</p>
+                    <p>Elaborado por: {agency_name} ({agency_tagline})</p>
                 </div>
                 <div class="banner-right">
                     {logo_html}
@@ -848,6 +852,10 @@ st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input(
     "Nombre de la Agencia", value="SecOps Global Partners"
 )
+agency_tagline = st.sidebar.text_input(
+    "Subtítulo / Área de la Agencia",
+    value="División de Consultoría y Ciberseguridad",
+)
 logo_file = st.sidebar.file_uploader(
     "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
 )
@@ -866,10 +874,14 @@ recipient_name = st.sidebar.text_input(
     "Dirigido a (Destinatario / Gerencia)",
     value="Dirección General / Junta Directiva",
 )
+report_subject = st.sidebar.text_input(
+    "Asunto del Informe",
+    value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
+)
 
 st.sidebar.caption(
-    "Personaliza la identidad visual y los destinatarios de los reportes"
-    " profesionales."
+    "Personaliza la identidad visual, subtítulos y destinatarios de los"
+    " reportes."
 )
 
 tab1, tab2, tab3 = st.tabs(
@@ -930,8 +942,10 @@ with tab1:
             geo,
             email_sec,
             agency_name,
+            agency_tagline,
             report_type,
             recipient_name,
+            report_subject,
             logo_b64,
             pdf_filename,
         )
@@ -950,8 +964,10 @@ with tab1:
       st.session_state.geo = geo
       st.session_state.email_sec = email_sec
       st.session_state.agency_name = agency_name
+      st.session_state.agency_tagline = agency_tagline
       st.session_state.report_type = report_type
       st.session_state.recipient_name = recipient_name
+      st.session_state.report_subject = report_subject
       st.session_state.logo_b64 = logo_b64
       st.session_state.pdf_filename = pdf_filename
 
@@ -1013,8 +1029,10 @@ with tab1:
           "subdomains": st.session_state.subdomains,
           "findings": st.session_state.findings,
           "prepared_by": st.session_state.agency_name,
+          "agency_tagline": st.session_state.agency_tagline,
           "report_model": st.session_state.report_type,
           "recipient": st.session_state.recipient_name,
+          "subject": st.session_state.report_subject,
       }
       json_str = json.dumps(export_data, indent=4, ensure_ascii=False)
       st.download_button(
@@ -1066,5 +1084,5 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, Cloudflare DoH API, crt.sh, Pandas.
-    * **Reporting:** Automated multi-template white-label corporate delivery with custom logos and recipient addressing.
+    * **Reporting:** Fully customizable white-label corporate delivery with large logos, custom taglines, and editable subjects.
     """)
