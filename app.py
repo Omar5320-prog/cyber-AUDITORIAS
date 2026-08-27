@@ -559,11 +559,11 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# 1. Banner Superior: Promoción de Lanzamiento Product Hunt
+# 1. Banner Superior Limpio (Sin mención de la palabra bilingüe)
 st.markdown(
     """
     <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
-        🚀 <strong>Product Hunt Launch Special:</strong> Full Executive Bilingual PDF Reports are <b>100% FREE</b> for a limited time! Enjoy your audit.
+        🚀 <strong>Product Hunt Launch Special:</strong> Full Executive PDF Reports are <b>100% FREE</b> for a limited time! Enjoy your audit.
     </div>
     """,
     unsafe_allow_html=True,
@@ -612,7 +612,7 @@ with tab1:
         findings, stats, open_ports, hostname, subdomains = scan_target(
             target_url
         )
-        st.write("Generando gráficos y compilando estructura bilingüe...")
+        st.write("Generando gráficos y compilando estructura ejecutiva...")
         chart_b64 = generate_chart(stats)
 
         pdf_filename = f"auditoria_{hostname}.pdf"
@@ -670,12 +670,12 @@ with tab1:
     st.markdown("---")
     st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico Completo")
     st.markdown(
-        "Obtén el documento en PDF bilingüe listo para gerencia internacional,"
-        " con gráficos detallados, impacto de negocio y las **guías exactas de"
-        " remediación paso a paso**."
+        "Obtén el documento corporativo en PDF listo para gerencia"
+        " internacional, con gráficos detallados, impacto de negocio y las"
+        " **guías exactas de remediación paso a paso**."
     )
 
-    # Banner de gratuidad por lanzamiento
+    # Banner de gratuidad por lanzamiento limpio
     st.success(
         "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga del reporte"
         " completo en PDF es **100% GRATIS** por tiempo limitado!"
@@ -684,7 +684,7 @@ with tab1:
     if os.path.exists(st.session_state.pdf_filename):
       with open(st.session_state.pdf_filename, "rb") as pdf_file:
         st.download_button(
-            label="📥 Descargar tu PDF Bilingüe Completo Ahora",
+            label="📥 Descargar tu Informe PDF Completo Ahora",
             data=pdf_file,
             file_name=st.session_state.pdf_filename,
             mime="application/pdf",
@@ -717,6 +717,6 @@ with tab3:
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
     * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh.
-    * **Reporting:** Automated bilingual (English / Spanish) corporate delivery.
+    * **Reporting:** Automated corporate delivery.
     * **Launch Special:** Enjoy free full report generation during our global Product Hunt launch window!
     """)
