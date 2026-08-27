@@ -42,7 +42,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE,
             department TEXT,
-            topic TEXT DEFAULT 'Phishing e Ingeniería Social',
+            topic TEXT DEFAULT 'Phishing: El engaño en los correos',
             status TEXT DEFAULT 'Pendiente',
             score INTEGER DEFAULT 0,
             last_completed TEXT
@@ -53,8 +53,8 @@ def init_db():
   if "topic" not in columns:
     try:
       c.execute(
-          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Phishing e"
-          " Ingeniería Social'"
+          "ALTER TABLE employees ADD COLUMN topic TEXT DEFAULT 'Phishing: El"
+          " engaño en los correos'"
       )
     except Exception:
       pass
@@ -116,502 +116,284 @@ def get_employees_df():
   return df
 
 
-# BANCO DE CONTENIDOS EN MARKDOWN PURO (SIN ERRORES DE HTML)
+# BANCO DE CONTENIDOS BÁSICOS Y PREGUNTAS CLaras (5 preguntas exactas por tema)
 TRAINING_TOPICS = {
-    "Phishing e Ingeniería Social": {
-        "title": "Módulo Avanzado: Detección y Defensa contra Phishing",
+    "Phishing: El engaño en los correos": {
+        "title": "Curso 1: Cómo identificar correos falsos (Phishing)",
         "theory": """
-### 🎯 Anatomía de un Ataque de Phishing Corporativo
-El **Phishing** representa el vector inicial de compromiso más utilizado por los ciberdelincuentes a nivel global. No busca vulnerar sistemas mediante fuerza bruta técnica, sino manipular la psicología humana para inducir errores críticos.
+### 🎣 ¿Qué es el Phishing?
+El **Phishing** es un truco que usan los estafadores por correo electrónico para hacerse pasar por empresas conocidas (como tu banco, un servicio de encomiendas o tu propio jefe) con el fin de robar tus contraseñas o datos personales.
 
 ---
 
-#### 1. Tipos Principales de Fraude por Correo
-* **Deception Phishing (Masivo):** Campañas genéricas enviadas a miles de cuentas corporativas simulando bancos, servicios de paquetería o plataformas de streaming empresarial.
-* **Spear Phishing (Dirigido):** Ataques altamente personalizados donde el atacante investiga previamente redes sociales y organigramas para suplantar a un ejecutivo de alta gerencia (CEO Fraud).
-* **Whaling:** Variante de spear phishing dirigida exclusivamente a directores, miembros de juntas directivas o directores financieros.
+#### 1. Señales fáciles para detectar un correo falso:
+* **Urgencia exagerada:** Te meten prisa diciendo que van a bloquear tu cuenta hoy mismo si no haces clic. Las empresas reales nunca te amenazan así de la nada.
+* **Direcciones de correo extrañas:** El nombre dice "Banco Nación", pero si miras bien la dirección de correo real, tiene letras de más o errores ortográficos (ej. `@banc0-nacion-seguro.com`).
+* **Enlaces o archivos sospechosos:** Te piden que descargues un archivo o hagas clic en un enlace para "verificar tus datos".
 
-#### 2. Indicadores Técnicos de Alerta Temprana (Red Flags)
-* **Spoofing de Remitente:** Discrepancias evidentes entre el nombre visible del remitente y la dirección de correo real subyacente (ej: `soporte@micros0ft-security.com`).
-* **Ingeniería de Urgencia:** Uso deliberado de lenguaje alarmista ("Su cuenta será suspendida en 2 horas", "Factura impaga con riesgo legal") para bloquear el pensamiento crítico del colaborador.
-* **Enlaces Enmascarados:** Textos ancla engañosos que al posicionar el cursor revelan un destino web completamente ajeno a la organización legítima.
-
-#### 3. Protocolo de Actuación y Buenas Prácticas
-Ante cualquier sospecha: **No haga clic en enlaces**, no descargue archivos adjuntos inesperados y reporte inmediatamente el correo utilizando el botón de reporte corporativo o derivándolo al equipo de Ciberseguridad.
+#### 2. ¿Qué debes hacer?
+Si un correo te parece sospechoso, **no hagas clic en nada** y bórralo o avisa al área de tecnología. Nunca compartas tus contraseñas por correo.
         """,
         "questions": [
             {
-                "q": (
-                    "1. ¿Cuál es el propósito fundamental de un ataque de"
-                    " phishing?"
-                ),
+                "q": "1. ¿Qué es principalmente el Phishing?",
                 "options": [
-                    "Optimizar el rendimiento de la red corporativa",
+                    "Un virus que limpia la memoria de la computadora",
                     (
-                        "Manipular al usuario para extraer credenciales, datos"
-                        " financieros o instalar malware"
+                        "Un correo falso para engañarte y robar tus contraseñas"
+                        " o datos"
                     ),
-                    "Verificar el estado de las licencias de software",
+                    "Una actualización oficial del sistema operativo",
                 ],
                 "correct": 1,
             },
             {
                 "q": (
-                    "2. Si recibe un correo urgente del departamento legal"
-                    " exigiendo abrir un archivo adjunto bajo amenaza de"
-                    " despido, ¿qué debe hacer?"
+                    "2. ¿Cómo suelen actuar los estafadores en estos correos"
+                    " falsos?"
                 ),
                 "options": [
-                    "Abrir el archivo inmediatamente por miedo a represalias",
+                    "Te felicitan por tu cumpleaños con un regalo",
                     (
-                        "Verificar la autenticidad contactando al área por canales"
-                        " internos oficiales"
+                        "Te meten prisa y urgencia diciendo que van a bloquear"
+                        " tu cuenta"
                     ),
-                    "Reenviar el archivo a todos sus compañeros",
+                    "Te llaman por teléfono antes de enviarte el mensaje",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": "3. ¿Qué debes hacer si recibes un correo sospechoso pidiendo tus datos?",
+                "options": [
+                    "Hacer clic rápido en el enlace para ver qué pasa",
+                    (
+                        "No hacer clic en nada y consultar con el área de"
+                        " tecnología"
+                    ),
+                    "Responder el correo enviando tu clave",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": "4. ¿Las empresas reales te amenazan por correo con bloquear tus servicios si no entras a un enlace?",
+                "options": [
+                    "Sí, es su método habitual de aviso",
+                    "No, las empresas legítimas no te exigen datos ni te amenazan de esa forma",
+                    "Solo los fines de semana",
                 ],
                 "correct": 1,
             },
             {
                 "q": (
-                    "3. ¿Qué caracteriza a un ataque de 'Spear Phishing'?"
-                    ""
+                    "5. Si ves una dirección de correo del remitente con letras"
+                    " raras o mal escrita, ¿qué indica?"
                 ),
                 "options": [
-                    "Es un correo masivo enviado de forma aleatoria",
-                    (
-                        "Está altamente personalizado y dirigido a una persona o"
-                        " cargo específico"
-                    ),
-                    "Utiliza virus informáticos de tipo físico",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "4. ¿Por qué los atacantes suplantan dominios legítimos"
-                    " usando ligeras alteraciones tipográficas (ej."
-                    " banc0nacion.com)?"
-                ),
-                "options": [
-                    "Para ahorrar costos de servidores",
-                    (
-                        "Para engañar visualmente al usuario haciéndole creer"
-                        " que es un sitio oficial"
-                    ),
-                    "Es un error automático de los servidores de correo",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "5. Al pasar el cursor sobre un enlace en un correo dudoso,"
-                    " la dirección web mostrada no coincide con la institución"
-                    " citada. Esto indica:"
-                ),
-                "options": [
-                    "Una redirección segura oficial",
-                    (
-                        "Un claro indicio de intento de fraude o enlace"
-                        " malicioso"
-                    ),
-                    "Un problema temporal de conectividad",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "6. ¿Cuál es el canal adecuado para notificar la recepción"
-                    " de un correo sospechoso?"
-                ),
-                "options": [
-                    "Responder al atacante solicitando más información",
-                    (
-                        "Reportar el correo mediante la herramienta interna de"
-                        " seguridad o al equipo de TI"
-                    ),
-                    "Publicarlo en redes sociales corporativas",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "7. ¿Qué rol desempeña el factor humano en la estrategia"
-                    " de defensa contra el phishing?"
-                ),
-                "options": [
-                    "Ninguno, la seguridad depende 100% de los antivirus",
-                    (
-                        "Es la primera línea de defensa corporativa ante"
-                        " ataques de ingeniería social"
-                    ),
-                    "Es el principal punto débil sin posibilidad de mejora",
+                    "Que es un correo totalmente oficial y seguro",
+                    "Que es un claro indicio de un intento de estafa",
+                    "Que el cartero digital se equivocó",
                 ],
                 "correct": 1,
             },
         ],
     },
-    "Gestión de Contraseñas Robustas": {
-        "title": "Módulo Avanzado: Arquitectura y Fortaleza de Contraseñas",
+    "Contraseñas Seguras y Fáciles": {
+        "title": "Curso 2: Cómo crear contraseñas seguras",
         "theory": """
-### 🔒 Seguridad de Credenciales y Autenticación Multifactor
-Las contraseñas débiles o reutilizadas facilitan ataques automatizados de fuerza bruta y relleno de credenciales (*Credential Stuffing*). Proteger el acceso es blindar el perímetro corporativo.
+### 🔑 La importancia de una buena contraseña
+Tu contraseña es la llave de tu puerta digital. Si es fácil de adivinar, cualquiera puede entrar a tus cuentas de trabajo o personales.
 
 ---
 
-#### 1. Principios de Complejidad de Claves
-* **Longitud sobre Complejidad Simple:** Una clave de 14-16 caracteres que combine frases aleatorias resulta exponencialmente más segura y fácil de recordar que claves cortas con símbolos complejos.
-* **Prohibición de Datos Personales:** Nunca incluir nombres de familiares, mascotas, fechas de nacimiento o números de documento identificativos.
-* **Cero Reutilización:** La filtración de credenciales en servicios externos no corporativos no debe comprometer jamás el acceso a los sistemas de la empresa.
+#### 1. Errores comunes que debes evitar:
+* **No uses datos personales obvios:** Nombres de tus hijos, de tu perro, tu fecha de nacimiento o números como `123456`. Los estafadores adivinan esto en segundos mirando tus redes sociales.
+* **No repitas la misma clave:** Si usas la misma contraseña para tu correo personal, tus redes y el trabajo, con que te roben en un sitio, ya tienen acceso a todo lo demás.
 
-#### 2. El Rol del Doble Factor de Autenticación (2FA / MFA)
-Contar con una contraseña robusta ya no es suficiente. El uso obligatorio de aplicaciones autenticadoras (como Google Authenticator, Microsoft Authenticator o tokens físicos) añade una capa indispensable que frena el acceso aun si la clave principal es comprometida.
+#### 2. El secreto de una buena contraseña:
+* **Usa frases largas:** En lugar de una palabra corta, usa una frase que tenga sentido para ti pero difícil para otros, combinando alguna mayúscula y números (ejemplo: `SolPlaya2026`). Cuanto más larga, más difícil de romper.
         """,
         "questions": [
             {
-                "q": (
-                    "1. ¿Cuál es la recomendación actual de longitud para"
-                    " garantizar una contraseña corporativa robusta?"
-                ),
+                "q": "1. ¿Por qué no se debe usar la fecha de nacimiento como contraseña?",
                 "options": [
-                    "Entre 4 y 6 caracteres",
-                    "Exactamente 8 caracteres alfanuméricos",
-                    "De 12 a 16 caracteres combinando diversos elementos",
-                ],
-                "correct": 2,
-            },
-            {
-                "q": (
-                    "2. ¿Qué es el fenómeno de 'Credential Stuffing'?"
-                    ""
-                ),
-                "options": [
-                    "Llenar formularios de contacto automáticamente",
-                    (
-                        "Utilizar credenciales filtradas en una web para"
-                        " intentar acceder masivamente a otras plataformas"
-                    ),
-                    "Un respaldo de datos en la nube",
+                    "Porque la computadora se pone lenta",
+                    "Porque es un dato fácil de adivinar o averiguar",
+                    "Porque las normas no lo permiten",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "3. ¿Por qué es crítico implementar la Autenticación"
-                    " Multifactor (MFA)?"
-                ),
+                "q": "2. ¿Es recomendable usar la misma contraseña en el trabajo y en tus cuentas personales?",
                 "options": [
-                    "Porque acelera el inicio de sesión en el equipo",
+                    "Sí, así es más fácil de recordar",
                     (
-                        "Porque añade una segunda verificación independiente"
-                        " que protege la cuenta ante robos de claves"
+                        "No, porque si descubren una clave, pierden el acceso a"
+                        " todo lo demás"
                     ),
-                    "Es un requisito estético sin utilidad práctica",
+                    "Sí, siempre que tenga números",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "4. ¿Cuál de los siguientes ejemplos representa una"
-                    " práctica totalmente insegura?"
-                ),
+                "q": "3. ¿Qué hace que una contraseña sea más difícil de adivinar?",
                 "options": [
-                    "Utilizar un gestor de contraseñas cifrado",
-                    (
-                        "Anotar contraseñas en notas adhesivas físicas pegadas"
-                        " en el monitor"
-                    ),
-                    "Cambiar periódicamente las claves maestras",
+                    "Que sea corta y tenga solo números",
+                    "Que sea una frase larga o combinación variada difícil de deducir",
+                    "Que sea tu nombre al revés",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "5. Si un supuesto técnico de soporte le pide su"
-                    " contraseña temporal para solucionar un fallo, usted"
-                    " debe:"
-                ),
+                "q": "4. Si anotas tu contraseña en un papelito y lo pegas en el monitor de tu oficina, ¿es seguro?",
                 "options": [
-                    "Proporcionársela de inmediato por confianza",
-                    (
-                        "Negarse; ningún técnico legítimo está autorizado a"
-                        " solicitar su contraseña personal"
-                    ),
-                    "Escribirla en el chat general",
+                    "Sí, porque está a la mano",
+                    "No, cualquier persona que pase por tu lugar podrá verla",
+                    "Sí, si apagas la luz al salir",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "6. ¿Qué ventaja principal ofrecen los gestores de"
-                    " contraseñas profesionales?"
-                ),
+                "q": "5. ¿Qué combinación de las siguientes es un ejemplo de mala práctica?",
                 "options": [
-                    "Permiten compartir claves abiertamente en redes sociales",
-                    (
-                        "Generan y almacenan de forma cifrada claves únicas y"
-                        " complejas para cada servicio"
-                    ),
-                    "Eliminan la necesidad de usar computadoras",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "7. ¿Por qué se desaconseja el uso de datos personales"
-                    " (como aniversarios) en las contraseñas?"
-                ),
-                "options": [
-                    "Porque son fáciles de adivinar mediante ingeniería"
-                    " social y OSINT"
-                    " (Inteligencia de Fuentes Abiertas)",
-                    "Porque ocupan mucho espacio en memoria",
-                    "Porque los teclados modernos no los aceptan",
-                ],
-                "correct": 0,
-            },
-        ],
-    },
-    "Seguridad en Dispositivos y Remoto": {
-        "title": "Módulo Avanzado: Protección de Endpoints y Trabajo Remoto",
-        "theory": """
-### 🛡️ Seguridad en Dispositivos y Movilidad Corporativa
-El modelo de trabajo híbrido desplaza la infraestructura fuera del perímetro físico seguro de la oficina. Los equipos portátiles y dispositivos móviles constituyen puntos críticos de exposición.
-
----
-
-#### 1. Buenas Prácticas de Higiene Digital
-* **Bloqueo Activo de Sesión:** Todo colaborador debe bloquear obligatoriamente su pantalla (atajo `Windows + L` o `Control + Cmd + Q`) cada vez que se ausente del equipo.
-* **Restricción de Periféricos USB:** Conectar memorias USB ajenas o no verificadas expone al sistema operativo a la ejecución automatizada de código malicioso o malware de tipo Stuxnet/BadUSB.
-* **Actualizaciones del Sistema:** Los parches de seguridad liberados por los fabricantes solucionan fallos críticos que son explotados activamente por ciberdelincuentes.
-        """,
-        "questions": [
-            {
-                "q": (
-                    "1. ¿Por qué es obligatorio bloquear la sesión de pantalla"
-                    " al alejarse del equipo de trabajo?"
-                ),
-                "options": [
-                    "Para ahorrar energía eléctrica en la oficina",
-                    (
-                        "Para evitar accesos físicos no autorizados u"
-                        " 'observación por encima del hombro'"
-                    ),
-                    "Para reiniciar las aplicaciones lentas",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "2. ¿Qué riesgo implica conectar una memoria USB de origen"
-                    " desconocido a un ordenador corporativo?"
-                ),
-                "options": [
-                    "Ninguno, los puertos USB son totalmente seguros",
-                    (
-                        "Infección potencial con malware, ransomware o"
-                        " troyanos ocultos en el dispositivo"
-                    ),
-                    "Aumento inmediato de la velocidad del disco",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "3. ¿Cuál es el propósito fundamental de una red VPN"
-                    " corporativa al teletrabajar?"
-                ),
-                "options": [
-                    "Navegar más rápido por páginas de entretenimiento",
-                    (
-                        "Establecer un túnel de cifrado seguro entre el equipo"
-                        " remoto y la red interna de la empresa"
-                    ),
-                    "Ocultar la ubicación geográfica personal",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "4. ¿Qué debe hacer si su dispositivo corporativo sufre"
-                    " robo o extravío fuera de la oficina?"
-                ),
-                "options": [
-                    "Esperar unos días por si aparece",
-                    (
-                        "Reportarlo de inmediato a TI para activar protocolos"
-                        " de bloqueo y borrado remoto"
-                    ),
-                    "Comprar un repuesto personal en el mercado",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "5. ¿Por qué se consideran vulnerables las redes Wi-Fi"
-                    " públicas abiertas?"
-                ),
-                "options": [
-                    "Porque la señal suele ser débil",
-                    (
-                        "Porque carecen de cifrado robusto y permiten la"
-                        " intercepción de tráfico de red"
-                    ),
-                    "Porque cobran tarifas ocultas",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "6. ¿Cuál es la importancia de aplicar actualizaciones de"
-                    " software puntualmente?"
-                ),
-                "options": [
-                    "Cambiar el diseño visual de los menús",
-                    (
-                        "Parchar vulnerabilidades de seguridad conocidas y"
-                        " explotables"
-                    ),
-                    "Ocupar espacio de almacenamiento disponible",
-                ],
-                "correct": 1,
-            },
-            {
-                "q": (
-                    "7. ¿Es adecuado utilizar equipos corporativos para"
-                    " actividades personales sensibles (banca personal, etc.)?"
-                    ""
-                ),
-                "options": [
-                    "Sí, está totalmente permitido y recomendado",
-                    (
-                        "No es aconsejable, ya que los equipos están"
-                        " monitoreados por políticas de seguridad de la"
-                        " empresa"
-                    ),
-                    "Obligatorio por normativas internas",
+                    "Usar una frase larga con letras y números",
+                    "Usar '123456' o el nombre de tu mascota",
+                    "Cambiar de clave cada cierto tiempo",
                 ],
                 "correct": 1,
             },
         ],
     },
-    "Prevención de Ransomware": {
-        "title": "Módulo Avanzado: Mitigación y Respuesta ante Ransomware",
+    "Seguridad en tu Puesto de Trabajo": {
+        "title": "Curso 3: Cuidado de tus equipos y espacio físico",
         "theory": """
-### 💥 Prevención y Contención de Ataques de Ransomware
-El **Ransomware** representa una amenaza destructiva capaz de paralizar las operaciones de una organización en minutos mediante el cifrado masivo de discos y recursos compartidos.
+### 💻 Cuidados básicos en la oficina o teletrabajo
+La ciberseguridad no es solo en la pantalla; también depende de cómo manejamos nuestros equipos físicos en el día a día.
 
 ---
 
-#### 1. Dinámica de Infección y Propagación
-Los códigos maliciosos ingresan típicamente mediante adjuntos de correo maliciosos o vulnerabilidades perimetrales abiertas. Una vez dentro, buscan cuentas con privilegios elevados para mapear y cifrar tanto unidades locales como servidores de respaldo conectados a la red.
-
-#### 2. Protocolo Crítico de Respuesta (Kill Switch)
-* **Desconexión Física Inmediata:** Si un equipo muestra indicios de cifrado (archivos con extensiones anómalas, lentitud extrema, avisos en pantalla), desconecte el cable de red y desactive el Wi-Fi al instante.
-* **Aviso a TI:** La rapidez en la contención evita que el software malicioso salte a otros equipos de la red corporativa.
-* **No Pagar Rescates:** Las organizaciones internacionales de seguridad desaconsejan abonar extorsiones económicas ya que no garantizan la recuperación de los datos y financian redes delictivas.
+#### 1. Reglas de oro para cuidar tu equipo:
+* **Bloquea siempre la pantalla:** Si te levantas de tu escritorio para ir al baño, a comer o a hablar con un compañero, presiona las teclas `Windows + L` para bloquear tu computadora. Evitas que alguien más vea información confidencial.
+* **Cuidado con los USBs encontrados:** Si encuentras un pendrive o memoria USB tirada en el pasillo o estacionamiento, **nunca la conectes** a tu computadora. Los estafadores a veces los dejan ahí a propósito cargados con virus.
+* **Precaución al hablar:** Si estás en un lugar público (un café o un aeropuerto) trabajando con tu portátil, cuida que nadie mire tu pantalla por detrás ("observación por encima del hombro").
         """,
         "questions": [
             {
-                "q": (
-                    "1. ¿Cómo opera esencialmente un ataque de Ransomware en"
-                    " una red corporativa?"
-                ),
+                "q": "1. ¿Qué debes hacer obligatoriamente si te levantas de tu escritorio aunque sea por un minuto?",
                 "options": [
-                    "Optimiza las bases de datos de la compañía",
-                    (
-                        "Cifra de forma irreversible los archivos del sistema"
-                        " exigiendo un rescate económico"
-                    ),
-                    "Elimina los virus informáticos previos",
+                    "Apagar la luz de la oficina",
+                    "Bloquear la pantalla de la computadora",
+                    "Dejar la sesión abierta para avanzar más rápido",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "2. ¿Cuál debe ser su reacción inmediata si detecta que"
-                    " su equipo está sufriendo un ataque de cifrado?"
-                ),
+                "q": "2. Si encuentras una memoria USB tirada en el suelo de la empresa, ¿qué debes hacer?",
                 "options": [
-                    "Continuar trabajando con normalidad",
-                    (
-                        "Desconectar físicamente el equipo de la red (Ethernet y"
-                        " Wi-Fi) y reportar a TI"
-                    ),
-                    "Reiniciar la computadora tres veces seguidas",
+                    "Conectarla a tu PC para ver de quién es el dueño",
+                    "Entregarla al área de tecnología sin conectarla",
+                    "Formatearla y usarla para guardar tus fotos",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "3. ¿Cuál es el mecanismo de defensa más sólido frente a"
-                    " un incidente de Ransomware?"
-                ),
+                "q": "3. ¿Por qué es peligroso dejar la computadora sin bloquear al ausentarte?",
                 "options": [
-                    "Tener respaldos (backups) frecuentes, offline e"
-                    " inmutables",
-                    "Apagar los equipos a las 18:00 horas",
-                    "Utilizar un navegador web diferente",
-                ],
-                "correct": 0,
-            },
-            {
-                "q": (
-                    "4. ¿Qué recomiendan los organismos internacionales de"
-                    " seguridad respecto al pago de rescates?"
-                ),
-                "options": [
-                    "Pagar inmediatamente para recuperar los archivos",
+                    "Porque consume más electricidad",
                     (
-                        "No pagar jamás, ya que fomenta el delito y no asegura"
-                        " la restitución de la información"
+                        "Porque cualquier persona puede ver datos de la empresa o"
+                        " usar tu cuenta"
                     ),
-                    "Pagar únicamente si se realiza mediante criptomonedas"
-                    " estables",
+                    "Porque se congela el sistema",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "5. ¿Por qué las copias de seguridad de respaldo deben"
-                    " mantenerse aisladas de la red principal?"
-                ),
+                "q": "4. ¿Qué es la 'observación por encima del hombro'?",
                 "options": [
-                    "Para ahorrar espacio en disco duro",
+                    "Un ejercicio de estiramiento en la oficina",
                     (
-                        "Para impedir que el Ransomware alcance y destruya"
-                        " también los backups"
+                        "Cuando alguien curioso mira tu pantalla o contraseña por"
+                        " detrás tuyo"
                     ),
-                    "Para que no consuman ancho de banda diario",
+                    "Una forma de configurar el monitor",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "6. ¿Cuál suele ser el vector inicial más común de"
-                    " infección por Ransomware?"
-                ),
+                "q": "5. Si trabajas con tu portátil en un sitio público, ¿qué debes cuidar?",
                 "options": [
-                    "Visitar portales de noticias oficiales",
-                    (
-                        "Apertura de correos de phishing con archivos adjuntos"
-                        " maliciosos"
-                    ),
-                    "Imprimir documentos corporativos en red",
+                    "Que la batería esté al 100%",
+                    "Que personas extrañas no puedan ver información confidencial en tu pantalla",
+                    "Que nadie te hable en voz alta",
+                ],
+                "correct": 1,
+            },
+        ],
+    },
+    "Llamadas y Mensajes Falsos (Vishing)": {
+        "title": "Curso 4: Prevención de fraudes por teléfono",
+        "theory": """
+### ☎️ El peligro de las llamadas falsas (Vishing)
+Así como existe el engaño por correo, los estafadores también llaman por teléfono o envían mensajes de texto haciéndose pasar por tu banco, soporte técnico o entidades oficiales.
+
+---
+
+#### 1. ¿Cómo operan?
+* Te llaman diciendo que hay un problema grave con tu cuenta bancaria o con tu equipo de trabajo y te exigen que les digas tu contraseña o los códigos que te llegan por mensaje de texto.
+* **La regla de oro:** Ningún empleado real de un banco, de soporte técnico o de la empresa te va a pedir jamás por teléfono tu contraseña ni tus códigos de seguridad.
+
+#### 2. ¿Cómo actuar?
+Si sospechas de una llamada: cuelga inmediatamente. Si realmente fuera un asunto importante de la empresa o del banco, comunícate tú mismo llamando al número oficial de atención al cliente.
+        """,
+        "questions": [
+            {
+                "q": "1. ¿Qué es el 'Vishing'?",
+                "options": [
+                    "Un sistema para limpiar virus de video",
+                    "Un intento de estafa o engaño a través de llamadas telefónicas",
+                    "Una llamada automática de la empresa",
                 ],
                 "correct": 1,
             },
             {
-                "q": (
-                    "7. ¿Qué responsabilidad tiene el usuario final ante esta"
-                    " amenaza?"
-                ),
+                "q": "2. Si alguien te llama por teléfono diciendo que es de soporte técnico y te pide tu contraseña, ¿qué debes hacer?",
                 "options": [
-                    "Desarrollar parches de software avanzado",
+                    "Dársela porque parece una persona amable",
+                    "Cortar la llamada de inmediato; nadie legítimo te pedirá tu clave",
+                    "Anotar su nombre y dársela por partes",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": "3. ¿Las entidades bancarias o de soporte te piden códigos que te llegan por SMS para verificar tu identidad?",
+                "options": [
+                    "Sí, se los debes dar a cualquiera que llame",
+                    "No, esos códigos son privados y nunca debes revelarlos por teléfono",
+                    "Solo si llaman por la mañana",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": "4. ¿Qué debes hacer si tienes dudas sobre una llamada sospechosa que dice ser de un servicio oficial?",
+                "options": [
+                    "Seguir la conversación hasta que te convenzan",
                     (
-                        "Actuar como filtro preventivo evitando abrir correos"
-                        " o ficheros sospechosos"
+                        "Cortar y llamar tú mismo al número oficial de la"
+                        " institución"
                     ),
-                    "Ninguna, la seguridad es invisible",
+                    "Pasarle el teléfono a un compañero",
+                ],
+                "correct": 1,
+            },
+            {
+                "q": "5. ¿Cuál es el objetivo de los estafadores al usar llamadas telefónicas urgentes?",
+                "options": [
+                    "Venderte un seguro médico",
+                    (
+                        "Asustarte para que actúes rápido sin pensar y les des"
+                        " información"
+                    ),
+                    "Actualizar la agenda de contactos",
                 ],
                 "correct": 1,
             },
@@ -1302,25 +1084,25 @@ def generate_pdf(
 # DETECCIÓN DE PARÁMETROS EN URL (PORTAL DEL EMPLEADO CON TEMA)
 query_params = st.query_params
 employee_token = query_params.get("empleado")
-topic_token = query_params.get("tema", "Phishing e Ingeniería Social")
+topic_token = query_params.get("tema", "Phishing: El engaño en los correos")
 
 if employee_token:
   st.markdown(
       """
         <div class="employee-portal-banner">
             <h2>🎓 Portal Corporativo de Concienciación en Ciberseguridad</h2>
-            <p>Capacitación obligatoria y evaluación de competencias técnicas</p>
+            <p>Capacitación esencial para colaboradores</p>
         </div>
         """,
       unsafe_allow_html=True,
   )
 
   selected_topic_data = TRAINING_TOPICS.get(
-      topic_token, TRAINING_TOPICS["Phishing e Ingeniería Social"]
+      topic_token, TRAINING_TOPICS["Phishing: El engaño en los correos"]
   )
 
   st.info(
-      f"👤 Colaborador: **{employee_token}** | Campaña Asignada:"
+      f"👤 Colaborador: **{employee_token}** | Curso Asignado:"
       f" **{topic_token}**"
   )
 
@@ -1349,17 +1131,16 @@ if employee_token:
 
   if current_status == "Completado":
     st.success(
-        f"✅ ¡Ya has completado satisfactoriamente esta capacitación de"
+        f"✅ ¡Ya has completado satisfactoriamente este curso de"
         f" **{topic_token}**! Tu calificación registrada es de **{current_score}%**."
     )
   else:
-    st.markdown(f"### 📚 Material Formativo Completo: {topic_token}")
-    # Renderizado usando Markdown nativo de Streamlit (sin errores de etiquetas)
+    st.markdown(f"### 📚 Material de Estudio: {topic_token}")
     st.markdown(selected_topic_data["theory"])
 
     st.markdown("---")
     st.markdown(
-        "### 📝 Cuestionario de Evaluación Técnica (7 Preguntas Obligatorias)"
+        "### 📝 Cuestionario de Evaluación (5 Preguntas Sencillas)"
     )
 
     with st.form("employee_deep_quiz_form"):
@@ -1506,7 +1287,7 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v5.0 • Markdown Nativo Activo.")
+  st.sidebar.caption("CyberAudits Enterprise v5.1 • Cursos Básicos Activos.")
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
@@ -1514,8 +1295,8 @@ else:
         "## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo"
     )
     st.info(
-        "Asigna temas específicos, sincroniza con tu directorio corporativo o"
-        " genera enlaces con parámetros personalizados."
+        "Asigna cursos sencillos, sincroniza con tu directorio o genera"
+        " enlaces personalizados para los colaboradores."
     )
 
     sub_tab1, sub_tab2, sub_tab3 = st.tabs([
@@ -1527,7 +1308,7 @@ else:
     with sub_tab1:
       col_add1, col_add2 = st.columns(2)
       with col_add1:
-        st.markdown("### ➕ Asignar Campaña a Colaborador")
+        st.markdown("### ➕ Asignar Curso a Colaborador")
         with st.form("single_assign_form"):
           emp_mail_input = st.text_input("Correo Electrónico")
           emp_dept_input = st.selectbox(
@@ -1541,12 +1322,10 @@ else:
               ],
           )
           chosen_campaign = st.selectbox(
-              "Seleccionar Tema / Campaña de Capacitación",
+              "Seleccionar Curso de Capacitación",
               list(TRAINING_TOPICS.keys()),
           )
-          submit_single = st.form_submit_button(
-              "Registrar y Asignar Campaña"
-          )
+          submit_single = st.form_submit_button("Registrar y Asignar Curso")
           if submit_single and emp_mail_input:
             try:
               conn = sqlite3.connect("cyber_audits.db")
@@ -1558,12 +1337,12 @@ else:
               conn.commit()
               conn.close()
               st.success(
-                  f"Campaña '{chosen_campaign}' asignada a {emp_mail_input}."
+                  f"Curso '{chosen_campaign}' asignado a {emp_mail_input}."
               )
               st.rerun()
             except Exception:
               st.error(
-                  "El correo ya se encuentra registrado con esa campaña o en la"
+                  "El correo ya se encuentra registrado con ese curso o en la"
                   " base de datos."
               )
 
@@ -1576,10 +1355,10 @@ else:
         )
         if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
           mock_directory = [
-              ("carlos.gomez@empresa.com", "Tecnología / TI", "Phishing e Ingeniería Social"),
-              ("ana.martinez@empresa.com", "Finanzas", "Gestión de Contraseñas Robustas"),
-              ("lucas.pereira@empresa.com", "Ventas", "Seguridad en Dispositivos y Remoto"),
-              ("sofia.benitez@empresa.com", "Operaciones", "Prevención de Ransomware"),
+              ("carlos.gomez@empresa.com", "Tecnología / TI", "Phishing: El engaño en los correos"),
+              ("ana.martinez@empresa.com", "Finanzas", "Contraseñas Seguras y Fáciles"),
+              ("lucas.pereira@empresa.com", "Ventas", "Seguridad en tu Puesto de Trabajo"),
+              ("sofia.benitez@empresa.com", "Operaciones", "Llamadas y Mensajes Falsos (Vishing)"),
           ]
           conn = sqlite3.connect("cyber_audits.db")
           added_count = 0
