@@ -116,23 +116,21 @@ def get_employees_df():
   return df
 
 
-# BANCO DE CONTENIDOS BÁSICOS Y PREGUNTAS CLaras (5 preguntas exactas por tema)
+# BANCO DE CONTENIDOS 100% ALINEADOS CON LAS PREGUNTAS
 TRAINING_TOPICS = {
     "Phishing: El engaño en los correos": {
         "title": "Curso 1: Cómo identificar correos falsos (Phishing)",
         "theory": """
-### 🎣 ¿Qué es el Phishing?
-El **Phishing** es un truco que usan los estafadores por correo electrónico para hacerse pasar por empresas conocidas (como tu banco, un servicio de encomiendas o tu propio jefe) con el fin de robar tus contraseñas o datos personales.
+**¿Qué es principalmente el Phishing?**
+El **Phishing** es un correo falso enviado por estafadores para engañarte y robar tus contraseñas, claves o datos personales haciéndose pasar por empresas legítimas.
 
----
+**Señales de alerta y comportamiento de los estafadores:**
+* **Urgencia y amenazas:** Los estafadores suelen meter prisa y urgencia diciendo que van a bloquear tu cuenta de forma inminente si no haces clic. Las empresas reales y legítimas jamás te exigen datos ni te amenazan de esa forma.
+* **Remitentes sospechosos:** Si ves una dirección de correo del remitente con letras raras, números intercalados o mal escrita (ej. `@banc0-nacion.com`), esto indica que es un claro indicio de un intento de estafa.
 
-#### 1. Señales fáciles para detectar un correo falso:
-* **Urgencia exagerada:** Te meten prisa diciendo que van a bloquear tu cuenta hoy mismo si no haces clic. Las empresas reales nunca te amenazan así de la nada.
-* **Direcciones de correo extrañas:** El nombre dice "Banco Nación", pero si miras bien la dirección de correo real, tiene letras de más o errores ortográficos (ej. `@banc0-nacion-seguro.com`).
-* **Enlaces o archivos sospechosos:** Te piden que descargues un archivo o hagas clic en un enlace para "verificar tus datos".
-
-#### 2. ¿Qué debes hacer?
-Si un correo te parece sospechoso, **no hagas clic en nada** y bórralo o avisa al área de tecnología. Nunca compartas tus contraseñas por correo.
+**¿Qué debes hacer ante un correo sospechoso?**
+* **No hacer clic en enlaces:** Ante la duda, nunca hagas clic en enlaces rápidos para ver qué pasa. 
+* **Reportar:** Consulta y reporta siempre con el área de tecnología de tu empresa. Jamás respondas un correo enviando tu clave personal.
         """,
         "questions": [
             {
@@ -200,17 +198,13 @@ Si un correo te parece sospechoso, **no hagas clic en nada** y bórralo o avisa 
     "Contraseñas Seguras y Fáciles": {
         "title": "Curso 2: Cómo crear contraseñas seguras",
         "theory": """
-### 🔑 La importancia de una buena contraseña
-Tu contraseña es la llave de tu puerta digital. Si es fácil de adivinar, cualquiera puede entrar a tus cuentas de trabajo o personales.
+**Errores graves a evitar en tus claves:**
+* **Datos personales:** Nunca utilices tu fecha de nacimiento ya que es un dato fácil de adivinar o averiguar por terceros.
+* **Reutilización:** No es recomendable usar la misma contraseña en el trabajo y en tus cuentas personales, porque si descubren una clave, pierden el acceso a todo lo demás. Tampoco uses claves débiles o comunes como '123456' o el nombre de tu mascota.
+* **Anotar contraseñas:** Anotar tu contraseña en un papelito (Post-it) y pegarlo en el monitor de tu oficina **no es seguro**, ya que cualquier persona que pase por tu lugar podrá verla y comprometer tu acceso.
 
----
-
-#### 1. Errores comunes que debes evitar:
-* **No uses datos personales obvios:** Nombres de tus hijos, de tu perro, tu fecha de nacimiento o números como `123456`. Los estafadores adivinan esto en segundos mirando tus redes sociales.
-* **No repitas la misma clave:** Si usas la misma contraseña para tu correo personal, tus redes y el trabajo, con que te roben en un sitio, ya tienen acceso a todo lo demás.
-
-#### 2. El secreto de una buena contraseña:
-* **Usa frases largas:** En lugar de una palabra corta, usa una frase que tenga sentido para ti pero difícil para otros, combinando alguna mayúscula y números (ejemplo: `SolPlaya2026`). Cuanto más larga, más difícil de romper.
+**Buenas prácticas:**
+* Para que una contraseña sea segura y difícil de adivinar, lo mejor es usar una frase larga o una combinación variada de palabras que sea difícil de deducir por extraños.
         """,
         "questions": [
             {
@@ -266,15 +260,12 @@ Tu contraseña es la llave de tu puerta digital. Si es fácil de adivinar, cualq
     "Seguridad en tu Puesto de Trabajo": {
         "title": "Curso 3: Cuidado de tus equipos y espacio físico",
         "theory": """
-### 💻 Cuidados básicos en la oficina o teletrabajo
-La ciberseguridad no es solo en la pantalla; también depende de cómo manejamos nuestros equipos físicos en el día a día.
+**Bloqueo de pantalla y ausencia:**
+* Debes **bloquear la pantalla** de la computadora obligatoriamente cada vez que te levantes de tu escritorio, aunque sea por un minuto. Dejarla sin bloquear es peligroso porque cualquier persona física puede ver datos confidenciales de la empresa o usar tu cuenta sin permiso. Para hacerlo rápido usa las teclas `Windows + L`.
 
----
-
-#### 1. Reglas de oro para cuidar tu equipo:
-* **Bloquea siempre la pantalla:** Si te levantas de tu escritorio para ir al baño, a comer o a hablar con un compañero, presiona las teclas `Windows + L` para bloquear tu computadora. Evitas que alguien más vea información confidencial.
-* **Cuidado con los USBs encontrados:** Si encuentras un pendrive o memoria USB tirada en el pasillo o estacionamiento, **nunca la conectes** a tu computadora. Los estafadores a veces los dejan ahí a propósito cargados con virus.
-* **Precaución al hablar:** Si estás en un lugar público (un café o un aeropuerto) trabajando con tu portátil, cuida que nadie mire tu pantalla por detrás ("observación por encima del hombro").
+**Dispositivos USB y sitios públicos:**
+* Si encuentras una memoria USB tirada en el suelo de la empresa, **nunca la conectes** a tu PC; debes entregarla directamente al área de tecnología sin conectarla.
+* Cuidado con la **"observación por encima del hombro"**, que es cuando alguien curioso mira tu pantalla o contraseña por detrás tuyo. Si trabajas con tu portátil en un sitio público, debes cuidar especialmente que personas extrañas no puedan ver información confidencial en tu monitor.
         """,
         "questions": [
             {
@@ -333,17 +324,13 @@ La ciberseguridad no es solo en la pantalla; también depende de cómo manejamos
     "Llamadas y Mensajes Falsos (Vishing)": {
         "title": "Curso 4: Prevención de fraudes por teléfono",
         "theory": """
-### ☎️ El peligro de las llamadas falsas (Vishing)
-Así como existe el engaño por correo, los estafadores también llaman por teléfono o envían mensajes de texto haciéndose pasar por tu banco, soporte técnico o entidades oficiales.
+**¿Qué es el Vishing?**
+El **Vishing** es un intento de estafa o engaño que realizan los delincuentes a través de llamadas telefónicas. Su objetivo principal al usar llamadas telefónicas urgentes es asustarte para que actúes rápido sin pensar y les des información confidencial.
 
----
-
-#### 1. ¿Cómo operan?
-* Te llaman diciendo que hay un problema grave con tu cuenta bancaria o con tu equipo de trabajo y te exigen que les digas tu contraseña o los códigos que te llegan por mensaje de texto.
-* **La regla de oro:** Ningún empleado real de un banco, de soporte técnico o de la empresa te va a pedir jamás por teléfono tu contraseña ni tus códigos de seguridad.
-
-#### 2. ¿Cómo actuar?
-Si sospechas de una llamada: cuelga inmediatamente. Si realmente fuera un asunto importante de la empresa o del banco, comunícate tú mismo llamando al número oficial de atención al cliente.
+**Reglas de seguridad telefónica:**
+* **Soporte técnico y claves:** Si alguien te llama por teléfono diciendo que es de soporte técnico y te pide tu contraseña, debes **cortar la llamada de inmediato**; ningún empleado legítimo te pedirá jamás tu clave personal.
+* **Códigos de verificación por SMS:** Los códigos que te llegan por mensaje de texto son privados y **nunca debes revelarlos** por teléfono a nadie.
+* **Qué hacer ante dudas:** Si tienes dudas sobre una llamada sospechosa que dice ser de un servicio oficial, debes cortar la llamada y llamar tú mismo al número oficial de la institución para verificar.
         """,
         "questions": [
             {
@@ -1140,7 +1127,8 @@ if employee_token:
 
     st.markdown("---")
     st.markdown(
-        "### 📝 Cuestionario de Evaluación (5 Preguntas Sencillas)"
+        "### 📝 Cuestionario de Evaluación (5 Preguntas Sencillas basadas en el"
+        " texto anterior)"
     )
 
     with st.form("employee_deep_quiz_form"):
@@ -1287,7 +1275,7 @@ else:
     report_subject = "Evaluación de Riesgos"
 
   st.sidebar.markdown("---")
-  st.sidebar.caption("CyberAudits Enterprise v5.1 • Cursos Básicos Activos.")
+  st.sidebar.caption("CyberAudits Enterprise v5.2 • Cursos Alineados Activos.")
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
     st.markdown("---")
@@ -1378,7 +1366,7 @@ else:
           st.success(
               f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count}"
               f" nuevos colaboradores ({skipped_count} ya se encontraban"
-              " registrados)."
+              " registrados en la base de datos)."
           )
           st.rerun()
 
