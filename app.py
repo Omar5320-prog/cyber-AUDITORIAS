@@ -477,234 +477,306 @@ def generate_pdf(
     report_type,
     output_filename,
 ):
-  # Filtrar hallazgos según el tipo de informe seleccionado
-  active_findings = findings
-  if "Correo" in report_type:
-    active_findings = [
-        f for f in findings if "SPF" in f["vector"] or "DMARC" in f["vector"]
-    ]
-  elif "Ejecutivo" in report_type:
-    active_findings = findings[:3]  # Mostrar solo los 3 principales
-
-  ports_html = (
-      "".join([
-          f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
-          " (Open / Abierto)</td></tr>"
-          for p in open_ports
-      ])
-      or "<tr><td colspan='2' style='text-align:center;'>No common ports"
-      " detected.</td></tr>"
-  )
-  sub_html = (
-      "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
-      or "<li>No additional subdomains found.</li>"
-  )
-
-  spf_badge = (
-      "<span style='color:green;'><b>Configurado (OK)</b></span>"
-      if email_sec["spf"]
-      else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
-  )
-  dmarc_badge = (
-      "<span style='color:green;'><b>Configurado (OK)</b></span>"
-      if email_sec["dmarc"]
-      else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
-  )
-
-  items_html_en = ""
-  for idx, f in enumerate(active_findings, 1):
-    f_en = translate_finding_en(f)
-    items_html_en += f"""
-        <div class="finding-card">
-            <div class="finding-header">
-                <span class="finding-num">#{idx}</span>
-                <span class="finding-title">{f_en['vector']}</span>
-                <span class="{f_en['badge']}">{f_en['severity']}</span>
+  # Si se seleccionó el formato Memo / Carta Ejecutivo
+  if "Memo" in report_type or "Carta" in report_type:
+    html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @page {{ size: A4; margin: 15mm 15mm; background-color: #ffffff; @bottom-right {{ content: "Page / Página " counter(page); font-size: 8pt; color: #64748b; }} }}
+                body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 0; font-size: 10pt; line-height: 1.6; }}
+                .memo-header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }}
+                .memo-header h1 {{ margin: 0; font-size: 16pt; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; }}
+                .memo-header p {{ margin: 3px 0; color: #64748b; font-size: 9pt; }}
+                .meta-table {{ width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 9.5pt; }}
+                .meta-table td {{ padding: 5px 0; border-bottom: 1px solid #e2e8f0; }}
+                .meta-table td.label {{ font-weight: bold; color: #475569; width: 25%; }}
+                .memo-body h2 {{ color: #0f172a; font-size: 11pt; border-left: 3px solid #3b82f6; padding-left: 8px; margin-top: 15px; margin-bottom: 8px; }}
+                .highlight-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 12px 15px; border-radius: 4px; margin: 15px 0; }}
+                .signature-section {{ margin-top: 40px; page-break-inside: avoid; }}
+                .disclaimer {{ font-size: 8pt; color: #94a3b8; margin-top: 30px; text-align: center; border-top: 1px solid #e2e8f0; paddingTop: 10px; }}
+            </style>
+        </head>
+        <body>
+            <!-- MEMORÁNDUM EN ESPAÑOL -->
+            <div class="memo-header">
+                <h1>Memorándum Ejecutivo de Seguridad</h1>
+                <p>Emitido por: <strong>{agency_name}</strong> | División de Consultoría y Ciberseguridad</p>
             </div>
-            <div class="finding-body">
-                <p><strong>Technical Description:</strong> {f_en['desc']}</p>
-                <p><strong>Business Impact:</strong> {f_en['impact']}</p>
-                <div class="solution-box">
-                    <p><strong>Remediation:</strong> <code>{f_en['fix']}</code></p>
+            
+            <table class="meta-table">
+                <tr><td class="label">PARA:</td><td>Dirección General / Alta Gerencia de {hostname}</td></tr>
+                <tr><td class="label">DE:</td><td>{agency_name}</td></tr>
+                <tr><td class="label">ASUNTO:</td><td>Evaluación de Riesgos Perimetrales y Postura de Negocio</td></tr>
+                <tr><td class="label">UBICACIÓN OBJETIVO:</td><td>{geo['city']}, {geo['country']} ({geo['ip']})</td></tr>
+            </table>
+
+            <div class="memo-body">
+                <h2>1. Resumen Gerencial y Hallazgo General</h2>
+                <p>Por medio de la presente, nos dirigimos a ustedes para presentar las conclusiones gerenciales derivadas del análisis de seguridad perimetral realizado sobre el dominio <strong>{hostname}</strong>. El propósito de este memorándum es traducir los hallazgos técnicos a un lenguaje de impacto financiero y operativo para la toma de decisiones oportuna.</p>
+                
+                <div class="highlight-box">
+                    <p style="margin:0;"><strong>Estado Actual de Riesgo:</strong> La infraestructura evaluada presenta un total de <strong>{len(findings)} áreas de vulnerabilidad y exposición</strong> que requieren atención prioritaria por parte del equipo técnico para salvaguardar la reputación de la marca y la confianza de los clientes.</p>
+                </div>
+
+                <h2>2. Análisis de Riesgos Críticos para el Negocio</h2>
+                <p>Durante la auditoría, se identificaron factores clave que impactan directamente la continuidad y seguridad de la organización:</p>
+                <ul>
+                    <li><strong>Protección de Correo y Fraude (SPF / DMARC):</strong> {"Los mecanismos de autenticación de correo se encuentran configurados correctamente." if email_sec['spf'] and email_sec['dmarc'] else "Se detectó la ausencia de directivas estrictas de autenticación de correo (SPF/DMARC). Esto expone a la empresa a que actores maliciosos envíen correos masivos de suplantación de identidad (phishing) a nombre de su marca, dañando severamente la confianza comercial."}</li>
+                    <li><strong>Exposición de Servicios y Puertos:</strong> La presencia de puertos operativos accesibles directamente desde internet sin pasarelas de control incrementa la superficie de ataque ante intentos automatizados de intrusión y fuerza bruta.</li>
+                    <li><strong>Seguridad en Tránsito y Cifrado:</strong> La falta de cabeceras de seguridad estrictas (como HSTS) en el servidor web deja abierta una ventana para la intercepción de sesiones en redes públicas o corporativas no confiables.</li>
+                </ul>
+
+                <h2>3. Recomendaciones y Siguiente Paso Ejecutivo</h2>
+                <p>Recomendamos encarecidamente autorizar de manera inmediata al equipo de ingeniería o sistemas la aplicación de las directrices técnicas detalladas en el anexo técnico adjunto. Contar con una postura perimetral blindada no es solo un requisito técnico, sino un pilar fundamental para la viabilidad comercial y la protección legal de la empresa.</p>
+            </div>
+
+            <div class="signature-section">
+                <p>Atentamente,</p>
+                <p><strong>Equipo de Ciberseguridad y Riesgos</strong><br>{agency_name}</p>
+            </div>
+
+            <div class="disclaimer">Documento confidencial preparado para la alta gerencia de {hostname}. Todos los derechos reservados.</div>
+        </body>
+        </html>
+        """
+  else:
+    # Lógica estándar para los demás informes técnicos o ejecutivos
+    active_findings = findings
+    if "Correo" in report_type:
+      active_findings = [
+          f
+          for f in findings
+          if "SPF" in f["vector"] or "DMARC" in f["vector"]
+      ]
+    elif "Ejecutivo" in report_type:
+      active_findings = findings[:3]
+
+    ports_html = (
+        "".join([
+            (
+                f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
+                " (Open / Abierto)</td></tr>"
+            )
+            for p in open_ports
+        ])
+        or "<tr><td colspan='2' style='text-align:center;'>No common ports"
+        " detected.</td></tr>"
+    )
+    sub_html = (
+        "".join([f"<li><code>{sub}</code></li>" for sub in subdomains])
+        or "<li>No additional subdomains found.</li>"
+    )
+
+    spf_badge = (
+        "<span style='color:green;'><b>Configurado (OK)</b></span>"
+        if email_sec["spf"]
+        else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
+    )
+    dmarc_badge = (
+        "<span style='color:green;'><b>Configurado (OK)</b></span>"
+        if email_sec["dmarc"]
+        else "<span style='color:red;'><b>Ausente (Riesgo)</b></span>"
+    )
+
+    items_html_en = ""
+    for idx, f in enumerate(active_findings, 1):
+      f_en = translate_finding_en(f)
+      items_html_en += f"""
+            <div class="finding-card">
+                <div class="finding-header">
+                    <span class="finding-num">#{idx}</span>
+                    <span class="finding-title">{f_en['vector']}</span>
+                    <span class="{f_en['badge']}">{f_en['severity']}</span>
+                </div>
+                <div class="finding-body">
+                    <p><strong>Technical Description:</strong> {f_en['desc']}</p>
+                    <p><strong>Business Impact:</strong> {f_en['impact']}</p>
+                    <div class="solution-box">
+                        <p><strong>Remediation:</strong> <code>{f_en['fix']}</code></p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """
-  exec_bullets_en = "".join([
-      f"<li><strong>{translate_finding_en(f)['exec_title']}</strong>:"
-      f" {translate_finding_en(f)['impact']}</li>"
-      for f in active_findings
-  ])
+            """
+    exec_bullets_en = "".join([
+        (
+            f"<li><strong>{translate_finding_en(f)['exec_title']}</strong>:"
+            f" {translate_finding_en(f)['impact']}</li>"
+        )
+        for f in active_findings
+    ])
 
-  items_html_es = ""
-  for idx, f in enumerate(active_findings, 1):
-    items_html_es += f"""
-        <div class="finding-card">
-            <div class="finding-header">
-                <span class="finding-num">#{idx}</span>
-                <span class="finding-title">{f['vector']}</span>
-                <span class="{f['badge']}">{f['severity']}</span>
-            </div>
-            <div class="finding-body">
-                <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
-                <p><strong>Impacto de Negocio:</strong> {f['impact']}</p>
-                <div class="solution-box">
-                    <p><strong>Remediación:</strong> <code>{f['fix']}</code></p>
+    items_html_es = ""
+    for idx, f in enumerate(active_findings, 1):
+      items_html_es += f"""
+            <div class="finding-card">
+                <div class="finding-header">
+                    <span class="finding-num">#{idx}</span>
+                    <span class="finding-title">{f['vector']}</span>
+                    <span class="{f['badge']}">{f['severity']}</span>
+                </div>
+                <div class="finding-body">
+                    <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
+                    <p><strong>Impacto de Negocio:</strong> {f['impact']}</p>
+                    <div class="solution-box">
+                        <p><strong>Remediación:</strong> <code>{f['fix']}</code></p>
+                    </div>
                 </div>
             </div>
-        </div>
+            """
+    exec_bullets_es = "".join([
+        f"<li><strong>{f['exec_title']}</strong>: {f['impact']}</li>"
+        for f in active_findings
+    ])
+
+    report_title_en = (
+        "Cybersecurity Executive Report"
+        if "Ejecutivo" in report_type
+        else (
+            "Email & DNS Posture Report"
+            if "Correo" in report_type
+            else "Comprehensive Cybersecurity Assessment"
+        )
+    )
+    report_title_es = (
+        "Informe Ejecutivo de Ciberseguridad"
+        if "Ejecutivo" in report_type
+        else (
+            "Informe de Postura de Correo y DNS"
+            if "Correo" in report_type
+            else "Informe Técnico Exhaustivo de Ciberseguridad"
+        )
+    )
+
+    html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page / Página " counter(page) " of / de " counter(pages); font-size: 8pt; color: #64748b; }} }}
+                body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
+                .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; }}
+                .header-banner h1 {{ margin: 0; font-size: 14pt; }}
+                .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8.5pt; }}
+                .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
+                .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
+                .meta-value {{ font-size: 8.5pt; font-weight: 600; color: #0f172a; }}
+                h2 {{ color: #0f172a; font-size: 10pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
+                .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
+                .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+                .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+                .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
+                .chart-container {{ text-align: center; }}
+                .chart-container img {{ max-width: 70%; height: auto; }}
+                .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
+                .cta-box {{ background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px 12px; border-radius: 5px; margin-top: 8px; text-align: center; page-break-inside: avoid; }}
+                .cta-box h3 {{ margin: 0; color: #166534; font-size: 9.5pt; }}
+                .cta-box p {{ margin: 0; color: #15803d; font-size: 8pt; }}
+                table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
+                table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
+                table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
+                .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
+                .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
+                .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8.5pt; }}
+                .finding-body {{ padding: 5px 6px; }}
+                .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
+                .solution-box code {{ color: #0369a1; font-size: 7pt; }}
+                .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
+            </style>
+        </head>
+        <body>
+            <!-- INGLÉS -->
+            <div class="header-banner">
+                <h1>{report_title_en}</h1>
+                <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
+            </div>
+            <table style="width: 100%; margin-bottom: 6px; border: none;">
+                <tr>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Target / IP</div><div class="meta-value">{hostname}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF Record</div><div class="meta-value">{spf_badge}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
+                </tr>
+            </table>
+            <h2>1. Management Vision & Infrastructure</h2>
+            <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> was analyzed under the <em>{report_type}</em> standard.</p></div>
+            <table style="width: 100%; border: none; margin-bottom: 6px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: top; border: none;">
+                        <div class="card"><h3 style="margin:0; font-size:9pt;">Critical Ports:</h3>
+                        <table class="ports-table"><thead><tr><th>Port</th><th>Service</th></tr></thead><tbody>{ports_html}</tbody></table></div>
+                    </td>
+                    <td style="width: 50%; vertical-align: top; border: none;">
+                        <div class="card"><h3 style="margin:0; font-size:9pt;">Subdomains:</h3>
+                        <ul style="margin:0; padding-left:14px; font-size:7.5pt; max-height:80px; overflow:hidden;">{sub_html}</ul></div>
+                    </td>
+                </tr>
+            </table>
+            <div class="card" style="text-align: center; padding: 4px;">
+                <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Chart"></div>
+            </div>
+            <div class="card">
+                <h3 style="margin:0; font-size:9pt;">Impact Analysis:</h3>
+                <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_en}</ul>
+            </div>
+            <div style="page-break-after: always;"></div>
+            
+            <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Prepared by: {agency_name}</p></div>
+            <h2>2. Exhaustive Details & Actionable Findings</h2>
+            {items_html_en}
+            <div class="disclaimer">Note: External perimeter findings generated in real time.</div>
+
+            <!-- ESPAÑOL -->
+            <div style="page-break-after: always;"></div>
+            <div class="header-banner">
+                <h1>{report_title_es}</h1>
+                <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
+            </div>
+            <table style="width: 100%; margin-bottom: 6px; border: none;">
+                <tr>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Registro SPF</div><div class="meta-value">{spf_badge}</div></div></td>
+                    <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
+                </tr>
+            </table>
+            <h2>1. Visión Gerencial e Infraestructura</h2>
+            <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>{report_type}</em>.</p></div>
+            <table style="width: 100%; border: none; margin-bottom: 6px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: top; border: none;">
+                        <div class="card"><h3 style="margin:0; font-size:9pt;">Puertos Críticos:</h3>
+                        <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
+                    </td>
+                    <td style="width: 50%; vertical-align: top; border: none;">
+                        <div class="card"><h3 style="margin:0; font-size:9pt;">Subdominios:</h3>
+                        <ul style="margin:0; padding-left:14px; font-size:7.5pt; max-height:80px; overflow:hidden;">{sub_html}</ul></div>
+                    </td>
+                </tr>
+            </table>
+            <div class="card" style="text-align: center; padding: 4px;">
+                <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
+            </div>
+            <div class="card">
+                <h3 style="margin:0; font-size:9pt;">Análisis de Impacto:</h3>
+                <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_es}</ul>
+            </div>
+            <div style="page-break-after: always;"></div>
+            <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Elaborado por: {agency_name}</p></div>
+            <h2>2. Detalle Exhaustivo de Hallazgos</h2>
+            {items_html_es}
+            <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
+            <div class="cta-box">
+                <h3>¿Cómo proteger su empresa?</h3>
+                <p>Contáctenos hoy mismo para implementar la remediación inmediata y blindar su seguridad.</p>
+            </div>
+        </body>
+        </html>
         """
-  exec_bullets_es = "".join([
-      f"<li><strong>{f['exec_title']}</strong>: {f['impact']}</li>"
-      for f in active_findings
-  ])
 
-  # Título personalizado según el modelo
-  report_title_en = (
-      "Cybersecurity Executive Report"
-      if "Ejecutivo" in report_type
-      else (
-          "Email & DNS Posture Report"
-          if "Correo" in report_type
-          else "Comprehensive Cybersecurity Assessment"
-      )
-  )
-  report_title_es = (
-      "Informe Ejecutivo de Ciberseguridad"
-      if "Ejecutivo" in report_type
-      else (
-          "Informe de Postura de Correo y DNS"
-          if "Correo" in report_type
-          else "Informe Técnico Exhaustivo de Ciberseguridad"
-      )
-  )
-
-  html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page / Página " counter(page) " of / de " counter(pages); font-size: 8pt; color: #64748b; }} }}
-            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
-            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; }}
-            .header-banner h1 {{ margin: 0; font-size: 14pt; }}
-            .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8.5pt; }}
-            .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
-            .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
-            .meta-value {{ font-size: 8.5pt; font-weight: 600; color: #0f172a; }}
-            h2 {{ color: #0f172a; font-size: 10pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
-            .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
-            .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .chart-container {{ text-align: center; }}
-            .chart-container img {{ max-width: 70%; height: auto; }}
-            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
-            .cta-box {{ background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px 12px; border-radius: 5px; margin-top: 8px; text-align: center; page-break-inside: avoid; }}
-            .cta-box h3 {{ margin: 0; color: #166534; font-size: 9.5pt; }}
-            .cta-box p {{ margin: 0; color: #15803d; font-size: 8pt; }}
-            table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
-            table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
-            table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
-            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
-            .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
-            .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8.5pt; }}
-            .finding-body {{ padding: 5px 6px; }}
-            .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
-            .solution-box code {{ color: #0369a1; font-size: 7pt; }}
-            .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
-        </style>
-    </head>
-    <body>
-        <!-- INGLÉS -->
-        <div class="header-banner">
-            <h1>{report_title_en}</h1>
-            <p>Prepared by: <strong>{agency_name}</strong> | Model: {report_type}</p>
-        </div>
-        <table style="width: 100%; margin-bottom: 6px; border: none;">
-            <tr>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Target / IP</div><div class="meta-value">{hostname}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF Record</div><div class="meta-value">{spf_badge}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
-            </tr>
-        </table>
-        <h2>1. Management Vision & Infrastructure</h2>
-        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> was analyzed under the <em>{report_type}</em> standard.</p></div>
-        <table style="width: 100%; border: none; margin-bottom: 6px;">
-            <tr>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:9pt;">Critical Ports:</h3>
-                    <table class="ports-table"><thead><tr><th>Port</th><th>Service</th></tr></thead><tbody>{ports_html}</tbody></table></div>
-                </td>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:9pt;">Subdomains:</h3>
-                    <ul style="margin:0; padding-left:14px; font-size:7.5pt; max-height:80px; overflow:hidden;">{sub_html}</ul></div>
-                </td>
-            </tr>
-        </table>
-        <div class="card" style="text-align: center; padding: 4px;">
-            <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Chart"></div>
-        </div>
-        <div class="card">
-            <h3 style="margin:0; font-size:9pt;">Impact Analysis:</h3>
-            <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_en}</ul>
-        </div>
-        <div style="page-break-after: always;"></div>
-        
-        <div class="header-banner"><h1>Technical Annex & Remediation Guide</h1><p>Prepared by: {agency_name}</p></div>
-        <h2>2. Exhaustive Details & Actionable Findings</h2>
-        {items_html_en}
-        <div class="disclaimer">Note: External perimeter findings generated in real time.</div>
-
-        <!-- ESPAÑOL -->
-        <div style="page-break-after: always;"></div>
-        <div class="header-banner">
-            <h1>{report_title_es}</h1>
-            <p>Elaborado por: <strong>{agency_name}</strong> | Plantilla: {report_type}</p>
-        </div>
-        <table style="width: 100%; margin-bottom: 6px; border: none;">
-            <tr>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Registro SPF</div><div class="meta-value">{spf_badge}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">DMARC</div><div class="meta-value">{dmarc_badge}</div></div></td>
-            </tr>
-        </table>
-        <h2>1. Visión Gerencial e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>{report_type}</em>.</p></div>
-        <table style="width: 100%; border: none; margin-bottom: 6px;">
-            <tr>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:9pt;">Puertos Críticos:</h3>
-                    <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
-                </td>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:9pt;">Subdominios:</h3>
-                    <ul style="margin:0; padding-left:14px; font-size:7.5pt; max-height:80px; overflow:hidden;">{sub_html}</ul></div>
-                </td>
-            </tr>
-        </table>
-        <div class="card" style="text-align: center; padding: 4px;">
-            <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
-        </div>
-        <div class="card">
-            <h3 style="margin:0; font-size:9pt;">Análisis de Impacto:</h3>
-            <ul style="margin:0; padding-left:14px; font-size:8pt;">{exec_bullets_es}</ul>
-        </div>
-        <div style="page-break-after: always;"></div>
-        <div class="header-banner"><h1>Anexo Técnico y Guía de Remediación</h1><p>Elaborado por: {agency_name}</p></div>
-        <h2>2. Detalle Exhaustivo de Hallazgos</h2>
-        {items_html_es}
-        <div class="disclaimer">Nota: Hallazgos perimetrales externos en tiempo real.</div>
-        <div class="cta-box">
-            <h3>¿Cómo proteger su empresa?</h3>
-            <p>Contáctenos hoy mismo para implementar la remediación inmediata y blindar su seguridad.</p>
-        </div>
-    </body>
-    </html>
-    """
   HTML(string=html_content).write_pdf(output_filename)
 
 
@@ -739,6 +811,7 @@ report_type = st.sidebar.selectbox(
         "Informe Técnico Exhaustivo (Completo)",
         "Informe Ejecutivo (Solo Gerencia)",
         "Informe de Postura de Correo y DNS",
+        "Nota / Memo Ejecutivo (Formato Carta)",
     ],
 )
 st.sidebar.caption(
