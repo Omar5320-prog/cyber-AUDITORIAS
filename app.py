@@ -140,9 +140,9 @@ def save_scan_to_db(
 def get_scan_history():
   conn = get_db_connection()
   df = pd.read_sql_query(
-      "SELECT timestamp AS 'Fecha y Hora', hostname AS 'Dominio / Host', ip AS"
-      " 'IP', risk_score AS 'Risk Score (/100)', findings_count AS"
-      " 'Vulnerabilidades', report_type AS 'Plantilla' FROM history ORDER BY id"
+      'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS'
+      ' "IP", risk_score AS "Risk Score (/100)", findings_count AS'
+      ' "Vulnerabilidades", report_type AS "Plantilla" FROM history ORDER BY id'
       " DESC",
       conn,
   )
@@ -153,9 +153,10 @@ def get_scan_history():
 def get_employees_df():
   conn = get_db_connection()
   df = pd.read_sql_query(
-      "SELECT email AS 'Correo Electrónico', department AS 'Departamento',"
-      " topic AS 'Campaña / Tema', status AS 'Estado', score AS 'Calificación"
-      " (%)', last_completed AS 'Última Evaluación' FROM employees",
+      'SELECT email AS "Correo Electrónico", department AS "Departamento",'
+      ' topic AS "Campaña / Tema", status AS "Estado", score AS'
+      ' "Calificación (%)", last_completed AS "Última Evaluación" FROM'
+      " employees",
       conn,
   )
   conn.close()
