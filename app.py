@@ -15,6 +15,29 @@ st.set_page_config(
 )
 
 
+def get_geolocation(hostname):
+  """Obtiene la IP, país, ciudad y proveedor de hosting del objetivo."""
+  geo_data = {
+      "ip": "N/A",
+      "country": "Desconocido",
+      "city": "Desconocido",
+      "org": "Desconocido",
+  }
+  try:
+    ip = socket.gethostbyname(hostname)
+    geo_data["ip"] = ip
+    url = f"https://ipapi.co/{ip}/json/"
+    response = requests.get(url, timeout=5)
+    if response.status_code == 200:
+      data = response.json()
+      geo_data["country"] = data.get("country_name", "Desconocido")
+      geo_data["city"] = data.get("city", "Desconocido")
+      geo_data["org"] = data.get("org", "Desconocido")
+  except Exception:
+    pass
+  return geo_data
+
+
 def discover_subdomains(domain):
   subdomains = set()
   try:
@@ -68,6 +91,7 @@ def scan_target(url):
 
   open_ports = scan_ports(hostname)
   subdomains = discover_subdomains(hostname)
+  geo = get_geolocation(hostname)
 
   for p in open_ports:
     if p["port"] in [21, 3306, 8080, 8443]:
@@ -213,7 +237,7 @@ def scan_target(url):
   except Exception:
     pass
 
-  return findings, stats, open_ports, hostname, subdomains
+  return findings, stats, open_ports, hostname, subdomains, geo
 
 
 def generate_chart(stats):
@@ -351,6 +375,7 @@ def generate_pdf(
     open_ports,
     hostname,
     subdomains,
+    geo,
     output_filename,
 ):
   ports_html = (
@@ -457,20 +482,23 @@ def generate_pdf(
         <!-- ========================================== -->
         <div class="header-banner">
             <h1>Cybersecurity Executive Report</h1>
-            <p>Perimeter Diagnosis, Ports, Subdomains & Business Exposure</p>
+            <p>Perimeter Diagnosis, Ports, Subdomains & Server Intelligence</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
-                <td style="border: none; width: 50%;">
-                    <div class="meta-item"><div class="meta-label">Target</div><div class="meta-value">{hostname}</div></div>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Target / IP</div><div class="meta-value">{hostname} ({geo['ip']})</div></div>
                 </td>
-                <td style="border: none; width: 50%;">
-                    <div class="meta-item"><div class="meta-label">Findings</div><div class="meta-value" style="color: #dc2626;">{len(findings)} vulnerabilities</div></div>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Hosting / ASN</div><div class="meta-value">{geo['org'][:25]}</div></div>
+                </td>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Location</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div>
                 </td>
             </tr>
         </table>
         <h2>1. Management Vision & Infrastructure</h2>
-        <div class="executive-box"><p style="margin:0;">The exposed surface of the domain <strong>{hostname}</strong> was analyzed combining web security, open ports, and subdomains.</p></div>
+        <div class="executive-box"><p style="margin:0;">The exposed surface of <strong>{hostname}</strong> (Hosted in {geo['country']}, {geo['org']}) was analyzed combining web security, open ports, and infrastructure intelligence.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -507,20 +535,23 @@ def generate_pdf(
         <!-- ========================================== -->
         <div class="header-banner">
             <h1>Informe Ejecutivo de Ciberseguridad</h1>
-            <p>Diagnóstico Perimetral, Puertos, Subdominios y Exposición de Negocio</p>
+            <p>Diagnóstico Perimetral, Puertos, Subdominios e Inteligencia de Servidor</p>
         </div>
         <table style="width: 100%; margin-bottom: 6px; border: none;">
             <tr>
-                <td style="border: none; width: 50%;">
-                    <div class="meta-item"><div class="meta-label">Objetivo</div><div class="meta-value">{hostname}</div></div>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Objetivo / IP</div><div class="meta-value">{hostname} ({geo['ip']})</div></div>
                 </td>
-                <td style="border: none; width: 50%;">
-                    <div class="meta-item"><div class="meta-label">Hallazgos</div><div class="meta-value" style="color: #dc2626;">{len(findings)} vulnerabilidades</div></div>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Proveedor / ASN</div><div class="meta-value">{geo['org'][:25]}</div></div>
+                </td>
+                <td style="border: none; width: 33%;">
+                    <div class="meta-item"><div class="meta-label">Ubicación</div><div class="meta-value">{geo['city']}, {geo['country']}</div></div>
                 </td>
             </tr>
         </table>
         <h2>1. Visión Gerencial e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta del dominio <strong>{hostname}</strong> combinando seguridad web, puertos abiertos y subdominios.</p></div>
+        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> (Alojado en {geo['country']}, {geo['org']}) combinando seguridad web, puertos y geolocalización.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -559,7 +590,7 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
-# 1. Banner Superior Limpio (Sin mención de la palabra bilingüe)
+# Banner superior limpio
 st.markdown(
     """
     <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
@@ -572,10 +603,10 @@ st.markdown(
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.write(
     "Analiza la seguridad de cualquier dominio web y obtén métricas de"
-    " exposición de infraestructura."
+    " infraestructura e inteligencia de servidores."
 )
 
-# Estructura de Pestañas Profesionales (Tabs)
+# Pestañas de Navegación
 tab1, tab2, tab3 = st.tabs(
     ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
 )
@@ -604,15 +635,15 @@ with tab1:
       if not target_url.startswith("http"):
         target_url = "https://" + target_url
 
-      # Estado de carga animado profesional
       with st.status(
-          "🔍 Analizando superficie perimetral...", expanded=True
+          "🔍 Analizando superficie e infraestructura...", expanded=True
       ) as status:
-        st.write("Resolviendo subdominios y puertos expuestos...")
-        findings, stats, open_ports, hostname, subdomains = scan_target(
+        st.write("Resolviendo IP, geolocalización y ASN del servidor...")
+        st.write("Inspeccionando puertos, cabeceras y subdominios...")
+        findings, stats, open_ports, hostname, subdomains, geo = scan_target(
             target_url
         )
-        st.write("Generando gráficos y compilando estructura ejecutiva...")
+        st.write("Compilando informe ejecutivo corporativo con WeasyPrint...")
         chart_b64 = generate_chart(stats)
 
         pdf_filename = f"auditoria_{hostname}.pdf"
@@ -624,99 +655,78 @@ with tab1:
             open_ports,
             hostname,
             subdomains,
+            geo,
             pdf_filename,
         )
         status.update(
-            label="✅ ¡Análisis completado con éxito!",
+            label="✅ ¡Análisis e inteligencia completados!",
             state="complete",
             expanded=False,
         )
 
-      # Guardar en la sesión de Streamlit
+      # Guardar en la sesión
       st.session_state.scanned = True
       st.session_state.findings = findings
       st.session_state.stats = stats
       st.session_state.open_ports = open_ports
       st.session_state.hostname = hostname
       st.session_state.subdomains = subdomains
+      st.session_state.geo = geo
       st.session_state.pdf_filename = pdf_filename
 
-  # Mostrar resultados en la Pestaña 1 si ya se realizó el análisis
   if st.session_state.scanned:
     st.success(
-        f"¡Análisis preliminar completado para {st.session_state.hostname}!"
+        f"¡Análisis completado para {st.session_state.hostname} ({st.session_state.geo['ip']})!"
     )
+
+    # Mostrar métricas visuales incluyendo geolocalización en pantalla
+    st.markdown("### 📍 Inteligencia de Servidor Detectada")
+    g_col1, g_col2, g_col3 = st.columns(3)
+    g_col1.metric("Dirección IP", st.session_state.geo["ip"])
+    g_col2.metric("Ubicación", f"{st.session_state.geo['city']}, {st.session_state.geo['country']}")
+    g_col3.metric("Proveedor (ASN)", st.session_state.geo["org"][:20])
 
     st.markdown("---")
     st.subheader("📊 Resumen del Estado de Seguridad")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Vulnerabilidades Detectadas", len(st.session_state.findings))
+    col1.metric("Vulnerabilidades", len(st.session_state.findings))
     col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
-    col3.metric("Subdominios Encontrados", len(st.session_state.subdomains))
-
-    if len(st.session_state.findings) > 0:
-      st.warning(
-          "⚠️ ¡Atención! Se han detectado"
-          f" **{len(st.session_state.findings)} riesgos de seguridad** que"
-          " exponen este dominio a ataques automatizados."
-      )
-    else:
-      st.info(
-          "✅ El dominio muestra una superficie perimetral controlada en los"
-          " vectores básicos analizados."
-      )
+    col3.metric("Subdominios", len(st.session_state.subdomains))
 
     st.markdown("---")
-    st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico Completo")
-    st.markdown(
-        "Obtén el documento corporativo en PDF listo para gerencia"
-        " internacional, con gráficos detallados, impacto de negocio y las"
-        " **guías exactas de remediación paso a paso**."
-    )
-
-    # Banner de gratuidad por lanzamiento limpio
+    st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico")
     st.success(
         "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga del reporte"
-        " completo en PDF es **100% GRATIS** por tiempo limitado!"
+        " completo con inteligencia de servidor es **100% GRATIS**!"
     )
 
     if os.path.exists(st.session_state.pdf_filename):
       with open(st.session_state.pdf_filename, "rb") as pdf_file:
         st.download_button(
-            label="📥 Descargar tu Informe PDF Completo Ahora",
+            label="📥 Descargar Informe PDF con Geolocalización",
             data=pdf_file,
             file_name=st.session_state.pdf_filename,
             mime="application/pdf",
             type="primary",
         )
-    else:
-      st.error(
-          "El archivo PDF no se encuentra disponible. Vuelve a ejecutar el"
-          " escaneo."
-      )
 
 with tab2:
-  st.subheader("Infrastructure Health Metrics")
+  st.subheader("Infrastructure Health & Intelligence")
   if st.session_state.scanned:
-    st.write(f"Target analyzed: **{st.session_state.hostname}**")
+    st.write(f"Target: **{st.session_state.hostname}**")
+    st.write(f"Resolved IP: `{st.session_state.geo['ip']}`")
+    st.write(f"Hosting Provider: `{st.session_state.geo['org']}`")
+    st.write(f"Location: `{st.session_state.geo['city']}, {st.session_state.geo['country']}`")
     st.write(f"Open ports count: {len(st.session_state.open_ports)}")
     st.write(f"Subdomains discovered: {len(st.session_state.subdomains)}")
-    if st.session_state.subdomains:
-      st.markdown("**Discovered Subdomains:**")
-      for sub in st.session_state.subdomains:
-        st.text(sub)
   else:
-    st.info(
-        "Run a scan in the first tab to populate infrastructure metrics and"
-        " technical details."
-    )
+    st.info("Run a scan in the first tab to view advanced infrastructure intelligence.")
 
 with tab3:
   st.subheader("About CyberAudits")
   st.markdown("""
     **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
-    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh.
-    * **Reporting:** Automated corporate delivery.
-    * **Launch Special:** Enjoy free full report generation during our global Product Hunt launch window!
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh, ipapi.
+    * **Reporting:** Automated corporate delivery with geolocation metadata.
     """)
