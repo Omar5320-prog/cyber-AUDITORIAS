@@ -16,15 +16,17 @@ from weasyprint import HTML
 import streamlit as st
 
 st.set_page_config(
-    page_title="CyberAudits - Escáner Perimetral",
+    page_title="CyberAudits - Escáner Perimetral y Concienciación",
     page_icon="🛡️",
     layout="wide",
 )
 
 
+# Inicialización de Base de Datos Enterprise (Historial + Concienciación)
 def init_db():
   conn = sqlite3.connect("cyber_audits.db")
   c = conn.cursor()
+  # Tabla de Historial de Escaneos
   c.execute("""
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +36,17 @@ def init_db():
             risk_score INTEGER,
             findings_count INTEGER,
             report_type TEXT
+        )
+    """)
+  # Tabla de Empleados para Concienciación
+  c.execute("""
+        CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            department TEXT,
+            status TEXT DEFAULT 'Pendiente',
+            score INTEGER DEFAULT 0,
+            last_completed TEXT
         )
     """)
   c.execute("PRAGMA table_info(history)")
@@ -75,6 +88,18 @@ def get_scan_history():
       " 'IP', risk_score AS 'Risk Score (/100)', findings_count AS"
       " 'Vulnerabilidades', report_type AS 'Plantilla' FROM history ORDER BY id"
       " DESC",
+      conn,
+  )
+  conn.close()
+  return df
+
+
+def get_employees_df():
+  conn = sqlite3.connect("cyber_audits.db")
+  df = pd.read_sql_query(
+      "SELECT email AS 'Correo Electrónico', department AS 'Departamento',"
+      " status AS 'Estado', score AS 'Calificación (%)', last_completed AS"
+      " 'Última Evaluación' FROM employees",
       conn,
   )
   conn.close()
@@ -250,22 +275,12 @@ def scan_target(url):
         "vector": "Certificado SSL/TLS Inválido o Ausente",
         "severity": "CRÍTICO",
         "badge": "badge-critical",
-        "exec_title": "Fallo Crítico en Cifrado HTTPS (Certificado No Confiable)",
+        "exec_title": "Fallo Crítico en Cifrado HTTPS",
         "desc": ssl_info["details"],
-        "impact": (
-            "Los navegadores bloquearán el acceso a la web advirtiendo a los"
-            " usuarios sobre fraude."
-        ),
-        "fix": (
-            "Renovar o instalar un certificado SSL/TLS válido emitido por una"
-            " Autoridad reconocida."
-        ),
+        "impact": "Los navegadores bloquearán el acceso a la web.",
+        "fix": "Instalar certificado SSL/TLS válido.",
         "compliance": "PCI-DSS 4.1 / ISO 27001 A.10.1",
-        "snippet": (
-            "# Instalar Certificado SSL válido (ej via Certbot / Let's"
-            " Encrypt)\ncertbot --nginx -d "
-            + hostname
-        ),
+        "snippet": f"certbot --nginx -d {hostname}",
     })
   elif ssl_info["expires_soon"]:
     stats["Medias"] += 1
@@ -276,10 +291,10 @@ def scan_target(url):
         ),
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Riesgo de Expiración Próxima de Certificado SSL",
+        "exec_title": "Riesgo de Expiración Próxima",
         "desc": ssl_info["details"],
-        "impact": "Si el certificado expira, los servicios web dejarán de operar.",
-        "fix": "Renovar el certificado SSL antes de la fecha límite.",
+        "impact": "Los servicios web dejarán de operar al caducar.",
+        "fix": "Renovar el certificado.",
         "compliance": "ISO 27001 A.12.1",
         "snippet": "certbot renew --dry-run",
     })
@@ -291,22 +306,13 @@ def scan_target(url):
   else:
     stats["Medias"] += 1
     findings.append({
-        "vector": "Ausencia de Registro SPF (Riesgo de Phishing)",
+        "vector": "Ausencia de Registro SPF (Phishing)",
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Vulnerabilidad en la Postura de Correo (Sin SPF)",
-        "desc": (
-            "El dominio no cuenta con un registro SPF válido que autorice qué"
-            " servidores pueden enviar correos."
-        ),
-        "impact": (
-            "Facilita que actores maliciosos envíen correos de suplantación de"
-            " identidad (phishing)."
-        ),
-        "fix": (
-            "Publicar un registro TXT con directivas SPF (ej: v=spf1"
-            " include:_spf.example.com ~all)."
-        ),
+        "exec_title": "Vulnerabilidad en Postura de Correo",
+        "desc": "El dominio carece de un registro SPF válido.",
+        "impact": "Facilita la suplantación de identidad (phishing).",
+        "fix": "Publicar registro TXT con directivas SPF.",
         "compliance": "ISO 27001 A.13.2",
         "snippet": (
             f"{hostname}. 3600 IN TXT \"v=spf1 include:_spf.example.com ~all\""
@@ -321,22 +327,13 @@ def scan_target(url):
         "vector": "Ausencia de Política DMARC",
         "severity": "MEDIO",
         "badge": "badge-medium",
-        "exec_title": "Falta de Control de Autenticación de Correo (DMARC)",
-        "desc": (
-            "El dominio carece de una política DMARC para validar correos."
-        ),
-        "impact": (
-            "La organización pierde visibilidad sobre intentos de fraude y"
-            " suplantación."
-        ),
-        "fix": (
-            "Configurar un registro TXT en _dmarc con directivas de monitoreo o"
-            " rechazo."
-        ),
+        "exec_title": "Falta de Control DMARC",
+        "desc": "El dominio carece de una política DMARC.",
+        "impact": "Pérdida de visibilidad sobre intentos de fraude.",
+        "fix": "Configurar registro TXT en _dmarc.",
         "compliance": "ISO 27001 A.13.1",
         "snippet": (
-            f"_dmarc.{hostname}. 3600 IN TXT \"v=DMARC1; p=reject;"
-            ' sp=reject; rua=mailto:admin@' + hostname + '"'
+            f"_dmarc.{hostname}. 3600 IN TXT \"v=DMARC1; p=reject;\""
         ),
     })
 
@@ -349,32 +346,17 @@ def scan_target(url):
           "vector": f"Puerto {p['port']} ({p['service']}) Abierto al Público",
           "severity": "MEDIO",
           "badge": "badge-medium",
-          "exec_title": (
-              f"Servicio Administrativo / Base de Datos Expuesto en Puerto"
-              f" {p['port']}"
-          ),
-          "desc": (
-              f"El puerto {p['port']} ({p['service']}) se encuentra accesible"
-              " directamente desde internet."
-          ),
-          "impact": (
-              "Invita a atacantes a realizar ataques de fuerza bruta para"
-              " adivinar credenciales."
-          ),
-          "fix": (
-              f"Restringir el acceso al puerto {p['port']} mediante un Firewall"
-              " de Red o Grupos de Seguridad."
-          ),
+          "exec_title": f"Servicio Expuesto en Puerto {p['port']}",
+          "desc": f"El puerto {p['port']} es accesible desde internet.",
+          "impact": "Expuesto a ataques de fuerza bruta.",
+          "fix": "Restringir el acceso mediante Firewall.",
           "compliance": "PCI-DSS 1.3 / ISO 27001 A.13.1",
-          "snippet": (
-              f"# UFW Firewall Rule\nsudo ufw deny {p['port']}/tcp"
-          ),
+          "snippet": f"sudo ufw deny {p['port']}/tcp",
       })
 
   try:
     response = requests.get(url, timeout=10)
     headers = response.headers
-
     if "Strict-Transport-Security" in headers:
       stats["Seguras"] += 1
     else:
@@ -383,75 +365,45 @@ def scan_target(url):
           "vector": "HTTP Strict Transport Security (HSTS) Ausente",
           "severity": "CRÍTICO",
           "badge": "badge-critical",
-          "exec_title": (
-              "Ausencia de Encriptación Forzada (Riesgo de Intercepción)"
-          ),
-          "desc": "La cabecera HSTS no está configurada en el servidor web.",
-          "impact": (
-              "Un atacante en una red Wi-Fi pública puede interceptar"
-              " credenciales."
-          ),
-          "fix": (
-              "Configurar la cabecera: Strict-Transport-Security:"
-              " max-age=31536000; includeSubDomains; preload."
-          ),
+          "exec_title": "Ausencia de HSTS",
+          "desc": "La cabecera HSTS no está configurada.",
+          "impact": "Riesgo de intercepción de tráfico.",
+          "fix": "Configurar la cabecera HSTS.",
           "compliance": "PCI-DSS 4.1 / ISO 27001 A.14.1",
           "snippet": (
-              "# Nginx HSTS Header Config\nadd_header"
-              " Strict-Transport-Security \"max-age=31536000;"
-              ' includeSubDomains; preload" always;'
+              'add_header Strict-Transport-Security "max-age=31536000;" always;'
           ),
       })
-
     if "Server" in headers:
       stats["Medias"] += 1
       findings.append({
-          "vector": "Exposición de Versión del Servidor (Server Banner)",
+          "vector": "Exposición de Versión del Servidor",
           "severity": "MEDIO",
           "badge": "badge-medium",
-          "exec_title": "Fuga de Información Tecnológica del Servidor",
-          "desc": (
-              "La cabecera HTTP expone el software exacto:"
-              f" {headers.get('Server')}"
-          ),
-          "impact": (
-              "Facilita la búsqueda de vulnerabilidades públicas asociadas."
-          ),
-          "fix": "Ocultar o enmascarar la firma del servidor.",
+          "exec_title": "Server Banner Leak",
+          "desc": f"La cabecera expone: {headers.get('Server')}",
+          "impact": "Facilita la búsqueda de exploits.",
+          "fix": "Ocultar la firma del servidor.",
           "compliance": "ISO 27001 A.12.6",
-          "snippet": (
-              "# Nginx Ocultar Server Banner\nserver_tokens off;"
-          ),
+          "snippet": "server_tokens off;",
       })
     else:
       stats["Seguras"] += 1
-
     if "X-Frame-Options" in headers or "Content-Security-Policy" in headers:
       stats["Seguras"] += 1
     else:
       stats["Bajas"] += 1
       findings.append({
-          "vector": (
-              "Protección contra Clickjacking Ausente (X-Frame-Options)"
-          ),
+          "vector": "Protección Clickjacking Ausente",
           "severity": "BAJO",
           "badge": "badge-low",
-          "exec_title": "Riesgo de Secuestro de Clics (Clickjacking)",
-          "desc": (
-              "El sitio web no emite directivas para evitar su carga en marcos"
-              " externos."
-          ),
-          "impact": (
-              "Un sitio malicioso puede cargar tu web bajo un botón trampa."
-          ),
-          "fix": "Añadir cabecera X-Frame-Options: DENY o SAMEORIGIN.",
-          "compliance": "OWASP Top 10 / ISO 27001 A.14.1",
-          "snippet": (
-              "# Nginx Clickjacking Header\nadd_header X-Frame-Options"
-              ' "SAMEORIGIN" always;'
-          ),
+          "exec_title": "Riesgo Clickjacking",
+          "desc": "Falta de control de marcos externos.",
+          "impact": "Carga maliciosa en sitios terceros.",
+          "fix": "Añadir cabecera X-Frame-Options.",
+          "compliance": "OWASP / ISO 27001 A.14.1",
+          "snippet": 'add_header X-Frame-Options "SAMEORIGIN";',
       })
-
   except Exception:
     pass
 
@@ -648,9 +600,7 @@ def generate_pdf(
       else "<span style='color:orange;'><b>Revisar</b></span>"
   )
 
-  # Renderizado según los 3 tipos de informe solicitados
   if "Narrativo" in report_type:
-    # 1. INFORME EJECUTIVO NARRATIVO (Con cabecera formal tipo informe/memo)
     content_html = f"""
         <div class="header-banner">
             <div class="banner-left">
@@ -683,18 +633,14 @@ def generate_pdf(
         </div>
 
         <h2>2. Análisis del Impacto en el Negocio</h2>
-        <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional y la confianza:</p>
+        <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional:</p>
         <ul>
-            <li><strong>Cifrado y Seguridad de Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Autenticación de Correo Electrónico:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Se observa carencia de controles de correo (SPF/DMARC), incrementando el riesgo de suplantación de identidad (phishing).'}</li>
-            <li><strong>Superficie Perimetral:</strong> Se identificaron puertos y servicios expuestos que requieren supervisión estricta para evitar accesos no autorizados.</li>
+            <li><strong>Cifrado y Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
+            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo de phishing.'}</li>
+            <li><strong>Superficie Perimetral:</strong> Se identificaron puertos expuestos que requieren supervisión.</li>
         </ul>
-
-        <h2>3. Conclusiones y Siguientes Pasos</h2>
-        <p>Recomendamos autorizar al equipo técnico la aplicación de las medidas correctivas necesarias para mitigar cualquier riesgo de interrupción de servicio o fraude corporativo.</p>
         """
   elif "Normativa" in report_type:
-    # 2. INFORME DE NORMATIVA, REMEDIACIÓN Y RECOMENDACIONES (ISO / Compliance / Snippets)
     items_html_norm = ""
     for idx, f in enumerate(findings, 1):
       snippet_box = (
@@ -711,9 +657,9 @@ def generate_pdf(
                     <span class="{f['badge']}">{f['severity']}</span>
                 </div>
                 <div class="finding-body">
-                    <p><strong>Marco Normativo / Compliance:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
-                    <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
-                    <div class="solution-box"><p><strong>Guía de Remediación y Configuración:</strong></p><code>{f['fix']}</code></div>
+                    <p><strong>Compliance:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
+                    <p><strong>Descripción:</strong> {f['desc']}</p>
+                    <div class="solution-box"><p><strong>Remediación:</strong></p><code>{f['fix']}</code></div>
                     {snippet_box}
                 </div>
             </div>
@@ -727,11 +673,10 @@ def generate_pdf(
             <div class="banner-right">{logo_html}</div>
         </div>
         <h2>Matriz de Cumplimiento Normativo y Guía Técnica</h2>
-        <div class="executive-box"><p style="margin:0;">Objetivo analizado: <strong>{hostname}</strong> | Risk Score Global: <strong>{risk_score}/100</strong>. Este documento detalla las desviaciones frente a estándares internacionales (ISO 27001, PCI-DSS) junto con los comandos y fragmentos de configuración necesarios para su corrección.</p></div>
+        <div class="executive-box"><p style="margin:0;">Objetivo: <strong>{hostname}</strong> | Risk Score: <strong>{risk_score}/100</strong>.</p></div>
         {items_html_norm}
         """
   else:
-    # 3. INFORME TÉCNICO EXHAUSTIVO (COMPLETO)
     items_html_full = ""
     for idx, f in enumerate(findings, 1):
       snippet_box = (
@@ -768,12 +713,12 @@ def generate_pdf(
             <tr>
                 <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo</div><div class="meta-value">{hostname}</div></div></td>
                 <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Risk Score</div><div class="meta-value" style="color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Certificado SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
+                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
                 <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
             </tr>
         </table>
-        <h2>1. Visión Gerencial e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Se analizó la superficie expuesta de <strong>{hostname}</strong> bajo el estándar de <em>Informe Técnico Exhaustivo</em>, obteniendo un Risk Score corporativo de <strong>{risk_score}/100</strong>.</p></div>
+        <h2>1. Visión e Infraestructura</h2>
+        <div class="executive-box"><p style="margin:0;">Risk Score corporativo: <strong>{risk_score}/100</strong>.</p></div>
         <table style="width: 100%; border: none; margin-bottom: 6px;">
             <tr>
                 <td style="width: 50%; vertical-align: top; border: none;">
@@ -790,14 +735,7 @@ def generate_pdf(
             <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
         </div>
         <div style="page-break-after: always;"></div>
-        <div class="header-banner">
-            <div class="banner-left">
-                <h1>Anexo Técnico y Hallazgos Detallados</h1>
-                <p>Elaborado por: {agency_name}</p>
-            </div>
-            <div class="banner-right">{logo_html}</div>
-        </div>
-        <h2>2. Detalle Exhaustivo de Vulnerabilidades</h2>
+        <h2>2. Hallazgos Detallados</h2>
         {items_html_full}
         """
 
@@ -839,7 +777,7 @@ def generate_pdf(
     </head>
     <body>
         {content_html}
-        <div class="disclaimer">Nota: Evaluaciones perimetrales externas en tiempo real con mapeo corporativo.</div>
+        <div class="disclaimer">Nota: Evaluaciones perimetrales externas en tiempo real.</div>
     </body>
     </html>
     """
@@ -852,16 +790,16 @@ if "scanned" not in st.session_state:
 st.markdown(
     """
     <div class="enterprise-banner">
-        🚀 <strong>CyberAudits Enterprise:</strong> 3 Modelos de Informe Activos con Cabecera Formal.
+        🚀 <strong>CyberAudits Enterprise Suite:</strong> Escáner perimetral, 3 plantillas de informes y Módulo de Concienciación Activo.
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.title("🛡️ CyberAudits - Escáner Perimetral")
+st.title("🛡️ CyberAudits - Suite Enterprise")
 st.write(
-    "Plataforma de inteligencia perimetral con cálculo de Risk Score, mapeo"
-    " normativo y 3 plantillas profesionales."
+    "Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de"
+    " cultura humana."
 )
 
 st.sidebar.header("⚙️ Configuración del Informe")
@@ -876,7 +814,6 @@ logo_file = st.sidebar.file_uploader(
     "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
 )
 
-# EXACTAMENTE LOS 3 TIPOS DE INFORME SOLICITADOS
 report_type = st.sidebar.selectbox(
     "Plantilla / Modelo de Informe",
     [
@@ -897,13 +834,15 @@ report_subject = st.sidebar.text_input(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "CyberAudits Enterprise v3.3 • 100% Autónomo y sin dependencias externas."
+    "CyberAudits Enterprise v4.0 • Preparado para Auditoría de Venta."
 )
 
-tab1, tab2, tab3, tab4 = st.tabs([
+# Pestañas principales incluyendo el nuevo módulo
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔍 Perimeter Scan",
     "📊 Security Analytics",
     "📜 Historial de Escaneos",
+    "🎓 Concienciación (Quiz)",
     "ℹ️ About CyberAudits",
 ])
 
@@ -934,10 +873,6 @@ with tab1:
           "🔍 Analizando perímetro, SSL/TLS, Compliance y Risk Score...",
           expanded=True,
       ) as status:
-        st.write("Inspeccionando certificado SSL/TLS y emisor...")
-        st.write("Verificando registros DNS (SPF y DMARC)...")
-        st.write("Calculando Risk Score y mapeando normativas...")
-
         (
             findings,
             stats,
@@ -958,15 +893,12 @@ with tab1:
             report_type,
         )
 
-        st.write(
-            f"Generando reportes profesionales para {agency_name} usando"
-            f" '{report_type}'..."
-        )
         chart_b64 = generate_chart(stats)
-
-        logo_b64 = ""
-        if logo_file is not None:
-          logo_b64 = base64.b64encode(logo_file.getvalue()).decode("utf-8")
+        logo_b64 = (
+            base64.b64encode(logo_file.getvalue()).decode("utf-8")
+            if logo_file
+            else ""
+        )
 
         pdf_filename = f"auditoria_{hostname}.pdf"
         generate_pdf(
@@ -1007,10 +939,7 @@ with tab1:
         )
 
         status.update(
-            label=(
-                "✅ ¡Análisis corporativo completado con la plantilla"
-                " seleccionada!"
-            ),
+            label="✅ ¡Análisis corporativo completado!",
             state="complete",
             expanded=False,
         )
@@ -1025,17 +954,11 @@ with tab1:
       st.session_state.email_sec = email_sec
       st.session_state.ssl_info = ssl_info
       st.session_state.risk_score = risk_score
-      st.session_state.agency_name = agency_name
       st.session_state.pdf_filename = pdf_filename
       st.session_state.docx_bytes = docx_bytes
 
   if st.session_state.scanned:
-    st.success(
-        f"¡Análisis completado para {st.session_state.hostname} usando el"
-        f" formato: '{report_type}'!"
-    )
-
-    st.markdown("### 📍 Panel Ejecutivo y Risk Score")
+    st.success(f"¡Análisis completado para {st.session_state.hostname}!")
     g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Dirección IP", st.session_state.geo["ip"])
     g2.metric("Risk Score", f"{st.session_state.risk_score} / 100")
@@ -1058,69 +981,49 @@ with tab1:
     )
 
     st.markdown("---")
-    st.subheader("📊 Resumen del Estado de Seguridad")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Vulnerabilidades", len(st.session_state.findings))
-    col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
-    col3.metric("Subdominios", len(st.session_state.subdomains))
-
-    st.markdown("---")
-    st.markdown("### 📥 Descarga de Informes Corporativos")
-
     col_dl1, col_dl2, col_dl3 = st.columns(3)
-
     with col_dl1:
       if os.path.exists(st.session_state.pdf_filename):
         with open(st.session_state.pdf_filename, "rb") as pdf_file:
           st.download_button(
-              label="📥 Descargar PDF Ejecutivo",
-              data=pdf_file,
+              "📥 Descargar PDF Ejecutivo",
+              pdf_file,
               file_name=st.session_state.pdf_filename,
               mime="application/pdf",
               type="primary",
           )
-
     with col_dl2:
       if "docx_bytes" in st.session_state:
         st.download_button(
-            label="📝 Descargar Word Editable (.docx)",
-            data=st.session_state.docx_bytes,
+            "📝 Descargar Word Editable",
+            st.session_state.docx_bytes,
             file_name=f"auditoria_{st.session_state.hostname}.docx",
             mime=(
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ),
             type="primary",
         )
-
     with col_dl3:
       df_findings = pd.DataFrame(st.session_state.findings)
       if not df_findings.empty:
-        csv_data = df_findings.to_csv(index=False, sep=";").encode("utf-8-sig")
         st.download_button(
-            label="📊 Exportar Hallazgos (CSV)",
-            data=csv_data,
+            "📊 Exportar Hallazgos (CSV)",
+            df_findings.to_csv(index=False, sep=";").encode("utf-8-sig"),
             file_name=f"hallazgos_{st.session_state.hostname}.csv",
             mime="text/csv",
         )
 
 with tab2:
-  st.subheader("Infrastructure Health, Compliance & Risk Score")
+  st.subheader("Infrastructure Health & Risk Score Analytics")
   if st.session_state.scanned:
-    st.write(f"Target: **{st.session_state.hostname}**")
-    st.write(f"Resolved IP: `{st.session_state.geo['ip']}`")
     st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
-    if st.session_state.findings:
-      st.markdown("### Hallazgos con Mapeo de Compliance y Snippets")
-      for f in st.session_state.findings:
-        with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
-          st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
-          st.write(f"**Descripción:** {f['desc']}")
-          st.write(f"**Impacto:** {f['impact']}")
-          st.write(f"**Remediación:** {f['fix']}")
-          if "snippet" in f:
-            st.code(f["snippet"], language="bash")
+    for f in st.session_state.findings:
+      with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
+        st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
+        st.write(f"**Descripción:** {f['desc']}")
+        st.write(f"**Remediación:** {f['fix']}")
   else:
-    st.info("Ejecuta un escaneo en la primera pestaña para ver los detalles.")
+    st.info("Ejecuta un escaneo en la primera pestaña.")
 
 with tab3:
   st.subheader("📜 Historial de Escaneos Corporativos (SQLite)")
@@ -1134,12 +1037,124 @@ with tab3:
       conn.close()
       st.rerun()
   else:
-    st.info("Aún no hay escaneos guardados en el historial de la base de datos.")
+    st.info("Aún no hay escaneos guardados.")
 
 with tab4:
-  st.subheader("About CyberAudits Enterprise")
+  st.subheader("🎓 Módulo de Concienciación y Cultura de Seguridad")
+  st.write(
+      "Gestiona la lista de empleados y evalúa su preparación frente a"
+      " ingeniería social."
+  )
+
+  col_emp1, col_emp2 = st.columns(2)
+  with col_emp1:
+    st.markdown("### ➕ Registrar Empleado / Destinatario")
+    with st.form("add_employee_form"):
+      new_email = st.text_input("Correo Electrónico Corporativo")
+      new_dept = st.selectbox(
+          "Departamento",
+          ["Administración", "Tecnología / TI", "Finanzas", "Ventas", "General"],
+      )
+      submitted = st.form_submit_button("Registrar Empleado")
+      if submitted and new_email:
+        try:
+          conn = sqlite3.connect("cyber_audits.db")
+          conn.execute(
+              "INSERT INTO employees (email, department) VALUES (?, ?)",
+              (new_email, new_dept),
+          )
+          conn.commit()
+          conn.close()
+          st.success(f"Empleado {new_email} registrado correctamente.")
+          st.rerun()
+        except Exception:
+          st.error(
+              "El correo ya se encuentra registrado en la base de datos."
+          )
+
+  with col_emp2:
+    st.markdown("### 📊 Panel de Control y Métricas (Dashboard)")
+    emp_df = get_employees_df()
+    if not emp_df.empty:
+      st.dataframe(emp_df, use_container_width=True)
+      if st.button("🗑️ Vaciar Lista de Empleados"):
+        conn = sqlite3.connect("cyber_audits.db")
+        conn.execute("DELETE FROM employees")
+        conn.commit()
+        conn.close()
+        st.rerun()
+    else:
+      st.info(
+          "No hay empleados registrados. Agrega correos a la izquierda para"
+          " iniciar el seguimiento."
+      )
+
+  st.markdown("---")
+  st.markdown("### 📝 Simulación de Cuestionario Interactivo para el Usuario")
+  st.write(
+      "Prueba cómo visualiza el empleado el test de concienciación en seguridad:"
+  )
+
+  test_email = st.selectbox(
+      "Seleccionar Empleado a Evaluar",
+      [
+          row["Correo Electrónico"]
+          for _, row in get_employees_df().iterrows()
+          if not get_employees_df().empty
+      ],
+  )
+
+  if test_email:
+    with st.form("quiz_simulation_form"):
+      st.write(f"Evaluando a: **{test_email}**")
+      q1 = st.radio(
+          "1. ¿Qué debe hacer si recibe un correo urgente del banco pidiendo"
+          " verificar su contraseña?",
+          [
+              "Hacer clic en el enlace y cambiarla inmediatamente",
+              "Ignorarlo o reportarlo al área de TI sin hacer clic",
+              "Responder con los datos solicitados",
+          ],
+      )
+      q2 = st.radio(
+          "2. ¿Cuál es una característica clave de una contraseña robusta?",
+          [
+              "Usar fechas importantes fáciles de recordar",
+              "Una sola palabra larga sin números",
+              "Combinación de mayúsculas, minúsculas, números y símbolos",
+          ],
+      )
+
+      submit_quiz = st.form_submit_button("Enviar Respuestas del Quiz")
+      if submit_quiz:
+        score = 0
+        if (
+            "Ignorarlo" in q1
+        ):  # Respuesta correcta Q1
+          score += 50
+        if (
+            "Combinación" in q2
+        ):  # Respuesta correcta Q2
+          score += 50
+
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        conn = sqlite3.connect("cyber_audits.db")
+        conn.execute(
+            "UPDATE employees SET status = 'Completado', score = ?, last_completed"
+            " = ? WHERE email = ?",
+            (score, timestamp, test_email),
+        )
+        conn.commit()
+        conn.close()
+        st.success(
+            f"¡Evaluación enviada con éxito! Calificación obtenida: {score}%"
+        )
+        st.rerun()
+
+with tab5:
+  st.subheader("About CyberAudits Enterprise Suite")
   st.markdown("""
-    **CyberAudits Enterprise** es una plataforma autónoma de auditoría perimetral orientada a consultorías de seguridad.
-    * **Características:** Cálculo automático de Risk Score, mapeo normativo (PCI-DSS, ISO 27001), generación de scripts de configuración (snippets), reportes en PDF/Word y persistencia local con SQLite.
-    * **Coste:** 100% Gratuito y sin dependencias de claves de API externas.
+    **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
+    * **Módulos:** Auditoría perimetral (Risk Score, normativas ISO/PCI, exportación DOCX/PDF) y gestión del factor humano (Módulo de Concienciación y Quizzes).
+    * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia local en SQLite.
     """)
