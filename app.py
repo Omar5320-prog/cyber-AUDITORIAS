@@ -353,7 +353,6 @@ def generate_pdf(
     subdomains,
     output_filename,
 ):
-  # Tablas y listas comunes
   ports_html = (
       "".join([
           f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong>"
@@ -368,7 +367,6 @@ def generate_pdf(
       or "<li>No additional subdomains found.</li>"
   )
 
-  # HTML de hallazgos en INGLÉS (Páginas 1 y 2)
   items_html_en = ""
   for idx, f in enumerate(findings, 1):
     f_en = translate_finding_en(f)
@@ -394,7 +392,6 @@ def generate_pdf(
       for f in findings
   ])
 
-  # HTML de hallazgos en ESPAÑOL (Páginas 3 y 4)
   items_html_es = ""
   for idx, f in enumerate(findings, 1):
     items_html_es += f"""
@@ -419,7 +416,7 @@ def generate_pdf(
 
   html_content = f"""
     <!DOCTYPE html>
-    html>
+    <html>
     <head>
         <meta charset="UTF-8">
         <style>
@@ -456,7 +453,7 @@ def generate_pdf(
     </head>
     <body>
         <!-- ========================================== -->
-        <!-- BLOQUE 1: INGLÉS (Páginas 1 y 2)           -->
+        <!-- BLOQUE 1: INGLÉS (Páginas 1 y 2)            -->
         <!-- ========================================== -->
         <div class="header-banner">
             <h1>Cybersecurity Executive Report</h1>
@@ -562,36 +559,78 @@ def generate_pdf(
 if "scanned" not in st.session_state:
   st.session_state.scanned = False
 
+# 1. Banner Superior: Promoción de Lanzamiento Product Hunt
+st.markdown(
+    """
+    <div style="background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-family: sans-serif;">
+        🚀 <strong>Product Hunt Launch Special:</strong> Full Executive Bilingual PDF Reports are <b>100% FREE</b> for a limited time! Enjoy your audit.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("🛡️ CyberAudits - Escáner Perimetral")
 st.write(
     "Analiza la seguridad de cualquier dominio web y obtén métricas de"
     " exposición de infraestructura."
 )
 
-target_url = st.text_input("URL Objetivo (ej. mi-empresa.com)", "https://")
+# Estructura de Pestañas Profesionales (Tabs)
+tab1, tab2, tab3 = st.tabs(
+    ["🔍 Perimeter Scan", "📊 Security Analytics", "ℹ️ About CyberAudits"]
+)
 
-if st.button("🚀 Ejecutar Análisis Gratuito"):
-  if not target_url or target_url == "https://":
-    st.error("Por favor, introduce una URL válida.")
-  else:
-    if not target_url.startswith("http"):
-      target_url = "https://" + target_url
+with tab1:
+  st.markdown("### 🎯 Quick Test Targets")
+  col_btn1, col_btn2, col_btn3 = st.columns(3)
 
-    with st.spinner("🔍 Analizando superficie perimetral..."):
-      findings, stats, open_ports, hostname, subdomains = scan_target(target_url)
-      chart_b64 = generate_chart(stats)
+  quick_domain = ""
+  if col_btn1.button("🌐 example.com"):
+    quick_domain = "example.com"
+  if col_btn2.button("🌐 scanme.nmap.org"):
+    quick_domain = "scanme.nmap.org"
+  if col_btn3.button("🌐 testphp.vulnweb.com"):
+    quick_domain = "testphp.vulnweb.com"
 
-      pdf_filename = f"auditoria_{hostname}.pdf"
-      generate_pdf(
-          target_url,
-          findings,
-          stats,
-          chart_b64,
-          open_ports,
-          hostname,
-          subdomains,
-          pdf_filename,
-      )
+  target_url = st.text_input(
+      "URL Objetivo (ej. mi-empresa.com)",
+      value=quick_domain if quick_domain else "https://",
+  )
+
+  if st.button("🚀 Ejecutar Análisis Completo"):
+    if not target_url or target_url == "https://":
+      st.error("Por favor, introduce una URL válida.")
+    else:
+      if not target_url.startswith("http"):
+        target_url = "https://" + target_url
+
+      # Estado de carga animado profesional
+      with st.status(
+          "🔍 Analizando superficie perimetral...", expanded=True
+      ) as status:
+        st.write("Resolviendo subdominios y puertos expuestos...")
+        findings, stats, open_ports, hostname, subdomains = scan_target(
+            target_url
+        )
+        st.write("Generando gráficos y compilando estructura bilingüe...")
+        chart_b64 = generate_chart(stats)
+
+        pdf_filename = f"auditoria_{hostname}.pdf"
+        generate_pdf(
+            target_url,
+            findings,
+            stats,
+            chart_b64,
+            open_ports,
+            hostname,
+            subdomains,
+            pdf_filename,
+        )
+        status.update(
+            label="✅ ¡Análisis completado con éxito!",
+            state="complete",
+            expanded=False,
+        )
 
       # Guardar en la sesión de Streamlit
       st.session_state.scanned = True
@@ -602,69 +641,46 @@ if st.button("🚀 Ejecutar Análisis Gratuito"):
       st.session_state.subdomains = subdomains
       st.session_state.pdf_filename = pdf_filename
 
-# Mostrar resultados si ya se realizó el análisis
-if st.session_state.scanned:
-  st.success(
-      f"¡Análisis preliminar completado para {st.session_state.hostname}!"
-  )
-
-  st.markdown("---")
-  st.subheader("📊 Resumen del Estado de Seguridad")
-
-  col1, col2, col3 = st.columns(3)
-  col1.metric("Vulnerabilidades Detectadas", len(st.session_state.findings))
-  col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
-  col3.metric("Subdominios Encontrados", len(st.session_state.subdomains))
-
-  if len(st.session_state.findings) > 0:
-    st.warning(
-        "⚠️ ¡Atención! Se han detectado"
-        f" **{len(st.session_state.findings)} riesgos de seguridad** que"
-        " exponen este dominio a ataques automatizados."
-    )
-  else:
-    st.info(
-        "✅ El dominio muestra una superficie perimetral controlada en los"
-        " vectores básicos analizados."
+  # Mostrar resultados en la Pestaña 1 si ya se realizó el análisis
+  if st.session_state.scanned:
+    st.success(
+        f"¡Análisis preliminar completado para {st.session_state.hostname}!"
     )
 
-  st.markdown("---")
-  st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico Completo")
-  st.markdown(
-      "Obtén el documento en PDF bilingüe listo para gerencia internacional,"
-      " con gráficos detallados, impacto de negocio y las **guías exactas de"
-      " remediación paso a paso**."
-  )
+    st.markdown("---")
+    st.subheader("📊 Resumen del Estado de Seguridad")
 
-  st.info("💎 **Precio del Reporte Completo:** $9.00 USD / Equivalente local")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Vulnerabilidades Detectadas", len(st.session_state.findings))
+    col2.metric("Puertos Abiertos", len(st.session_state.open_ports))
+    col3.metric("Subdominios Encontrados", len(st.session_state.subdomains))
 
-  col_mp, col_paypal = st.columns(2)
+    if len(st.session_state.findings) > 0:
+      st.warning(
+          "⚠️ ¡Atención! Se han detectado"
+          f" **{len(st.session_state.findings)} riesgos de seguridad** que"
+          " exponen este dominio a ataques automatizados."
+      )
+    else:
+      st.info(
+          "✅ El dominio muestra una superficie perimetral controlada en los"
+          " vectores básicos analizados."
+      )
 
-  with col_mp:
-    st.markdown("🇦🇷 **Mercado Pago** (Pesos / LatAm)")
+    st.markdown("---")
+    st.markdown("### 📥 Descarga el Informe Ejecutivo y Técnico Completo")
     st.markdown(
-        "[👉 Pagar con Mercado"
-        " Pago](https://mpago.li/2RNZnfh)",
-        unsafe_allow_html=True,
+        "Obtén el documento en PDF bilingüe listo para gerencia internacional,"
+        " con gráficos detallados, impacto de negocio y las **guías exactas de"
+        " remediación paso a paso**."
     )
 
-  with col_paypal:
-    st.markdown("🅿️ **PayPal** (Saldo / USD)")
-    st.markdown(
-        "[👉 Pagar con"
-        " PayPal](https://www.paypal.me/nielsen1989/9USD)",
-        unsafe_allow_html=True,
+    # Banner de gratuidad por lanzamiento
+    st.success(
+        "💎 **Promoción de Lanzamiento Product Hunt:** ¡La descarga del reporte"
+        " completo en PDF es **100% GRATIS** por tiempo limitado!"
     )
 
-  st.markdown("")
-  st.write("---")
-  st.markdown("#### 🔓 ¿Ya realizaste el pago o quieres probar la descarga?")
-
-  pago_verificado = st.checkbox(
-      "Simular que el pago fue exitoso (Modo de prueba local)"
-  )
-
-  if pago_verificado:
     if os.path.exists(st.session_state.pdf_filename):
       with open(st.session_state.pdf_filename, "rb") as pdf_file:
         st.download_button(
@@ -679,3 +695,28 @@ if st.session_state.scanned:
           "El archivo PDF no se encuentra disponible. Vuelve a ejecutar el"
           " escaneo."
       )
+
+with tab2:
+  st.subheader("Infrastructure Health Metrics")
+  if st.session_state.scanned:
+    st.write(f"Target analyzed: **{st.session_state.hostname}**")
+    st.write(f"Open ports count: {len(st.session_state.open_ports)}")
+    st.write(f"Subdomains discovered: {len(st.session_state.subdomains)}")
+    if st.session_state.subdomains:
+      st.markdown("**Discovered Subdomains:**")
+      for sub in st.session_state.subdomains:
+        st.text(sub)
+  else:
+    st.info(
+        "Run a scan in the first tab to populate infrastructure metrics and"
+        " technical details."
+    )
+
+with tab3:
+  st.subheader("About CyberAudits")
+  st.markdown("""
+    **CyberAudits** is an automated perimeter security platform built for fast infrastructure auditing and executive reporting.
+    * **Tech Stack:** Python, Streamlit, WeasyPrint, Socket, crt.sh.
+    * **Reporting:** Automated bilingual (English / Spanish) corporate delivery.
+    * **Launch Special:** Enjoy free full report generation during our global Product Hunt launch window!
+    """)
