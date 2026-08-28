@@ -653,7 +653,7 @@ La protección de los equipos y la información no solo depende del software, si
         "title": "Módulo 4 — Llamadas y Mensajes Falsos (Vishing y Smishing)",
         "theory": """
 ### ☎️ Fraudes a través de Llamadas y Mensajes
-Los atacantes não solo utilizan correos electrónicos, sino también canales directos de comunicación móvil.
+Los atacantes no solo utilizan correos electrónicos, sino también canales directos de comunicación móvil.
 
 #### 1. Conceptos Clave
 * **Vishing:** Es una estafa realizada mediante llamadas telefónicas para engañar a las personas y obtener información sensible.
@@ -709,7 +709,7 @@ Los atacantes não solo utilizan correos electrónicos, sino también canales di
             },
             {
                 "q": (
-                    "4. ¿Cuál es una señal frecuente de una llamada"
+                    "4. ¿Cuál é una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -1670,7 +1670,7 @@ else:
     selected_org_id = org_options[selected_org_name]
 
     with st.sidebar.expander("➕ Añadir Nueva Organización"):
-      new_org_input = st.text_input("Nombre del Cliente")
+      new_org_input = st.text_input("Nombre del Cliente", key="input_org_name")
       if st.button("Guardar Cliente") and new_org_input:
         try:
           conn_add = get_db_connection()
@@ -1684,6 +1684,7 @@ else:
           c_add.close()
           conn_add.close()
           st.success(f"Organización '{new_org_input}' creada.")
+          st.session_state["input_org_name"] = ""
           st.rerun()
         except Exception:
           st.warning("La organización ya existe o hubo un error.")
