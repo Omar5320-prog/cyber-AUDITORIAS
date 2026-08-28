@@ -42,14 +42,10 @@ def init_db():
     if "postgres" in st.secrets:
       try:
         c.execute("""
-                CREATE TABLE IF NOT EXISTS history (
+                CREATE TABLE IF NOT EXISTS organizations (
                     id SERIAL PRIMARY KEY,
-                    timestamp TEXT,
-                    hostname TEXT,
-                    ip TEXT,
-                    risk_score INTEGER,
-                    findings_count INTEGER,
-                    report_type TEXT
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
       except Exception:
@@ -57,10 +53,15 @@ def init_db():
 
       try:
         c.execute("""
-                CREATE TABLE IF NOT EXISTS organizations (
+                CREATE TABLE IF NOT EXISTS history (
                     id SERIAL PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    timestamp TEXT,
+                    hostname TEXT,
+                    ip TEXT,
+                    risk_score INTEGER,
+                    findings_count INTEGER,
+                    report_type TEXT,
+                    organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL
                 )
             """)
       except Exception:
@@ -84,6 +85,13 @@ def init_db():
         pass
     else:
       c.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+      c.execute("""
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT,
@@ -91,12 +99,14 @@ def init_db():
                 ip TEXT,
                 risk_score INTEGER,
                 findings_count INTEGER,
-                report_type TEXT
+                report_type TEXT,
+                organization_id INTEGER
             )
         """)
       c.execute("""
             CREATE TABLE IF NOT EXISTS employees (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
                 email TEXT,
                 department TEXT,
                 topic TEXT DEFAULT 'Módulo 1 — Phishing',
@@ -116,20 +126,65 @@ def init_db():
 init_db()
 
 
+def send_webhook_alert(webhook_url, hostname, risk_score, findings_count):
+  if not webhook_url:
+    return
+  try:
+    payload = {
+        "text": (
+            f"🚨 *CyberAudits Security Alert*\n• Objetivo: `{hostname}`\n• Risk"
+            f" Score: *{risk_score}/100*\n• Vulnerabilidades detectadas:"
+            f" *{findings_count}*"
+        )
+    }
+    requests.post(webhook_url, json=payload, timeout=5)
+  except Exception:
+    pass
+
+
 def save_scan_to_db(
-    hostname, ip, risk_score, findings_count, report_type_val
+    hostname,
+    ip,
+    risk_score,
+    findings_count,
+    report_type_val,
+    organization_id=None,
 ):
   try:
     conn = get_db_connection()
     c = conn.cursor()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     placeholder = "%s" if "postgres" in st.secrets else "?"
-    c.execute(
-        f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
-        f" findings_count, report_type) VALUES ({placeholder}, {placeholder},"
-        f" {placeholder}, {placeholder}, {placeholder}, {placeholder})",
-        (timestamp, hostname, ip, risk_score, findings_count, report_type_val),
-    )
+    if organization_id:
+      c.execute(
+          f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
+          f" findings_count, report_type, organization_id) VALUES"
+          f" ({placeholder}, {placeholder}, {placeholder}, {placeholder},"
+          f" {placeholder}, {placeholder}, {placeholder})",
+          (
+              timestamp,
+              hostname,
+              ip,
+              risk_score,
+              findings_count,
+              report_type_val,
+              organization_id,
+          ),
+      )
+    else:
+      c.execute(
+          f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
+          f" findings_count, report_type) VALUES ({placeholder}, {placeholder},"
+          f" {placeholder}, {placeholder}, {placeholder}, {placeholder})",
+          (
+              timestamp,
+              hostname,
+              ip,
+              risk_score,
+              findings_count,
+              report_type_val,
+          ),
+      )
     conn.commit()
     c.close()
     conn.close()
@@ -638,7 +693,7 @@ Los atacantes no solo utilizan correos electrónicos, sino también canales dire
             },
             {
                 "q": (
-                    "4. ¿Cuál es una señal frecuente de una llamada"
+                    "4. ¿Cuál is una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -903,7 +958,7 @@ def scan_target(url):
         "desc": ssl_info["details"],
         "impact": "Los navegadores bloquearán el acceso a la web.",
         "fix": "Instalar certificado SSL/TLS válido.",
-        "compliance": "PCI-DSS 4.1 / ISO 27001 A.10.1",
+        "compliance": "PCI-DSS 4.1 / ISO 27001 / SOC 2",
         "snippet": f"certbot --nginx -d {hostname}",
     })
   elif ssl_info["expires_soon"]:
@@ -930,14 +985,14 @@ def scan_target(url):
   else:
     stats["Medias"] += 1
     findings.append({
-        "vector": "Ausencia de Registro SPF (Phishing)",
+        "vector": "Ausencia de Registro SPF (Phishing / GDPR)",
         "severity": "MEDIO",
         "badge": "badge-medium",
         "exec_title": "Vulnerabilidad en Postura de Correo",
         "desc": "El dominio carece de un registro SPF válido.",
         "impact": "Facilita la suplantación de identidad (phishing).",
         "fix": "Publicar registro TXT con directivas SPF.",
-        "compliance": "ISO 27001 A.13.2",
+        "compliance": "ISO 27001 A.13.2 / GDPR",
         "snippet": (
             f"{hostname}. 3600 IN TXT \"v=spf1 include:_spf.example.com ~all\""
         ),
@@ -974,7 +1029,7 @@ def scan_target(url):
           "desc": f"El puerto {p['port']} es accesible desde internet.",
           "impact": "Expuesto a ataques de fuerza bruta.",
           "fix": "Restringir el acceso mediante Firewall.",
-          "compliance": "PCI-DSS 1.3 / ISO 27001 A.13.1",
+          "compliance": "PCI-DSS 1.3 / SOC 2 CC6.1",
           "snippet": f"sudo ufw deny {p['port']}/tcp",
       })
 
@@ -993,40 +1048,42 @@ def scan_target(url):
           "desc": "La cabecera HSTS no está configurada.",
           "impact": "Riesgo de intercepción de tráfico.",
           "fix": "Configurar la cabecera HSTS.",
-          "compliance": "PCI-DSS 4.1 / ISO 27001 A.14.1",
+          "compliance": "PCI-DSS 4.1 / HIPAA",
           "snippet": (
               'add_header Strict-Transport-Security "max-age=31536000;" always;'
           ),
       })
-    if "Server" in headers:
+    if "Content-Security-Policy" in headers:
+      stats["Seguras"] += 1
+    else:
       stats["Medias"] += 1
       findings.append({
-          "vector": "Exposición de Versión del Servidor",
+          "vector": "Content Security Policy (CSP) Ausente",
           "severity": "MEDIO",
           "badge": "badge-medium",
-          "exec_title": "Server Banner Leak",
-          "desc": f"La cabecera expone: {headers.get('Server')}",
-          "impact": "Facilita la búsqueda de exploits.",
-          "fix": "Ocultar la firma del servidor.",
-          "compliance": "ISO 27001 A.12.6",
-          "snippet": "server_tokens off;",
+          "exec_title": "Ausencia de CSP",
+          "desc": "No se detectó la cabecera Content-Security-Policy.",
+          "impact": "Riesgo de ataques XSS (Cross-Site Scripting).",
+          "fix": "Implementar directivas CSP robustas.",
+          "compliance": "OWASP / SOC 2",
+          "snippet": (
+              "add_header Content-Security-Policy \"default-src 'self';\";"
+          ),
       })
-    else:
-      stats["Seguras"] += 1
-    if "X-Frame-Options" in headers or "Content-Security-Policy" in headers:
+    if "X-Content-Type-Options" in headers:
       stats["Seguras"] += 1
     else:
       stats["Bajas"] += 1
       findings.append({
-          "vector": "Protección Clickjacking Ausente",
+          "vector": "Cabecera X-Content-Type-Options Ausente",
           "severity": "BAJO",
           "badge": "badge-low",
-          "exec_title": "Riesgo Clickjacking",
-          "desc": "Falta de control de marcos externos.",
-          "impact": "Carga maliciosa en sitios terceros.",
-          "fix": "Añadir cabecera X-Frame-Options.",
-          "compliance": "OWASP / ISO 27001 A.14.1",
-          "snippet": 'add_header X-Frame-Options "SAMEORIGIN";',
+          "exec_title": "MIME-Sniffing Risk",
+          "desc": "Falta la protección contra sniffing de tipos MIME.",
+          "impact": "Interpretación incorrecta de archivos por el navegador.",
+          "fix": "Añadir X-Content-Type-Options nosniff.",
+          "compliance": "OWASP Top 10",
+          "snippet": 'add_header X-Content-Type-Options "nosniff";',
       })
   except Exception:
     pass
@@ -1606,6 +1663,51 @@ else:
         "Asunto del Informe",
         value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
     )
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("🏢 Organización / Cliente")
+    # Cargar lista de organizaciones para multi-tenancy
+    try:
+      conn_org = get_db_connection()
+      org_df = pd.read_sql_query("SELECT id, name FROM organizations", conn_org)
+      conn_org.close()
+    except Exception:
+      org_df = pd.DataFrame(columns=["id", "name"])
+
+    org_options = {"General / Sin Asignar": None}
+    if not org_df.empty:
+      for _, row in org_df.iterrows():
+        org_options[row["name"]] = row["id"]
+
+    selected_org_name = st.sidebar.selectbox(
+        "Cliente Objetivo", list(org_options.keys())
+    )
+    selected_org_id = org_options[selected_org_name]
+
+    with st.sidebar.expander("➕ Añadir Nueva Organización"):
+      new_org_input = st.text_input("Nombre del Cliente")
+      if st.button("Guardar Cliente") and new_org_input:
+        try:
+          conn_add = get_db_connection()
+          c_add = conn_add.cursor()
+          placeholder = "%s" if "postgres" in st.secrets else "?"
+          c_add.execute(
+              f"INSERT INTO organizations (name) VALUES ({placeholder})",
+              (new_org_input,),
+          )
+          conn_add.commit()
+          c_add.close()
+          conn_add.close()
+          st.success(f"Organización '{new_org_input}' creada.")
+          st.rerun()
+        except Exception:
+          st.warning("La organización ya existe o hubo un error.")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("🚨 Webhook de Alertas (Slack / Teams)")
+    webhook_url_input = st.sidebar.text_input(
+        "Webhook URL", type="password", placeholder="https://hooks.slack.com/..."
+    )
   else:
     agency_name = "SecOps Global Partners"
     agency_tagline = "División de Consultoría y Ciberseguridad"
@@ -1613,10 +1715,12 @@ else:
     report_type = "Informe Técnico Exhaustivo (Completo)"
     recipient_name = "Dirección General"
     report_subject = "Evaluación de Riesgos"
+    selected_org_id = None
+    webhook_url_input = ""
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v6.0 • Base de Datos en la Nube (Supabase)."
+      "CyberAudits Enterprise v6.1 • Multi-tenant Cloud Platform."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -2045,7 +2149,13 @@ else:
                 risk_score,
                 len(findings),
                 report_type,
+                organization_id=selected_org_id,
             )
+
+            if webhook_url_input:
+              send_webhook_alert(
+                  webhook_url_input, hostname, risk_score, len(findings)
+              )
 
             chart_b64 = generate_chart(stats)
             logo_b64 = (
