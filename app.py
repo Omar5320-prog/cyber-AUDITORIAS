@@ -91,6 +91,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS remediation_tasks (
                     id SERIAL PRIMARY KEY,
                     organization_id INTEGER,
+                    scan_id INTEGER,
                     hostname TEXT,
                     finding_vector TEXT,
                     status TEXT DEFAULT 'Pendiente',
@@ -149,6 +150,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS remediation_tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 organization_id INTEGER,
+                scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
                 status TEXT DEFAULT 'Pendiente',
@@ -206,63 +208,82 @@ def save_scan_to_db(
     is_pg = "postgres" in st.secrets
     ph = "%s" if is_pg else "?"
 
-    if organization_id is not None:
-      query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
-      c.execute(
-          query,
-          (
-              timestamp,
-              hostname,
-              ip,
-              risk_score,
-              findings_count,
-              report_type_val,
-              organization_id,
-          ),
-      )
+    if is_pg:
+      if organization_id is not None:
+        query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}) RETURNING id"
+        c.execute(
+            query,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+                organization_id,
+            ),
+        )
+      else:
+        query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}) RETURNING id"
+        c.execute(
+            query,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+            ),
+        )
+      scan_id = c.fetchone()[0]
     else:
-      query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
-      c.execute(
-          query,
-          (
-              timestamp,
-              hostname,
-              ip,
-              risk_score,
-              findings_count,
-              report_type_val,
-          ),
-      )
+      if organization_id is not None:
+        query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
+        c.execute(
+            query,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+                organization_id,
+            ),
+        )
+      else:
+        query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
+        c.execute(
+            query,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+            ),
+        )
+      scan_id = c.lastrowid
 
     if findings:
       for f in findings:
         vec = f["vector"]
         if organization_id is not None:
           c.execute(
-              f"SELECT id FROM remediation_tasks WHERE organization_id = {ph}"
-              f" AND hostname = {ph} AND finding_vector = {ph}",
-              (organization_id, hostname, vec),
+              f"INSERT INTO remediation_tasks (organization_id, scan_id,"
+              f" hostname, finding_vector, status) VALUES ({ph}, {ph}, {ph},"
+              f" {ph}, 'Pendiente')",
+              (organization_id, scan_id, hostname, vec),
           )
         else:
           c.execute(
-              f"SELECT id FROM remediation_tasks WHERE organization_id IS NULL"
-              f" AND hostname = {ph} AND finding_vector = {ph}",
-              (hostname, vec),
+              f"INSERT INTO remediation_tasks (organization_id, scan_id,"
+              f" hostname, finding_vector, status) VALUES (NULL, {ph}, {ph},"
+              f" {ph}, 'Pendiente')",
+              (scan_id, hostname, vec),
           )
-        row_task = c.fetchone()
-        if not row_task:
-          if organization_id is not None:
-            c.execute(
-                f"INSERT INTO remediation_tasks (organization_id, hostname,"
-                f" finding_vector, status) VALUES ({ph}, {ph}, {ph}, 'Pendiente')",
-                (organization_id, hostname, vec),
-            )
-          else:
-            c.execute(
-                f"INSERT INTO remediation_tasks (organization_id, hostname,"
-                f" finding_vector, status) VALUES (NULL, {ph}, {ph}, 'Pendiente')",
-                (hostname, vec),
-            )
 
     conn.commit()
     c.close()
@@ -1832,7 +1853,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v6.4 • Multi-tenant Cloud Platform."
+      "CyberAudits Enterprise v6.5 • Multi-tenant Cloud Platform."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -2443,120 +2464,212 @@ else:
           f" {selected_org_name}"
       )
       st.write(
-          "Registra avances día a día. Cada nueva nota quedará agendada en una"
-          " bitácora histórica cronológica tipo ticket."
+          "Selecciona un escaneo específico realizado para este cliente para"
+          " gestionar sus incidentes y ver su historial."
       )
 
       try:
         conn = get_db_connection()
         is_pg = "postgres" in st.secrets
-        ph = "%s" if is_pg else "?"
+        ph = "%s" if "postgres" in st.secrets else "?"
         if selected_org_id is not None:
-          query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id = {ph} ORDER BY CASE WHEN status = 'Solucionado' THEN 1 ELSE 0 END, id ASC"
-          tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
+          scans_query = f"SELECT id, timestamp, hostname, risk_score FROM history WHERE organization_id = {ph} ORDER BY id DESC"
+          scans_df = pd.read_sql_query(scans_query, conn, params=(selected_org_id,))
         else:
-          query = "SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id IS NULL ORDER BY CASE WHEN status = 'Solucionado' THEN 1 ELSE 0 END, id ASC"
-          tasks_df = pd.read_sql_query(query, conn)
+          scans_query = "SELECT id, timestamp, hostname, risk_score FROM history WHERE organization_id IS NULL ORDER BY id DESC"
+          scans_df = pd.read_sql_query(scans_query, conn)
         conn.close()
       except Exception:
-        tasks_df = pd.DataFrame()
+        scans_df = pd.DataFrame()
 
-      if not tasks_df.empty:
-        for index, row in tasks_df.iterrows():
-          t_id = row["id"]
-          t_host = row["hostname"]
-          t_vec = row["finding_vector"]
-          t_status = row["status"]
+      if not scans_df.empty:
+        scan_options = {}
+        for _, s_row in scans_df.iterrows():
+          label = f"Escaneo #{s_row['id']} - {s_row['hostname']} ({s_row['timestamp']}) [Score: {s_row['risk_score']}/100]"
+          scan_options[label] = s_row["id"]
 
-          with st.container():
-            st.markdown(f"### 📌 {t_vec}")
-            st.caption(
-                f"Host: `{t_host}` | Estado actual: **{t_status}**"
-            )
+        selected_scan_label = st.selectbox(
+            "Seleccionar Escaneo a Trabajar", list(scan_options.keys())
+        )
+        selected_scan_id = scan_options[selected_scan_label]
 
-            col_t1, col_t2 = st.columns([2, 3])
-            with col_t1:
-              new_status = st.selectbox(
-                  "Actualizar Estado",
-                  ["Pendiente", "En Proceso", "Solucionado"],
-                  index=(
-                      0
-                      if t_status == "Pendiente"
-                      else 1 if t_status == "En Proceso" else 2
-                  ),
-                  key=f"status_select_{t_id}",
-              )
-            with col_t2:
-              new_note = st.text_input(
-                  "Nueva Nota de Seguimiento (Día a Día)",
-                  key=f"notes_input_{t_id}",
-                  placeholder="Ej. Se aplicó parche en servidor principal...",
-              )
+        # Sub-pestañas para Activos vs Solucionados
+        sub_t_active, sub_t_resolved = st.tabs([
+            "⚠️ Incidentes Activos (Pendiente / En Proceso)",
+            "✅ Incidentes Solucionados / Cerrados",
+        ])
 
-            if st.button("➕ Registrar Avance en Bitácora", key=f"save_task_{t_id}"):
-              if new_note.strip():
-                try:
-                  conn_u = get_db_connection()
-                  c_u = conn_u.cursor()
-                  now_ts = datetime.datetime.now().strftime(
-                      "%Y-%m-%d %H:%M:%S"
-                  )
-                  c_u.execute(
-                      f"UPDATE remediation_tasks SET status = {ph} WHERE id = {ph}",
-                      (new_status, t_id),
-                  )
-                  c_u.execute(
-                      f"INSERT INTO remediation_logs (task_id, timestamp,"
-                      f" status, notes) VALUES ({ph}, {ph}, {ph}, {ph})",
-                      (t_id, now_ts, new_status, new_note),
-                  )
-                  conn_u.commit()
-                  c_u.close()
-                  conn_u.close()
-                  st.success(
-                      "¡Avance registrado exitosamente en la ticketera!"
-                  )
-                  st.rerun()
-                except Exception as e:
-                  st.error(f"Error al registrar: {e}")
-              else:
-                st.warning(
-                    "Por favor, escribe una nota técnica antes de registrar el"
-                    " avance."
+        with sub_t_active:
+          try:
+            conn = get_db_connection()
+            query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE scan_id = {ph} AND status != 'Solucionado' ORDER BY id ASC"
+            tasks_df = pd.read_sql_query(query, conn, params=(selected_scan_id,))
+            conn.close()
+          except Exception:
+            tasks_df = pd.DataFrame()
+
+          if not tasks_df.empty:
+            for index, row in tasks_df.iterrows():
+              t_id = row["id"]
+              t_host = row["hostname"]
+              t_vec = row["finding_vector"]
+              t_status = row["status"]
+
+              with st.container():
+                st.markdown(f"### 📌 {t_vec}")
+                st.caption(
+                    f"Host: `{t_host}` | Estado actual: **{t_status}**"
                 )
 
-            with st.expander(
-                f"🕒 Ver Historial de Seguimiento (Bitácora) para este hallazgo"
-            ):
-              try:
-                conn_l = get_db_connection()
-                logs_query = f"SELECT timestamp, status, notes FROM remediation_logs WHERE task_id = {ph} ORDER BY id DESC"
-                logs_df = pd.read_sql_query(logs_query, conn_l, params=(t_id,))
-                conn_l.close()
-              except Exception:
-                logs_df = pd.DataFrame()
-
-              if not logs_df.empty:
-                for _, log_row in logs_df.iterrows():
-                  st.markdown(
-                      f"🕒 **{log_row['timestamp']}** — Estado:"
-                      f" `{log_row['status']}`\n> _{log_row['notes']}_"
+                col_t1, col_t2 = st.columns([2, 3])
+                with col_t1:
+                  new_status = st.selectbox(
+                      "Actualizar Estado",
+                      ["Pendiente", "En Proceso", "Solucionado"],
+                      index=(
+                          0
+                          if t_status == "Pendiente"
+                          else 1 if t_status == "En Proceso" else 2
+                      ),
+                      key=f"status_select_active_{t_id}",
                   )
-                  st.markdown("---")
-              else:
-                st.info("Aún no hay notas registradas en la bitácora.")
+                with col_t2:
+                  new_note = st.text_input(
+                      "Nueva Nota de Seguimiento (Día a Día)",
+                      key=f"notes_input_active_{t_id}",
+                      placeholder="Ej. Se aplicó parche...",
+                  )
 
-            st.markdown("---")
+                if st.button(
+                    "➕ Registrar Avance en Bitácora",
+                    key=f"save_task_active_{t_id}",
+                ):
+                  if new_note.strip():
+                    try:
+                      conn_u = get_db_connection()
+                      c_u = conn_u.cursor()
+                      now_ts = datetime.datetime.now().strftime(
+                          "%Y-%m-%d %H:%M:%S"
+                      )
+                      c_u.execute(
+                          f"UPDATE remediation_tasks SET status = {ph} WHERE id"
+                          f" = {ph}",
+                          (new_status, t_id),
+                      )
+                      c_u.execute(
+                          f"INSERT INTO remediation_logs (task_id, timestamp,"
+                          f" status, notes) VALUES ({ph}, {ph}, {ph}, {ph})",
+                          (t_id, now_ts, new_status, new_note),
+                      )
+                      conn_u.commit()
+                      c_u.close()
+                      conn_u.close()
+                      st.success(
+                          "¡Avance registrado! Si marcaste como Solucionado,"
+                        " el incidente se movió a la pestaña de resueltos."
+                      )
+                      st.rerun()
+                    except Exception as e:
+                      st.error(f"Error al registrar: {e}")
+                  else:
+                    st.warning(
+                        "Por favor, escribe una nota técnica antes de"
+                        " registrar el avance."
+                    )
+
+                with st.expander(
+                    f"🕒 Ver Historial de Seguimiento (Bitácora) para este"
+                    f" hallazgo"
+                ):
+                  try:
+                    conn_l = get_db_connection()
+                    logs_query = f"SELECT timestamp, status, notes FROM remediation_logs WHERE task_id = {ph} ORDER BY id DESC"
+                    logs_df = pd.read_sql_query(
+                        logs_query, conn_l, params=(t_id,)
+                    )
+                    conn_l.close()
+                  except Exception:
+                    logs_df = pd.DataFrame()
+
+                  if not logs_df.empty:
+                    for _, log_row in logs_df.iterrows():
+                      st.markdown(
+                          f"🕒 **{log_row['timestamp']}** — Estado:"
+                          f" `{log_row['status']}`\n> _{log_row['notes']}_"
+                      )
+                      st.markdown("---")
+                  else:
+                    st.info("Aún no hay notas registradas en la bitácora.")
+
+                st.markdown("---")
+          else:
+            st.info(
+                "No hay incidentes activos (pendientes o en proceso) para este"
+                " escaneo."
+            )
+
+        with sub_t_resolved:
+          try:
+            conn = get_db_connection()
+            query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Solucionado' ORDER BY id ASC"
+            resolved_df = pd.read_sql_query(
+                query, conn, params=(selected_scan_id,)
+            )
+            conn.close()
+          except Exception:
+            resolved_df = pd.DataFrame()
+
+          if not resolved_df.empty:
+            for index, row in resolved_df.iterrows():
+              t_id = row["id"]
+              t_host = row["hostname"]
+              t_vec = row["finding_vector"]
+              t_status = row["status"]
+
+              with st.container():
+                st.markdown(f"### ✅ {t_vec}")
+                st.caption(
+                    f"Host: `{t_host}` | Estado: **{t_status} (Cerrado)**"
+                )
+
+                # Permitir reabrir o revisar notas en resueltos también
+                with st.expander(
+                    f"🕒 Ver Historial Completo y Bitácora de este Incidente"
+                    f" Solucionado"
+                ):
+                  try:
+                    conn_l = get_db_connection()
+                    logs_query = f"SELECT timestamp, status, notes FROM remediation_logs WHERE task_id = {ph} ORDER BY id DESC"
+                    logs_df = pd.read_sql_query(
+                        logs_query, conn_l, params=(t_id,)
+                    )
+                    conn_l.close()
+                  except Exception:
+                    logs_df = pd.DataFrame()
+
+                  if not logs_df.empty:
+                    for _, log_row in logs_df.iterrows():
+                      st.markdown(
+                          f"🕒 **{log_row['timestamp']}** — Estado:"
+                          f" `{log_row['status']}`\n> _{log_row['notes']}_"
+                      )
+                      st.markdown("---")
+                  else:
+                    st.info("No hay registros en la bitácora.")
+
+                st.markdown("---")
+          else:
+            st.info("Aún no hay incidentes solucionados para este escaneo.")
       else:
         st.info(
-            "No hay tareas de remediación registradas. Ejecuta un escaneo en la"
-            " primera pestaña para generar hallazgos."
+            "No hay escaneos guardados para este cliente. Realiza un escaneo"
+            " en la primera pestaña."
         )
 
     with tab5:
       st.subheader("About CyberAudits Enterprise Suite")
       st.markdown("""
             **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
-            * **Módulos:** Auditoría perimetral, gestión del factor humano y seguimiento de remediación tipo ticketera.
+            * **Módulos:** Auditoría perimetral, gestión del factor humano y seguimiento de remediación tipo ticketera con separación de incidentes resueltos.
             * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia en PostgreSQL (Supabase).
             """)
