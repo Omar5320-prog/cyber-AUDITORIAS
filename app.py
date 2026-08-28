@@ -709,7 +709,7 @@ Los atacantes no solo utilizan correos electrónicos, sino también canales dire
             },
             {
                 "q": (
-                    "4. ¿Cuál é una señal frecuente de una llamada"
+                    "4. ¿Cuál es una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -1684,7 +1684,8 @@ else:
           c_add.close()
           conn_add.close()
           st.success(f"Organización '{new_org_input}' creada.")
-          st.session_state["input_org_name"] = ""
+          if "input_org_name" in st.session_state:
+            del st.session_state["input_org_name"]
           st.rerun()
         except Exception:
           st.warning("La organización ya existe o hubo un error.")
