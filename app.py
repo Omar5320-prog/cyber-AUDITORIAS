@@ -60,10 +60,17 @@ def init_db():
                     ip TEXT,
                     risk_score INTEGER,
                     findings_count INTEGER,
-                    report_type TEXT,
-                    organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL
+                    report_type TEXT
                 )
             """)
+      except Exception:
+        pass
+
+      try:
+        c.execute(
+            "ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id"
+            " INTEGER;"
+        )
       except Exception:
         pass
 
@@ -71,7 +78,6 @@ def init_db():
         c.execute("""
                 CREATE TABLE IF NOT EXISTS employees (
                     id SERIAL PRIMARY KEY,
-                    organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
                     email TEXT NOT NULL,
                     department TEXT,
                     topic TEXT DEFAULT 'Módulo 1 — Phishing',
@@ -81,6 +87,14 @@ def init_db():
                     UNIQUE(email, topic)
                 )
             """)
+      except Exception:
+        pass
+
+      try:
+        c.execute(
+            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS organization_id"
+            " INTEGER;"
+        )
       except Exception:
         pass
     else:
@@ -2087,7 +2101,7 @@ else:
       st.markdown("### 🔗 Enlaces Únicos y Exportación Masiva")
       st.write(
           "Copia los enlaces individuales o descarga la lista completa en CSV"
-          " para realizar campañas de correo masivo:"
+          " para realzar campañas de correo masivo:"
       )
 
       conn = get_db_connection()
@@ -2236,11 +2250,11 @@ else:
           st.session_state.scanned = True
           st.session_state.findings = findings
           st.session_state.stats = stats
-          st.session_state.open_ports = open_ports
+          st.session_state.open_points = open_ports
           st.session_state.hostname = hostname
           st.session_state.subdomains = subdomains
           st.session_state.geo = geo
-          st.session_state.email_sec = email_sec
+          st.session_state.email_spec = email_sec
           st.session_state.ssl_info = ssl_info
           st.session_state.risk_score = risk_score
           st.session_state.pdf_filename = pdf_filename
@@ -2262,7 +2276,7 @@ else:
         )
         g4.metric(
             "Registro SPF",
-            "Protegido" if st.session_state.email_sec["spf"] else "Ausente",
+            "Protegido" if st.session_state.email_sec["pdf"] else "Ausente",
         )
         g5.metric(
             "DMARC",
@@ -2270,7 +2284,7 @@ else:
         )
 
         st.markdown("---")
-        col_dl1, col_dl2, col_dl3 = st.columns(3)
+        col_dl1, col_dl2, multi_dl3 = st.columns(3)
         with col_dl1:
           if os.path.exists(st.session_state.pdf_filename):
             with open(st.session_state.pdf_filename, "rb") as pdf_file:
