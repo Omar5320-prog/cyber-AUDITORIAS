@@ -1663,6 +1663,8 @@ else:
     st.session_state.scanned = False
   if "failed_attempts" not in st.session_state:
     st.session_state.failed_attempts = 0
+  if "org_success_msg" not in st.session_state:
+    st.session_state.org_success_msg = ""
 
   st.markdown(
       """
@@ -1750,10 +1752,14 @@ else:
             conn_add.commit()
             c_add.close()
             conn_add.close()
-            st.success(f"Organización '{new_org_input}' creada.")
+            st.session_state.org_success_msg = f"Cliente registrado: {new_org_input}"
             st.rerun()
           except Exception:
             st.warning("La organización ya existe o hubo un error.")
+
+    if st.session_state.org_success_msg:
+      st.sidebar.success(st.session_state.org_success_msg)
+      st.session_state.org_success_msg = ""
 
     if selected_org_id is not None:
       if st.sidebar.button("🗑️ Eliminar Cliente Seleccionado"):
@@ -1826,7 +1832,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v6.3 • Multi-tenant Cloud Platform."
+      "CyberAudits Enterprise v6.4 • Multi-tenant Cloud Platform."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -2416,7 +2422,7 @@ else:
           conn = get_db_connection()
           c = conn.cursor()
           is_pg = "postgres" in st.secrets
-          ph = "%s" if is_pg else "?"
+          ph = "%s" if "postgres" in st.secrets else "?"
           if selected_org_id is not None:
             c.execute(
                 f"DELETE FROM history WHERE organization_id = {ph}",
@@ -2446,10 +2452,10 @@ else:
         is_pg = "postgres" in st.secrets
         ph = "%s" if is_pg else "?"
         if selected_org_id is not None:
-          query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id = {ph}"
+          query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id = {ph} ORDER BY CASE WHEN status = 'Solucionado' THEN 1 ELSE 0 END, id ASC"
           tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
         else:
-          query = "SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id IS NULL"
+          query = "SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE organization_id IS NULL ORDER BY CASE WHEN status = 'Solucionado' THEN 1 ELSE 0 END, id ASC"
           tasks_df = pd.read_sql_query(query, conn)
         conn.close()
       except Exception:
@@ -2495,12 +2501,10 @@ else:
                   now_ts = datetime.datetime.now().strftime(
                       "%Y-%m-%d %H:%M:%S"
                   )
-                  # Actualizar estado principal de la tarea
                   c_u.execute(
                       f"UPDATE remediation_tasks SET status = {ph} WHERE id = {ph}",
                       (new_status, t_id),
                   )
-                  # Insertar entrada en la bitácora histórica
                   c_u.execute(
                       f"INSERT INTO remediation_logs (task_id, timestamp,"
                       f" status, notes) VALUES ({ph}, {ph}, {ph}, {ph})",
@@ -2521,7 +2525,6 @@ else:
                     " avance."
                 )
 
-            # Desplegable para ver la bitácora histórica de notas (Ticketera)
             with st.expander(
                 f"🕒 Ver Historial de Seguimiento (Bitácora) para este hallazgo"
             ):
