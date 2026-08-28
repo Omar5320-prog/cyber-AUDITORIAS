@@ -39,7 +39,9 @@ def init_db():
     conn = get_db_connection()
     conn.autocommit = True
     c = conn.cursor()
-    if "postgres" in st.secrets:
+    is_pg = "postgres" in st.secrets
+
+    if is_pg:
       try:
         c.execute("""
                 CREATE TABLE IF NOT EXISTS organizations (
@@ -60,17 +62,10 @@ def init_db():
                     ip TEXT,
                     risk_score INTEGER,
                     findings_count INTEGER,
-                    report_type TEXT
+                    report_type TEXT,
+                    organization_id INTEGER
                 )
             """)
-      except Exception:
-        pass
-
-      try:
-        c.execute(
-            "ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id"
-            " INTEGER;"
-        )
       except Exception:
         pass
 
@@ -78,6 +73,7 @@ def init_db():
         c.execute("""
                 CREATE TABLE IF NOT EXISTS employees (
                     id SERIAL PRIMARY KEY,
+                    organization_id INTEGER,
                     email TEXT NOT NULL,
                     department TEXT,
                     topic TEXT DEFAULT 'Módulo 1 — Phishing',
@@ -91,10 +87,16 @@ def init_db():
         pass
 
       try:
-        c.execute(
-            "ALTER TABLE employees ADD COLUMN IF NOT EXISTS organization_id"
-            " INTEGER;"
-        )
+        c.execute("""
+                CREATE TABLE IF NOT EXISTS remediation_tasks (
+                    id SERIAL PRIMARY KEY,
+                    organization_id INTEGER,
+                    hostname TEXT,
+                    finding_vector TEXT,
+                    status TEXT DEFAULT 'Pendiente',
+                    notes TEXT
+                )
+            """)
       except Exception:
         pass
     else:
@@ -130,6 +132,16 @@ def init_db():
                 UNIQUE(email, topic)
             )
         """)
+      c.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
+                hostname TEXT,
+                finding_vector TEXT,
+                status TEXT DEFAULT 'Pendiente',
+                notes TEXT
+            )
+        """)
       conn.commit()
     c.close()
     conn.close()
@@ -163,6 +175,7 @@ def save_scan_to_db(
     findings_count,
     report_type_val,
     organization_id=None,
+    findings=None,
 ):
   try:
     conn = get_db_connection()
@@ -198,6 +211,37 @@ def save_scan_to_db(
               report_type_val,
           ),
       )
+
+    # Registrar hallazgos iniciales en tareas de remediación si no existen
+    if findings:
+      for f in findings:
+        vec = f["vector"]
+        if organization_id is not None:
+          c.execute(
+              f"SELECT id FROM remediation_tasks WHERE organization_id = {ph}"
+              f" AND hostname = {ph} AND finding_vector = {ph}",
+              (organization_id, hostname, vec),
+          )
+        else:
+          c.execute(
+              f"SELECT id FROM remediation_tasks WHERE organization_id IS NULL"
+              f" AND hostname = {ph} AND finding_vector = {ph}",
+              (hostname, vec),
+          )
+        if not c.fetchone():
+          if organization_id is not None:
+            c.execute(
+                f"INSERT INTO remediation_tasks (organization_id, hostname,"
+                f" finding_vector, status) VALUES ({ph}, {ph}, {ph}, 'Pendiente')",
+                (organization_id, hostname, vec),
+            )
+          else:
+            c.execute(
+                f"INSERT INTO remediation_tasks (organization_id, hostname,"
+                f" finding_vector, status) VALUES (NULL, {ph}, {ph}, 'Pendiente')",
+                (hostname, vec),
+            )
+
     conn.commit()
     c.close()
     conn.close()
@@ -1646,7 +1690,6 @@ else:
   )
   st.sidebar.markdown("---")
 
-  # ORG / CLIENT SELECTOR MOVED TO THE TOP (RIGHT UNDER MODULE SELECTOR)
   selected_org_id = None
   selected_org_name = "General / Sin Asignar"
 
@@ -1670,25 +1713,25 @@ else:
     selected_org_id = org_options[selected_org_name]
 
     with st.sidebar.expander("➕ Añadir Nueva Organización"):
-      new_org_input = st.text_input("Nombre del Cliente", key="input_org_name")
-      if st.button("Guardar Cliente") and new_org_input:
-        try:
-          conn_add = get_db_connection()
-          c_add = conn_add.cursor()
-          placeholder = "%s" if "postgres" in st.secrets else "?"
-          c_add.execute(
-              f"INSERT INTO organizations (name) VALUES ({placeholder})",
-              (new_org_input,),
-          )
-          conn_add.commit()
-          c_add.close()
-          conn_add.close()
-          st.success(f"Organización '{new_org_input}' creada.")
-          if "input_org_name" in st.session_state:
-            del st.session_state["input_org_name"]
-          st.rerun()
-        except Exception:
-          st.warning("La organización ya existe o hubo un error.")
+      with st.form("add_org_form", clear_on_submit=True):
+        new_org_input = st.text_input("Nombre del Cliente")
+        submit_org = st.form_submit_button("Guardar Cliente")
+        if submit_org and new_org_input:
+          try:
+            conn_add = get_db_connection()
+            c_add = conn_add.cursor()
+            placeholder = "%s" if "postgres" in st.secrets else "?"
+            c_add.execute(
+                f"INSERT INTO organizations (name) VALUES ({placeholder})",
+                (new_org_input,),
+            )
+            conn_add.commit()
+            c_add.close()
+            conn_add.close()
+            st.success(f"Organización '{new_org_input}' creada.")
+            st.rerun()
+          except Exception:
+            st.warning("La organización ya existe o hubo un error.")
 
     if selected_org_id is not None:
       if st.sidebar.button("🗑️ Eliminar Cliente Seleccionado"):
@@ -1761,7 +1804,7 @@ else:
 
   st.sidebar.markdown("---")
   st.sidebar.caption(
-      "CyberAudits Enterprise v6.1 • Multi-tenant Cloud Platform."
+      "CyberAudits Enterprise v6.2 • Multi-tenant Cloud Platform."
   )
 
   if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -2138,10 +2181,11 @@ else:
         )
 
   else:
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Perimeter Scan",
         "📊 Security Analytics",
         "📜 Historial de Escaneos",
+        "🛠️ Gestión de Remediación",
         "ℹ️ About CyberAudits",
     ])
 
@@ -2191,6 +2235,7 @@ else:
                 len(findings),
                 report_type,
                 organization_id=selected_org_id,
+                findings=findings,
             )
 
             if webhook_url_input:
@@ -2349,7 +2394,7 @@ else:
           conn = get_db_connection()
           c = conn.cursor()
           is_pg = "postgres" in st.secrets
-          ph = "%s" if is_pg else "?"
+          ph = "%s" if "postgres" in st.secrets else "?"
           if selected_org_id is not None:
             c.execute(
                 f"DELETE FROM history WHERE organization_id = {ph}",
@@ -2365,9 +2410,87 @@ else:
         st.info(f"Aún no hay escaneos guardados para {selected_org_name}.")
 
     with tab4:
+      st.subheader(
+          f"🛠️ Tablero de Seguimiento de Remediación — {selected_org_name}"
+      )
+      st.write(
+          "Actualiza el estado de las vulnerabilidades detectadas para el"
+          " cliente seleccionado:"
+      )
+
+      try:
+        conn = get_db_connection()
+        is_pg = "postgres" in st.secrets
+        ph = "%s" if is_pg else "?"
+        if selected_org_id is not None:
+          query = f"SELECT id, hostname, finding_vector, status, notes FROM remediation_tasks WHERE organization_id = {ph}"
+          tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
+        else:
+          query = "SELECT id, hostname, finding_vector, status, notes FROM remediation_tasks WHERE organization_id IS NULL"
+          tasks_df = pd.read_sql_query(query, conn)
+        conn.close()
+      except Exception:
+        tasks_df = pd.DataFrame()
+
+      if not tasks_df.empty:
+        for index, row in tasks_df.iterrows():
+          t_id = row["id"]
+          t_host = row["hostname"]
+          t_vec = row["finding_vector"]
+          t_status = row["status"]
+          t_notes = row["notes"] or ""
+
+          with st.container():
+            col_t1, col_t2, col_t3 = st.columns([3, 2, 2])
+            with col_t1:
+              st.markdown(f"**{t_vec}** \n`Host: {t_host}`")
+            with col_t2:
+              new_status = st.selectbox(
+                  "Estado",
+                  ["Pendiente", "En Proceso", "Solucionado"],
+                  index=(
+                      0
+                      if t_status == "Pendiente"
+                      else 1 if t_status == "En Proceso" else 2
+                  ),
+                  key=f"status_select_{t_id}",
+              )
+            with col_t3:
+              new_note = st.text_input(
+                  "Notas técnicas",
+                  value=t_notes,
+                  key=f"notes_input_{t_id}",
+                  placeholder="Ej. Parche aplicado por DevOps",
+              )
+
+            if new_status != t_status or new_note != t_notes:
+              if st.button("Guardar Cambios", key=f"save_task_{t_id}"):
+                try:
+                  conn_u = get_db_connection()
+                  c_u = conn_u.cursor()
+                  c_u.execute(
+                      f"UPDATE remediation_tasks SET status = {ph}, notes ="
+                      f" {ph} WHERE id = {ph}",
+                      (new_status, new_note, t_id),
+                  )
+                  conn_u.commit()
+                  c_u.close()
+                  conn_u.close()
+                  st.success("¡Estado actualizado con éxito!")
+                  st.rerun()
+                except Exception as e:
+                  st.error(f"Error al actualizar: {e}")
+            st.markdown("---")
+      else:
+        st.info(
+            "No hay tareas de remediación registradas. Ejecuta un escaneo en la"
+            " primera pestaña para generar hallazgos."
+        )
+
+    with tab5:
       st.subheader("About CyberAudits Enterprise Suite")
       st.markdown("""
             **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
-            * **Módulos:** Auditoría perimetral y gestión del factor humano.
+            * **Módulos:** Auditoría perimetral, gestión del factor humano y seguimiento de remediación.
             * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia en PostgreSQL (Supabase).
             """)
