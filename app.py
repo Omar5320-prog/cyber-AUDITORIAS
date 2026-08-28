@@ -154,13 +154,13 @@ def save_scan_to_db(
     conn = get_db_connection()
     c = conn.cursor()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    placeholder = "%s" if "postgres" in st.secrets else "?"
-    if organization_id:
+    is_pg = "postgres" in st.secrets
+    ph = "%s" if is_pg else "?"
+
+    if organization_id is not None:
+      query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
       c.execute(
-          f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
-          f" findings_count, report_type, organization_id) VALUES"
-          f" ({placeholder}, {placeholder}, {placeholder}, {placeholder},"
-          f" {placeholder}, {placeholder}, {placeholder})",
+          query,
           (
               timestamp,
               hostname,
@@ -172,10 +172,9 @@ def save_scan_to_db(
           ),
       )
     else:
+      query = f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})"
       c.execute(
-          f"INSERT INTO history (timestamp, hostname, ip, risk_score,"
-          f" findings_count, report_type) VALUES ({placeholder}, {placeholder},"
-          f" {placeholder}, {placeholder}, {placeholder}, {placeholder})",
+          query,
           (
               timestamp,
               hostname,
@@ -192,15 +191,18 @@ def save_scan_to_db(
     pass
 
 
-def get_scan_history():
+def get_scan_history(org_id=None):
   conn = get_db_connection()
-  df = pd.read_sql_query(
-      'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS'
-      ' "IP", risk_score AS "Risk Score (/100)", findings_count AS'
-      ' "Vulnerabilidades", report_type AS "Plantilla" FROM history ORDER BY id'
-      " DESC",
-      conn,
-  )
+  is_pg = "postgres" in st.secrets
+  ph = "%s" if is_pg else "?"
+
+  if org_id is not None:
+    query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id = {ph} ORDER BY id DESC'
+    df = pd.read_sql_query(query, conn, params=(org_id,))
+  else:
+    query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id IS NULL ORDER BY id DESC'
+    df = pd.read_sql_query(query, conn)
+
   conn.close()
   return df
 
@@ -693,7 +695,7 @@ Los atacantes no solo utilizan correos electrónicos, sino también canales dire
             },
             {
                 "q": (
-                    "4. ¿Cuál is una señal frecuente de una llamada"
+                    "4. ¿Cuál es una señal frecuente de una llamada"
                     " fraudulenta?"
                 ),
                 "options": [
@@ -1630,43 +1632,12 @@ else:
   )
   st.sidebar.markdown("---")
 
+  # ORG / CLIENT SELECTOR MOVED TO THE TOP (RIGHT UNDER MODULE SELECTOR)
+  selected_org_id = None
+  selected_org_name = "General / Sin Asignar"
+
   if selected_module == "Auditoría Perimetral":
-    st.sidebar.header("⚙️ Configuración del Informe")
-    agency_name = st.sidebar.text_input(
-        "Nombre de la Agencia", value="SecOps Global Partners"
-    )
-    agency_tagline = st.sidebar.text_input(
-        "Subtítulo / Área de la Agencia",
-        value="División de Consultoría y Ciberseguridad",
-    )
-    logo_file = st.sidebar.file_uploader(
-        "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
-    )
-
-    report_type = st.sidebar.selectbox(
-        "Plantilla / Modelo de Informe",
-        [
-            "Informe Técnico Exhaustivo (Completo)",
-            "Informe Ejecutivo Narrativo",
-            (
-                "Informe de Normativa, Remediación y Recomendaciones (ISO /"
-                " Compliance)"
-            ),
-        ],
-    )
-
-    recipient_name = st.sidebar.text_input(
-        "Dirigido a (Gerencia / Cliente)",
-        value="Dirección General / Junta Directiva",
-    )
-    report_subject = st.sidebar.text_input(
-        "Asunto del Informe",
-        value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
-    )
-
-    st.sidebar.markdown("---")
     st.sidebar.header("🏢 Organización / Cliente")
-    # Cargar lista de organizaciones para multi-tenancy
     try:
       conn_org = get_db_connection()
       org_df = pd.read_sql_query("SELECT id, name FROM organizations", conn_org)
@@ -1702,6 +1673,60 @@ else:
           st.rerun()
         except Exception:
           st.warning("La organización ya existe o hubo un error.")
+
+    if selected_org_id is not None:
+      if st.sidebar.button("🗑️ Eliminar Cliente Seleccionado"):
+        try:
+          conn_del = get_db_connection()
+          c_del = conn_del.cursor()
+          placeholder = "%s" if "postgres" in st.secrets else "?"
+          c_del.execute(
+              f"DELETE FROM organizations WHERE id = {placeholder}",
+              (selected_org_id,),
+          )
+          conn_del.commit()
+          c_del.close()
+          conn_del.close()
+          st.sidebar.success(
+              f"Cliente '{selected_org_name}' eliminado correctamente."
+          )
+          st.rerun()
+        except Exception as e:
+          st.sidebar.error(f"Error al eliminar: {e}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Configuración del Informe")
+    agency_name = st.sidebar.text_input(
+        "Nombre de la Agencia", value="SecOps Global Partners"
+    )
+    agency_tagline = st.sidebar.text_input(
+        "Subtítulo / Área de la Agencia",
+        value="División de Consultoría y Ciberseguridad",
+    )
+    logo_file = st.sidebar.file_uploader(
+        "Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"]
+    )
+
+    report_type = st.sidebar.selectbox(
+        "Plantilla / Modelo de Informe",
+        [
+            "Informe Técnico Exhaustivo (Completo)",
+            "Informe Ejecutivo Narrativo",
+            (
+                "Informe de Normativa, Remediación y Recomendaciones (ISO /"
+                " Compliance)"
+            ),
+        ],
+    )
+
+    recipient_name = st.sidebar.text_input(
+        "Dirigido a (Gerencia / Cliente)",
+        value="Dirección General / Junta Directiva",
+    )
+    report_subject = st.sidebar.text_input(
+        "Asunto del Informe",
+        value="Evaluación de Riesgos Perimetrales y Postura de Negocio",
+    )
 
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Webhook de Alertas (Slack / Teams)")
@@ -2290,20 +2315,30 @@ else:
         st.info("Ejecuta un escaneo en la primera pestaña.")
 
     with tab3:
-      st.subheader("📜 Historial de Escaneos Corporativos (Supabase)")
-      history_df = get_scan_history()
+      st.subheader(
+          f"📜 Historial de Escaneos Corporativos — {selected_org_name} (Supabase)"
+      )
+      history_df = get_scan_history(org_id=selected_org_id)
       if not history_df.empty:
         st.dataframe(history_df, use_container_width=True)
-        if st.button("🗑️ Limpiar Historial"):
+        if st.button(f"🗑️ Limpiar Historial de {selected_org_name}"):
           conn = get_db_connection()
           c = conn.cursor()
-          c.execute("DELETE FROM history")
+          is_pg = "postgres" in st.secrets
+          ph = "%s" if is_pg else "?"
+          if selected_org_id is not None:
+            c.execute(
+                f"DELETE FROM history WHERE organization_id = {ph}",
+                (selected_org_id,),
+            )
+          else:
+            c.execute("DELETE FROM history WHERE organization_id IS NULL")
           conn.commit()
           c.close()
           conn.close()
           st.rerun()
       else:
-        st.info("Aún no hay escaneos guardados.")
+        st.info(f"Aún no hay escaneos guardados para {selected_org_name}.")
 
     with tab4:
       st.subheader("About CyberAudits Enterprise Suite")
