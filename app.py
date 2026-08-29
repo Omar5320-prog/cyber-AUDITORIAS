@@ -970,14 +970,13 @@ else:
                         is_pg = "postgres" in st.secrets
                         ph = "%s" if is_pg else "?"
                         
-                        # Borra los tickets y bitácoras pertenecientes exclusivamente a este scan_id
                         c_del.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM history WHERE id = {ph}", (scan_to_delete,))
                         
                         c_del.close()
                         conn_del.close()
-                        st.success(f"✅ Escaneo #{scan_to_delete} y sus {len(history_df[history_df['id'] == scan_to_delete])} tickets asociados fueron eliminados correctamente. Los escaneos y tickets restantes siguen intactos.")
+                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron eliminados correctamente.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al borrar el escaneo: {e}")
@@ -988,6 +987,24 @@ else:
             st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
             st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Cada ticket está vinculado a su escaneo correspondiente (scan_id).")
             
+            # Botón de mantenimiento para limpiar tickets huérfanos previos
+            col_purging1, col_purging2 = st.columns([3, 1])
+            with col_purging2:
+                if st.button("🧹 Limpiar Tickets Huérfanos"):
+                    try:
+                        conn_p = get_db_connection()
+                        conn_p.autocommit = True
+                        c_p = conn_p.cursor()
+                        # Borra tareas cuyo scan_id ya no existe en la tabla history
+                        c_p.execute("DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL)")
+                        c_p.execute("DELETE FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL")
+                        c_p.close()
+                        conn_p.close()
+                        st.success("¡Tickets huérfanos eliminados!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al limpiar: {e}")
+
             try:
                 conn = get_db_connection()
                 is_pg = "postgres" in st.secrets
