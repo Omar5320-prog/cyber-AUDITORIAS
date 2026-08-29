@@ -1492,6 +1492,8 @@ else:
                                 if st.button("➕ Registrar Avance en Bitácora", key=f"save_task_active_{t_id}"):
                                     if new_note.strip():
                                         try:
+                                            is_pg = "postgres" in st.secrets
+                                            ph = "%s" if is_pg else "?"
                                             conn_u = get_db_connection()
                                             c_u = conn_u.cursor()
                                             now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
