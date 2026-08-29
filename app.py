@@ -962,7 +962,7 @@ else:
                 st.markdown("---")
                 st.markdown("### 🗑️ Gestión / Borrado de Escaneos Registrados")
                 scan_to_delete = st.selectbox("Seleccione el ID del Escaneo a Borrar", options=history_df["id"].tolist(), key="select_del_scan")
-                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets", type="secondary"):
+                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets Asociados", type="secondary"):
                     try:
                         conn_del = get_db_connection()
                         conn_del.autocommit = True
@@ -970,14 +970,14 @@ else:
                         is_pg = "postgres" in st.secrets
                         ph = "%s" if is_pg else "?"
                         
-                        # Borrar logs, tareas y el historial del escaneo específico
+                        # Borra los tickets y bitácoras pertenecientes exclusivamente a este scan_id
                         c_del.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM history WHERE id = {ph}", (scan_to_delete,))
                         
                         c_del.close()
                         conn_del.close()
-                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron borrados correctamente.")
+                        st.success(f"✅ Escaneo #{scan_to_delete} y sus {len(history_df[history_df['id'] == scan_to_delete])} tickets asociados fueron eliminados correctamente. Los escaneos y tickets restantes siguen intactos.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al borrar el escaneo: {e}")
@@ -986,7 +986,7 @@ else:
 
         with tab4:
             st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
-            st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Al cambiar el estado de un ticket y guardar, este se moverá automáticamente a su respectiva pestaña.")
+            st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Cada ticket está vinculado a su escaneo correspondiente (scan_id).")
             
             try:
                 conn = get_db_connection()
@@ -994,10 +994,10 @@ else:
                 ph = "%s" if is_pg else "?"
                 
                 if selected_org_id is not None:
-                    query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
+                    query = f"SELECT id, scan_id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
                 else:
-                    query = "SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
+                    query = "SELECT id, scan_id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn)
                 conn.close()
             except Exception:
@@ -1034,8 +1034,9 @@ else:
                     for _, row in sub_df.iterrows():
                         sev_color = "🔴" if row['severity'] == "CRÍTICO" else "🟡" if row['severity'] == "MEDIO" else "🔵"
                         ticket_id = int(row['id'])
+                        scan_id = int(row['scan_id']) if pd.notna(row['scan_id']) else "N/A"
                         
-                        with st.expander(f"Ticket #{ticket_id} | {sev_color} [{row['severity']}] — {row['finding_vector']} (Host: {row['hostname']})"):
+                        with st.expander(f"Ticket #{ticket_id} (Scan ID: #{scan_id}) | {sev_color} [{row['severity']}] — {row['finding_vector']} (Host: {row['hostname']})"):
                             col_info1, col_info2 = st.columns([2, 1])
                             with col_info1:
                                 st.markdown(f"**Dominio / Host:** `{row['hostname']}`")
@@ -1043,13 +1044,13 @@ else:
                                 st.markdown(f"**Severidad:** {row['severity']} | **Estado Actual:** `{row['status']}`")
                             with col_info2:
                                 st.markdown(f"**ID de Ticket:** #{ticket_id}")
+                                st.markdown(f"**Asociado al Escaneo ID:** #{scan_id}")
                                 
                             st.markdown("---")
                             st.markdown("### 💬 Historial de Comentarios y Bitácora")
                             display_ticket_logs(ticket_id)
                             
                             st.markdown("### ✍️ Actualizar Estado y Dejar Comentario")
-                            # Llaves únicas basadas en el prefijo de la pestaña para evitar duplicados de st.form
                             with st.form(key=f"form_{prefix_key}_ticket_detail_{ticket_id}"):
                                 new_status = st.selectbox(
                                     "Mover a Estado / Pestaña", 
