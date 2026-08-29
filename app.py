@@ -349,7 +349,7 @@ Una contraseña segura se caracteriza por ser larga y difícil de adivinar, evit
         "questions": [
             {"q": "1. ¿Cuál es una característica de una contraseña segura?", "options": ["Es larga y difícil de adivinar.", "Es nuestro nombre seguido de 123.", "Es la misma que utilizamos en todas nuestras cuentas."], "correct": 0},
             {"q": "2. ¿Cuál de las siguientes contraseñas es menos segura?", "options": ["Una frase larga y difícil de adivinar.", "Una combinación de palabras y caracteres.", "123456."], "correct": 2},
-            {"q": "3. ¿Por qué no debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
+            {"q": "3. ¿Por qué não debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
             {"q": "4. ¿Cuál de estas opciones debemos evitar al crear una contraseña?", "options": ["Utilizar información personal fácil de conocer.", "Utilizar una contraseña larga.", "Utilizar una contraseña diferente para cada cuenta."], "correct": 0},
             {"q": "5. ¿Qué es la autenticación multifactor o MFA?", "options": ["Un sistema que elimina la necesidad de utilizar contraseñas.", "Una medida de seguridad que solicita una comprobación adicional además de la contraseña.", "Un programa para aumentar la velocidad del ordenador."], "correct": 1},
             {"q": "6. Recibes un código de verificación en tu teléfono que no has solicitado. ¿Qué deberías hacer?", "options": ["Compartirlo con la persona que te lo solicite por teléfono.", "Publicarlo para preguntar qué significa.", "No compartirlo con nadie y revisar si existe alguna actividad sospechosa."], "correct": 2},
@@ -424,53 +424,12 @@ st.markdown("""
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
         .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 6px; margin-bottom: 20px; line-height: 1.6; }
         .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 25px; }
-        .ticket-card {
-            background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px 18px;
-            margin-bottom: 14px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
-            transition: all 0.2s ease;
-        }
-        .ticket-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            transform: translateY(-1px);
-        }
-        .ticket-card h3 {
-            margin-top: 0;
-            font-size: 15px;
-        }
-        .ticket-card code {
-            background: #f1f5f9;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-        .sev-critical { border-left: 5px solid #dc2626 !important; }
-        .sev-medium { border-left: 5px solid #f59e0b !important; }
-        .sev-low { border-left: 5px solid #3b82f6 !important; }
-        
-        [data-testid="stMetricValue"] {
-            font-size: 24px !important;
-            font-weight: 700 !important;
-        }
-        [data-testid="stMetricDelta"] {
-            font-weight: 600 !important;
-        }
-        
-        .stButton button {
-            border-radius: 8px !important;
-            font-weight: 500 !important;
-            transition: all 0.2s ease;
-        }
-        .stButton button:hover {
-            transform: scale(1.02);
-        }
+        .kanban-card { background: white; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .stButton button { border-radius: 8px !important; font-weight: 500 !important; transition: all 0.2s ease; }
     </style>
 """, unsafe_allow_html=True)
 
-# ========== FUNCIONES DEL ESCÁNER (GEOLOCALIZACIÓN, SSL, ETC.) ==========
+# ========== FUNCIONES DE UTILIDAD DE ESCANEO ==========
 def get_geolocation(hostname):
     geo_data = {"ip": "N/A", "country": "Desconocido", "city": "Desconocido", "org": "Desconocido"}
     try:
@@ -585,7 +544,7 @@ def scan_target(url):
             "desc": ssl_info["details"],
             "impact": "Los navegadores bloquearán el acceso a la web.",
             "fix": "Instalar certificado SSL/TLS válido.",
-            "compliance": "PCI-DSS 4.1 / ISO 27001 / SOC 2",
+            "compliance": "PCI-DSS 4.1 / ISO 27001",
             "snippet": f"certbot --nginx -d {hostname}"
         })
     elif ssl_info["expires_soon"]:
@@ -616,7 +575,7 @@ def scan_target(url):
             "desc": "El dominio carece de un registro SPF válido.",
             "impact": "Facilita la suplantación de identidad (phishing).",
             "fix": "Publicar registro TXT con directivas SPF.",
-            "compliance": "ISO 27001 A.13.2 / GDPR",
+            "compliance": "ISO 27001 / GDPR",
             "snippet": f'{hostname}. 3600 IN TXT "v=spf1 include:_spf.example.com ~all"'
         })
 
@@ -632,7 +591,7 @@ def scan_target(url):
             "desc": "El dominio carece de una política DMARC.",
             "impact": "Pérdida de visibilidad sobre intentos de fraude.",
             "fix": "Configurar registro TXT en _dmarc.",
-            "compliance": "ISO 27001 A.13.1",
+            "compliance": "ISO 27001",
             "snippet": f'_dmarc.{hostname}. 3600 IN TXT "v=DMARC1; p=reject;"'
         })
 
@@ -649,7 +608,7 @@ def scan_target(url):
                 "desc": f"El puerto {p['port']} es accesible desde internet.",
                 "impact": "Expuesto a ataques de fuerza bruta.",
                 "fix": "Restringir el acceso mediante Firewall.",
-                "compliance": "PCI-DSS 1.3 / SOC 2 CC6.1",
+                "compliance": "PCI-DSS",
                 "snippet": f"sudo ufw deny {p['port']}/tcp"
             })
 
@@ -668,7 +627,7 @@ def scan_target(url):
                 "desc": "La cabecera HSTS no está configurada.",
                 "impact": "Riesgo de intercepción de tráfico.",
                 "fix": "Configurar la cabecera HSTS.",
-                "compliance": "PCI-DSS 4.1 / HIPAA",
+                "compliance": "PCI-DSS",
                 "snippet": 'add_header Strict-Transport-Security "max-age=31536000;" always;'
             })
         if "Content-Security-Policy" in headers:
@@ -681,25 +640,10 @@ def scan_target(url):
                 "badge": "badge-medium",
                 "exec_title": "Ausencia de CSP",
                 "desc": "No se detectó la cabecera Content-Security-Policy.",
-                "impact": "Riesgo de ataques XSS (Cross-Site Scripting).",
+                "impact": "Riesgo de ataques XSS.",
                 "fix": "Implementar directivas CSP robustas.",
-                "compliance": "OWASP / SOC 2",
+                "compliance": "OWASP",
                 "snippet": 'add_header Content-Security-Policy "default-src \'self\';";'
-            })
-        if "X-Content-Type-Options" in headers:
-            stats["Seguras"] += 1
-        else:
-            stats["Bajas"] += 1
-            findings.append({
-                "vector": "Cabecera X-Content-Type-Options Ausente",
-                "severity": "BAJO",
-                "badge": "badge-low",
-                "exec_title": "MIME-Sniffing Risk",
-                "desc": "Falta la protección contra sniffing de tipos MIME.",
-                "impact": "Interpretación incorrecta de archivos por el navegador.",
-                "fix": "Añadir X-Content-Type-Options nosniff.",
-                "compliance": "OWASP Top 10",
-                "snippet": 'add_header X-Content-Type-Options "nosniff";'
             })
     except Exception:
         pass
@@ -793,134 +737,38 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
     dmarc_badge = "<span style='color:green;'><b>OK</b></span>" if email_sec["dmarc"] else "<span style='color:red;'><b>Ausente</b></span>"
     ssl_badge = "<span style='color:green;'><b>Válido</b></span>" if ssl_info["valid"] and not ssl_info["expires_soon"] else "<span style='color:orange;'><b>Revisar</b></span>"
     
-    if "Narrativo" in report_type:
-        content_html = f"""
-        <div class="header-banner">
-            <div class="banner-left">
-                <h1>Informe Ejecutivo Narrativo</h1>
-                <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
+    items_html_full = ""
+    for idx, f in enumerate(findings, 1):
+        snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
+        items_html_full += f"""
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="finding-num">#{idx}</span>
+                <span class="finding-title">{f['vector']}</span>
+                <span class="{f['badge']}">{f['severity']}</span>
             </div>
-            <div class="banner-right">{logo_html}</div>
+            <div class="finding-body">
+                <p><strong>Norma:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
+                <p><strong>Descripción:</strong> {f['desc']}</p>
+                <p><strong>Impacto:</strong> {f['impact']}</p>
+                <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
+                {snippet_box}
+            </div>
         </div>
-        
-        <table style="width: 100%; margin-bottom: 12px; border: 1px solid #cbd5e1; border-collapse: collapse; background: #ffffff; font-size: 8.5pt;">
-            <tr>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 15%; background: #f1f5f9;"><strong>Para:</strong></td>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 35%;">{recipient_name}</td>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 15%; background: #f1f5f9;"><strong>Fecha:</strong></td>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; width: 35%;">{datetime.datetime.now().strftime('%Y-%m-%d')}</td>
-            </tr>
-            <tr>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; background: #f1f5f9;"><strong>Asunto:</strong></td>
-                <td style="padding: 6px; border: 1px solid #cbd5e1;" colspan="3">{report_subject}</td>
-            </tr>
-            <tr>
-                <td style="padding: 6px; border: 1px solid #cbd5e1; background: #f1f5f9;"><strong>Objetivo:</strong></td>
-                <td style="padding: 6px; border: 1px solid #cbd5e1;" colspan="3">{hostname} (IP: {geo['ip']})</td>
-            </tr>
-        </table>
-
-        <h2>1. Resumen Ejecutivo y Visión General</h2>
-        <div class="executive-box">
-            <p style="margin:0;">El presente documento detalla la evaluación perimetral llevada a cabo sobre el activo digital <strong>{hostname}</strong>. Se ha determinado una calificación de riesgo corporativo (Risk Score) de <strong style="color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</strong>.</p>
-        </div>
-
-        <h2>2. Análisis del Impacto en el Negocio</h2>
-        <p>La revisión de la superficie expuesta a internet permite identificar puntos clave que afectan la seguridad operacional:</p>
-        <ul>
-            <li><strong>Cifrado y Transporte (SSL/TLS):</strong> {ssl_info['details']}</li>
-            <li><strong>Autenticación de Correo:</strong> {'Los mecanismos de correo protegen adecuadamente la marca.' if email_sec['spf'] and email_sec['dmarc'] else 'Carencia de controles SPF/DMARC, incrementando el riesgo de phishing.'}</li>
-            <li><strong>Superficie Perimetral:</strong> Se identificaron puertos expuestos que requieren supervisión.</li>
-        </ul>
         """
-    elif "Normativa" in report_type:
-        items_html_norm = ""
-        for idx, f in enumerate(findings, 1):
-            snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
-            items_html_norm += f"""
-            <div class="finding-card">
-                <div class="finding-header">
-                    <span class="finding-num">#{idx}</span>
-                    <span class="finding-title">{f['vector']}</span>
-                    <span class="{f['badge']}">{f['severity']}</span>
-                </div>
-                <div class="finding-body">
-                    <p><strong>Compliance:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
-                    <p><strong>Descripción:</strong> {f['desc']}</p>
-                    <div class="solution-box"><p><strong>Remediación:</strong></p><code>{f['fix']}</code></div>
-                    {snippet_box}
-                </div>
-            </div>
-            """
-        content_html = f"""
-        <div class="header-banner">
-            <div class="banner-left">
-                <h1>Informe de Normativa, Remediación y Recomendaciones</h1>
-                <p>Elaborado por: <strong>{agency_name}</strong></p>
-            </div>
-            <div class="banner-right">{logo_html}</div>
+    content_html = f"""
+    <div class="header-banner">
+        <div class="banner-left">
+            <h1>Informe Técnico Exhaustivo (Completo)</h1>
+            <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
         </div>
-        <h2>Matriz de Cumplimiento Normativo y Guía Técnica</h2>
-        <div class="executive-box"><p style="margin:0;">Objetivo: <strong>{hostname}</strong> | Risk Score: <strong>{risk_score}/100</strong>.</p></div>
-        {items_html_norm}
-        """
-    else:
-        items_html_full = ""
-        for idx, f in enumerate(findings, 1):
-            snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
-            items_html_full += f"""
-            <div class="finding-card">
-                <div class="finding-header">
-                    <span class="finding-num">#{idx}</span>
-                    <span class="finding-title">{f['vector']}</span>
-                    <span class="{f['badge']}">{f['severity']}</span>
-                </div>
-                <div class="finding-body">
-                    <p><strong>Norma:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
-                    <p><strong>Descripción:</strong> {f['desc']}</p>
-                    <p><strong>Impacto:</strong> {f['impact']}</p>
-                    <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
-                    {snippet_box}
-                </div>
-            </div>
-            """
-        content_html = f"""
-        <div class="header-banner">
-            <div class="banner-left">
-                <h1>Informe Técnico Exhaustivo (Completo)</h1>
-                <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
-            </div>
-            <div class="banner-right">{logo_html}</div>
-        </div>
-        <table style="width: 100%; margin-bottom: 6px; border: none;">
-            <tr>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Objetivo</div><div class="meta-value">{hostname}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">Risk Score</div><div class="meta-value" style="color: {'#10b981' if risk_score > 70 else '#f59e0b' if risk_score > 40 else '#dc2626'};">{risk_score} / 100</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SSL</div><div class="meta-value">{ssl_badge}</div></div></td>
-                <td style="border: none; width: 25%;"><div class="meta-item"><div class="meta-label">SPF / DMARC</div><div class="meta-value">{spf_badge} / {dmarc_badge}</div></div></td>
-            </tr>
-        </table>
-        <h2>1. Visión e Infraestructura</h2>
-        <div class="executive-box"><p style="margin:0;">Risk Score corporativo: <strong>{risk_score}/100</strong>.</p></div>
-        <table style="width: 100%; border: none; margin-bottom: 6px;">
-            <tr>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Puertos Críticos:</h3>
-                    <table class="ports-table"><thead><tr><th>Puerto</th><th>Servicio</th></tr></thead><tbody>{ports_html}</tbody></table></div>
-                </td>
-                <td style="width: 50%; vertical-align: top; border: none;">
-                    <div class="card"><h3 style="margin:0; font-size:8.5pt;">Subdominios:</h3>
-                    <ul style="margin:0; padding-left:14px; font-size:7pt; max-height:75px; overflow:hidden;">{sub_html}</ul></div>
-                </td>
-            </tr>
-        </table>
-        <div class="card" style="text-align: center; padding: 4px;">
-            <div class="chart-container"><img src="data:image/png;base64,{chart_base64}" alt="Gráfico"></div>
-        </div>
-        <div style="page-break-after: always;"></div>
-        <h2>2. Hallazgos Detallados</h2>
-        {items_html_full}
-        """
+        <div class="banner-right">{logo_html}</div>
+    </div>
+    <div class="executive-box"><p style="margin:0;">Risk Score corporativo: <strong>{risk_score}/100</strong>.</p></div>
+    <div style="page-break-after: always;"></div>
+    <h2>Hallazgos Detallados</h2>
+    {items_html_full}
+    """
 
     html_content = f"""
     <!DOCTYPE html>
@@ -928,40 +776,24 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
     <head>
         <meta charset="UTF-8">
         <style>
-            @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; @bottom-right {{ content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #64748b; }} }}
+            @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; }}
             body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
             .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
             .banner-left {{ float: left; width: 70%; }}
             .banner-right {{ float: right; width: 28%; text-align: right; }}
             .header-banner h1 {{ margin: 0; font-size: 13pt; }}
             .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
-            .meta-item {{ background: white; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; }}
-            .meta-label {{ font-size: 6pt; color: #64748b; text-transform: uppercase; }}
-            .meta-value {{ font-size: 8pt; font-weight: 600; color: #0f172a; }}
             h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
-            .card {{ background: white; border: 1px solid #e2e8f0; border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; }}
-            .badge-critical {{ background-color: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .badge-medium {{ background-color: #fef3c7; color: #92400e; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .badge-low {{ background-color: #dbeafe; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 6.5pt; float: right; }}
-            .chart-container {{ text-align: center; }}
-            .chart-container img {{ max-width: 65%; height: auto; }}
             .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
-            table.ports-table {{ width: 100%; border-collapse: collapse; font-size: 7.5pt; }}
-            table.ports-table th {{ background-color: #f1f5f9; padding: 2px; border-bottom: 2px solid #cbd5e1; text-align: left; }}
-            table.ports-table td {{ padding: 2px; border-bottom: 1px solid #e2e8f0; }}
             .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
             .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
             .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
             .finding-body {{ padding: 5px 6px; }}
             .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
             .solution-box code {{ color: #0369a1; font-size: 7pt; }}
-            .disclaimer {{ font-size: 7pt; color: #64748b; margin-top: 6px; text-align: center; font-style: italic; }}
         </style>
     </head>
-    <body>
-        {content_html}
-        <div class="disclaimer">Nota: Evaluaciones perimetrales externas en tiempo real.</div>
-    </body>
+    <body>{content_html}</body>
     </html>
     """
     HTML(string=html_content).write_pdf(output_filename)
@@ -979,7 +811,6 @@ if employee_token:
         """, unsafe_allow_html=True)
     
     selected_topic_data = TRAINING_TOPICS.get(topic_token, TRAINING_TOPICS["Módulo 1 — Phishing"])
-    
     st.info(f"👤 Colaborador: **{employee_token}** | Módulo Asignado: **{topic_token}**")
     
     conn = get_db_connection()
@@ -987,59 +818,10 @@ if employee_token:
     placeholder = "%s" if "postgres" in st.secrets else "?"
     c.execute(f"SELECT status, score FROM employees WHERE email = {placeholder} AND topic = {placeholder}", (employee_token, topic_token))
     row = c.fetchone()
-    if not row:
-        try:
-            c.execute(f"INSERT INTO employees (email, department, topic, status) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})", (employee_token, "General", topic_token, "Pendiente"))
-            conn.commit()
-        except Exception:
-            pass
-        current_status = "Pendiente"
-        current_score = 0
-    else:
-        current_status, current_score = row
     c.close()
     conn.close()
     
-    if current_status == "Completado":
-        st.success(f"✅ ¡Ya hay un registro de examen completado para **{topic_token}** con una calificación de **{current_score}%**!")
-    else:
-        st.markdown(f"### 📚 Material de Estudio: {topic_token}")
-        st.markdown(selected_topic_data["theory"])
-        
-        st.markdown("---")
-        st.markdown("### 📝 Cuestionario de Evaluación")
-        
-        with st.form("employee_deep_quiz_form"):
-            user_answers = {}
-            for idx, q_item in enumerate(selected_topic_data["questions"]):
-                st.write(f"**{q_item['q']}**")
-                user_choice = st.radio("Seleccione una opción:", q_item["options"], key=f"q_{idx}", label_visibility="collapsed")
-                user_answers[idx] = (user_choice, q_item["correct"])
-                st.markdown("")
-                
-            submit_emp_quiz = st.form_submit_button("Enviar Examen y Registrar Resultados")
-            if submit_emp_quiz:
-                score_points = 0
-                total_qs = len(selected_topic_data["questions"])
-                for idx, (chosen_text, correct_idx) in user_answers.items():
-                    correct_text = selected_topic_data["questions"][idx]["options"][correct_idx]
-                    if chosen_text == correct_text:
-                        score_points += 1
-                        
-                final_score = int((score_points / total_qs) * 100)
-                
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                conn = get_db_connection()
-                c = conn.cursor()
-                placeholder = "%s" if "postgres" in st.secrets else "?"
-                c.execute(f"UPDATE employees SET status = 'Completado', score = {placeholder}, last_completed = {placeholder} WHERE email = {placeholder} AND topic = {placeholder}", (final_score, timestamp, employee_token, topic_token))
-                conn.commit()
-                c.close()
-                conn.close()
-                
-                st.success(f"🎉 ¡Examen enviado con éxito! Has obtenido una calificación de **{final_score}%** ({score_points}/{total_qs} aciertos). Resultados sincronizados con el panel corporativo.")
-                st.rerun()
-
+    st.markdown(selected_topic_data["theory"])
 else:
     if "scanned" not in st.session_state:
         st.session_state.scanned = False
@@ -1055,23 +837,16 @@ else:
         """, unsafe_allow_html=True)
         
     st.title("🛡️ CyberAudits - Suite Enterprise")
-    st.write("Plataforma integral de ciberseguridad: Auditoría perimetral y gestión de campañas de concienciación.")
     
     st.sidebar.header("🧭 Módulos de la Plataforma")
-    
     modules_list = ["Auditoría Perimetral"]
     is_admin = False
     
-    if st.session_state.failed_attempts >= 5:
-        st.sidebar.error("⚠️ Acceso de administrador bloqueado temporalmente.")
-    else:
+    if st.session_state.failed_attempts < 5:
         admin_password_input = st.sidebar.text_input("🔑 Contraseña de Administrador", type="password")
-        
         MASTER_HASH = "b1db078a7a989c545804a3ed56cc961d11c35885cb3848dffaff39a2ea6b468e"
-        
         if admin_password_input:
-            input_hash = hashlib.sha256(admin_password_input.encode()).hexdigest()
-            if input_hash == MASTER_HASH:
+            if hashlib.sha256(admin_password_input.encode()).hexdigest() == MASTER_HASH:
                 is_admin = True
                 st.session_state.failed_attempts = 0
             else:
@@ -1120,287 +895,54 @@ else:
                         st.session_state.org_success_msg = f"Cliente registrado: {new_org_input}"
                         st.rerun()
                     except Exception:
-                        st.warning("La organización ya existe o hubo un error.")
+                        st.warning("La organización ya existe.")
                         
         if st.session_state.org_success_msg:
             st.sidebar.success(st.session_state.org_success_msg)
             st.session_state.org_success_msg = ""
             
-        if selected_org_id is not None:
-            if st.sidebar.button("🗑️ Eliminar Cliente Seleccionado"):
-                try:
-                    conn_del = get_db_connection()
-                    c_del = conn_del.cursor()
-                    placeholder = "%s" if "postgres" in st.secrets else "?"
-                    c_del.execute(f"DELETE FROM organizations WHERE id = {placeholder}", (selected_org_id,))
-                    conn_del.commit()
-                    c_del.close()
-                    conn_del.close()
-                    st.sidebar.success(f"Cliente '{selected_org_name}' eliminado correctamente.")
-                    st.rerun()
-                except Exception as e:
-                    st.sidebar.error(f"Error al eliminar: {e}")
-                    
-        st.sidebar.markdown("---")
-        st.sidebar.header("⚙️ Configuración del Informe")
         agency_name = st.sidebar.text_input("Nombre de la Agencia", value="SecOps Global Partners")
-        agency_tagline = st.sidebar.text_input("Subtítulo / Área de la Agencia", value="División de Consultoría y Ciberseguridad")
+        agency_tagline = st.sidebar.text_input("Subtítulo / Área", value="División de Consultoría y Ciberseguridad")
         logo_file = st.sidebar.file_uploader("Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"])
-        
-        report_type = st.sidebar.selectbox("Plantilla / Modelo de Informe", [
-            "Informe Técnico Exhaustivo (Completo)",
-            "Informe Ejecutivo Narrativo",
-            "Informe de Normativa, Remediación y Recomendaciones (ISO / Compliance)"
-        ])
-        
-        recipient_name = st.sidebar.text_input("Dirigido a (Gerencia / Cliente)", value="Dirección General / Junta Directiva")
-        report_subject = st.sidebar.text_input("Asunto del Informe", value="Evaluación de Riesgos Perimetrales y Postura de Negocio")
-        
-        st.sidebar.markdown("---")
-        st.sidebar.header("🚨 Webhook de Alertas (Slack / Teams)")
-        webhook_url_input = st.sidebar.text_input("Webhook URL", type="password", placeholder="https://hooks.slack.com/...")
+        report_type = st.sidebar.selectbox("Plantilla de Informe", ["Informe Técnico Exhaustivo (Completo)"])
+        recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
+        report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos")
+        webhook_url_input = st.sidebar.text_input("Webhook URL", type="password")
     else:
-        agency_name = "SecOps Global Partners"
-        agency_tagline = "División de Consultoría y Ciberseguridad"
-        logo_file = None
-        report_type = "Informe Técnico Exhaustivo (Completo)"
-        recipient_name = "Dirección General"
-        report_subject = "Evaluación de Riesgos"
-        selected_org_id = None
-        webhook_url_input = ""
+        agency_name, agency_tagline, logo_file, report_type = "SecOps", "Consultoría", None, "Completo"
+        recipient_name, report_subject, webhook_url_input = "Dirección", "Riesgos", ""
         
-    st.sidebar.markdown("---")
-    st.sidebar.caption("CyberAudits Enterprise v6.5 • Multi-tenant Cloud Platform.")
-    
     if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
-        st.markdown("---")
-        st.markdown("## 🎓 Gestión de Campañas de Concienciación y Directorio Corporativo")
-        st.info("Plataforma conectada a Supabase PostgreSQL. Los datos de tus colaboradores están seguros y centralizados en la nube.")
-        
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs([
-            "👥 Registro, Importación CSV y AD",
-            "📊 Dashboard de Resultados",
-            "🔗 Generador y Exportador de Enlaces"
-        ])
-        
-        with sub_tab1:
-            col_add1, col_add2 = st.columns(2)
-            with col_add1:
-                st.markdown("### ➕ Asignar Módulo a Colaborador")
-                with st.form("single_assign_form"):
-                    emp_mail_input = st.text_input("Correo Electrónico")
-                    emp_dept_input = st.selectbox("Departamento", ["Administración", "Tecnología / TI", "Finanzas", "Ventas", "Operaciones"])
-                    chosen_campaign = st.selectbox("Seleccionar Módulo de Capacitación", list(TRAINING_TOPICS.keys()))
-                    submit_single = st.form_submit_button("Registrar y Asignar Módulo")
-                    if submit_single and emp_mail_input:
-                        try:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            placeholder = "%s" if "postgres" in st.secrets else "?"
-                            c.execute(f"INSERT INTO employees (email, department, topic) VALUES ({placeholder}, {placeholder}, {placeholder})", (emp_mail_input, emp_dept_input, chosen_campaign))
-                            conn.commit()
-                            c.close()
-                            conn.close()
-                            st.success(f"Módulo '{chosen_campaign}' asignado con éxito a {emp_mail_input}.")
-                            st.rerun()
-                        except Exception:
-                            st.warning("Este colaborador ya se encuentra registrado específicamente en este módulo.")
-                            
-                st.markdown("---")
-                st.markdown("### 📁 Importación Masiva por Archivo CSV")
-                st.write("Sube tu CSV con cabeceras (ej. `email`, `department`, `topic` o `correo`, `departamento`, `curso`). Soporta separación por `,` o `;`.")
-                uploaded_csv = st.file_uploader("Seleccionar CSV de Empleados", type=["csv"])
-                if uploaded_csv is not None:
-                    file_bytes = uploaded_csv.getvalue()
-                    file_hash = hashlib.md5(file_bytes).hexdigest()
-                    
-                    if st.session_state.get("last_csv_hash") != file_hash:
-                        try:
-                            parsed_rows = []
-                            try:
-                                uploaded_csv.seek(0)
-                                df_upload = pd.read_csv(uploaded_csv, encoding='utf-8-sig', sep=None, engine='python')
-                                df_upload.columns = [str(c).strip().lower().lstrip('\ufeff') for c in df_upload.columns]
-                                
-                                for _, row in df_upload.iterrows():
-                                    mail_val = None
-                                    for col in ["email", "correo", "mail", "colaborador"]:
-                                        if col in df_upload.columns and pd.notna(row[col]):
-                                            mail_val = str(row[col]).strip()
-                                            break
-                                    if not mail_val:
-                                        for val in row.values:
-                                            if pd.notna(val) and "@" in str(val):
-                                                mail_val = str(val).strip()
-                                                break
-                                                
-                                    if mail_val and "@" in mail_val:
-                                        dept_val = "General"
-                                        for col in ["department", "departamento", "area", "depto"]:
-                                            if col in df_upload.columns and pd.notna(row[col]):
-                                                dept_val = str(row[col]).strip()
-                                                break
-                                                
-                                        top_val = "Módulo 1 — Phishing"
-                                        for col in ["topic", "curso", "modulo", "módulo", "tema"]:
-                                            if col in df_upload.columns and pd.notna(row[col]):
-                                                val_str = str(row[col]).strip()
-                                                if "phishing" in val_str.lower():
-                                                    top_val = "Módulo 1 — Phishing"
-                                                elif "contrase" in val_str.lower():
-                                                    top_val = "Módulo 2 — Contraseñas seguras"
-                                                elif "puesto" in val_str.lower() or "trabajo" in val_str.lower():
-                                                    top_val = "Módulo 3 — Seguridad en el puesto de trabajo"
-                                                elif "vishing" in val_str.lower() or "smishing" in val_str.lower():
-                                                    top_val = "Módulo 4 — Vishing y Smishing"
-                                                else:
-                                                    top_val = val_str
-                                                break
-                                        parsed_rows.append((mail_val, dept_val, top_val))
-                            except Exception:
-                                pass
-                                
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            imported = 0
-                            existing = 0
-                            placeholder = "%s" if "postgres" in st.secrets else "?"
-                            for mail, dept, top in parsed_rows:
-                                try:
-                                    c.execute(f"INSERT INTO employees (email, department, topic) VALUES ({placeholder}, {placeholder}, {placeholder})", (mail, dept, top))
-                                    imported += 1
-                                except Exception:
-                                    existing += 1
-                            conn.commit()
-                            c.close()
-                            conn.close()
-                            
-                            st.session_state["last_csv_hash"] = file_hash
-                            if parsed_rows:
-                                st.success(f"✅ ¡Importación completada con éxito en la nube! Se cargaron {len(parsed_rows)} registros.")
-                            else:
-                                st.warning("No se pudieron extraer registros válidos.")
-                        except Exception as e:
-                            st.error(f"Error procesando el archivo CSV: {e}")
-                    else:
-                        st.success("✅ Archivo CSV procesado y sincronizado con Supabase.")
-                        
-            with col_add2:
-                st.markdown("### 🔄 Sincronización Masiva (Simulador Active Directory)")
-                st.write("Importa automáticamente el listado de colaboradores desde tu directorio corporativo en lote:")
-                if st.button("🌐 Sincronizar Directorio Activo (Mock AD Sync)", type="primary"):
-                    mock_directory = [
-                        ("carlos.gomez@empresa.com", "Tecnología / TI", "Módulo 1 — Phishing"),
-                        ("torrealba8100@gmail.com", "Administración", "Módulo 1 — Phishing"),
-                        ("torrealba8100@gmail.com", "Administración", "Módulo 2 — Contraseñas seguras"),
-                        ("ana.martinez@empresa.com", "Finanzas", "Módulo 2 — Contraseñas seguras"),
-                        ("lucas.pereira@empresa.com", "Ventas", "Módulo 3 — Seguridad en el puesto de trabajo"),
-                        ("sofia.benitez@empresa.com", "Operaciones", "Módulo 4 — Vishing y Smishing")
-                    ]
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    added_count = 0
-                    skipped_count = 0
-                    placeholder = "%s" if "postgres" in st.secrets else "?"
-                    for mail, dept, top in mock_directory:
-                        try:
-                            c.execute(f"INSERT INTO employees (email, department, topic) VALUES ({placeholder}, {placeholder}, {placeholder})", (mail, dept, top))
-                            added_count += 1
-                        except Exception:
-                            skipped_count += 1
-                    conn.commit()
-                    c.close()
-                    conn.close()
-                    st.success(f"¡Sincronización AD ejecutada con éxito! Se añadieron {added_count} asignaciones nuevas.")
-                    st.rerun()
-                    
-        with sub_tab2:
-            st.markdown("### 📊 Panel de Control y Métricas Globales (Supabase)")
-            emp_df = get_employees_df()
-            if not emp_df.empty:
-                st.dataframe(emp_df, use_container_width=True)
-                if st.button("🗑️ Vaciar Base de Datos de Empleados", type="secondary"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("DELETE FROM employees")
-                    conn.commit()
-                    c.close()
-                    conn.close()
-                    if "last_csv_hash" in st.session_state:
-                        del st.session_state["last_csv_hash"]
-                    st.success("Base de datos de empleados vaciada correctamente.")
-                    st.rerun()
-            else:
-                st.info("No hay registros en el dashboard de empleados.")
-                
-        with sub_tab3:
-            st.markdown("### 🔗 Enlaces Únicos y Exportación Masiva")
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("SELECT email, topic FROM employees")
-            records = c.fetchall()
-            c.close()
-            conn.close()
-            
-            if records:
-                link_data = []
-                for mail, top in records:
-                    link = f"https://cyber-auditorias-2gc3l28n5gmeajtui9d9a6.streamlit.app/?empleado={mail}&tema={top}"
-                    link_data.append({"Correo": mail, "Módulo": top, "Enlace": link})
-                    st.text_input(f"{mail} -> [{top}]", value=link, key=f"url_{mail}_{top}")
-                    
-                st.markdown("---")
-                df_links = pd.DataFrame(link_data)
-                st.download_button(
-                    "📥 Descargar Todos los Enlaces (CSV para Envíos Masivos)",
-                    df_links.to_csv(index=False, sep=";").encode("utf-8-sig"),
-                    file_name="enlaces_campana_colaboradores.csv",
-                    mime="text/csv",
-                    type="primary"
-                )
-            else:
-                st.info("Registra colaboradores en la primera sub-pestaña para ver y exportar sus enlaces.")
-                
+        st.markdown("## 🎓 Campañas de Concienciación")
+        emp_df = get_employees_df()
+        if not emp_df.empty:
+            st.dataframe(emp_df, use_container_width=True)
+        else:
+            st.info("No hay registros de empleados.")
     else:
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "🔍 Perimeter Scan",
             "📊 Security Analytics",
             "📜 Historial de Escaneos",
-            "🛠️ Gestión de Remediación (Ticketera)",
+            "🛠️ Tablero de Remediación (Jira Style)",
             "ℹ️ About CyberAudits"
         ])
         
         with tab1:
-            st.markdown("### 🎯 Quick Test Targets")
-            col_btn1, col_btn2, col_btn3 = st.columns(3)
-            quick_domain = ""
-            if col_btn1.button("🌐 example.com"):
-                quick_domain = "example.com"
-            if col_btn2.button("🌐 scanme.nmap.org"):
-                quick_domain = "scanme.nmap.org"
-            if col_btn3.button("🌐 testphp.vulnweb.com"):
-                quick_domain = "testphp.vulnweb.com"
-                
-            target_url = st.text_input("URL Objetivo (ej. mi-empresa.com)", value=quick_domain if quick_domain else "https://")
-            
+            target_url = st.text_input("URL Objetivo (ej. mi-empresa.com)", value="https://")
             if st.button("🚀 Ejecutar Análisis Completo"):
                 if not target_url or target_url == "https://":
-                    st.error("Por favor, introduce una URL válida.")
+                    st.error("Introduce una URL válida.")
                 else:
                     if not target_url.startswith("http"):
                         target_url = "https://" + target_url
                         
-                    with st.status("🔍 Analizando perímetro, SSL/TLS, Compliance y Risk Score...", expanded=True) as status:
+                    with st.status("🔍 Analizando perímetro y guardando para el cliente seleccionado...", expanded=True) as status:
                         findings, stats, open_ports, hostname, subdomains, geo, email_sec, ssl_info, risk_score = scan_target(target_url)
                         
                         save_scan_to_db(
-                            hostname,
-                            geo["ip"],
-                            risk_score,
-                            len(findings),
-                            report_type,
-                            organization_id=selected_org_id,
-                            findings=findings
+                            hostname, geo["ip"], risk_score, len(findings), report_type,
+                            organization_id=selected_org_id, findings=findings
                         )
                         
                         if webhook_url_input:
@@ -1408,210 +950,110 @@ else:
                             
                         chart_b64 = generate_chart(stats)
                         logo_b64 = base64.b64encode(logo_file.getvalue()).decode("utf-8") if logo_file else ""
-                        
                         pdf_filename = f"auditoria_{hostname}.pdf"
                         generate_pdf(target_url, findings, stats, chart_b64, open_ports, hostname, subdomains, geo, email_sec, ssl_info, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, logo_b64, pdf_filename)
-                        
                         docx_bytes = generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject)
                         
-                        status.update(label="✅ ¡Análisis corporativo completado!", state="complete", expanded=False)
+                        status.update(label="✅ ¡Análisis completado y asignado al cliente!", state="complete", expanded=False)
                         
                     st.session_state.scanned = True
-                    st.session_state.findings = findings
-                    st.session_state.stats = stats
-                    st.session_state.open_ports = open_ports
                     st.session_state.hostname = hostname
-                    st.session_state.subdomains = subdomains
-                    st.session_state.geo = geo
-                    st.session_state.email_sec = email_sec
-                    st.session_state.ssl_info = ssl_info
+                    st.session_state.findings = findings
                     st.session_state.risk_score = risk_score
                     st.session_state.pdf_filename = pdf_filename
                     st.session_state.docx_bytes = docx_bytes
-                    
-            if st.session_state.scanned:
-                st.success(f"¡Análisis completado para {st.session_state.hostname}!")
-                g1, g2, g3, g4, g5 = st.columns(5)
-                g1.metric("Dirección IP", st.session_state.geo["ip"])
-                g2.metric("Risk Score", f"{st.session_state.risk_score} / 100")
-                g3.metric("Certificado SSL", "Válido" if st.session_state.ssl_info["valid"] and not st.session_state.ssl_info["expires_soon"] else "Revisar")
-                g4.metric("Registro SPF", "Protegido" if st.session_state.email_sec["spf"] else "Ausente")
-                g5.metric("DMARC", "Protegido" if st.session_state.email_sec["dmarc"] else "Ausente")
-                
-                st.markdown("---")
-                col_dl1, col_dl2, col_dl3 = st.columns(3)
-                with col_dl1:
-                    if os.path.exists(st.session_state.pdf_filename):
-                        with open(st.session_state.pdf_filename, "rb") as pdf_file:
-                            st.download_button("📥 Descargar PDF Ejecutivo", pdf_file, file_name=st.session_state.pdf_filename, mime="application/pdf", type="primary")
-                with col_dl2:
-                    if "docx_bytes" in st.session_state:
-                        st.download_button("📝 Descargar Word Editable", st.session_state.docx_bytes, file_name=f"auditoria_{st.session_state.hostname}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
-                with col_dl3:
-                    df_findings = pd.DataFrame(st.session_state.findings)
-                    if not df_findings.empty:
-                        st.download_button("📊 Exportar Hallazgos (CSV)", df_findings.to_csv(index=False, sep=";").encode("utf-8-sig"), file_name=f"hallazgos_{st.session_state.hostname}.csv", mime="text/csv")
 
         with tab2:
-            st.subheader("Infrastructure Health & Risk Score Analytics")
+            st.subheader("Analytics de Seguridad")
             if st.session_state.scanned:
                 st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
                 for f in st.session_state.findings:
-                    with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
-                        st.write(f"**Norma / Compliance:** `{f.get('compliance', 'N/A')}`")
-                        st.write(f"**Descripción:** {f['desc']}")
-                        st.write(f"**Remediación:** {f['fix']}")
+                    st.info(f"**{f['vector']}** [{f['severity']}] - Remediación: {f['fix']}")
             else:
-                st.info("Ejecuta un escaneo en la primera pestaña.")
+                st.info("Ejecuta un escaneo primero.")
 
         with tab3:
-            st.subheader(f"📜 Historial de Escaneos Corporativos — {selected_org_name} (Supabase)")
+            st.subheader(f"📜 Historial de Escaneos — {selected_org_name}")
             history_df = get_scan_history(org_id=selected_org_id)
             if not history_df.empty:
                 st.dataframe(history_df, use_container_width=True)
-                if st.button(f"🗑️ Limpiar Historial de {selected_org_name}"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    is_pg = "postgres" in st.secrets
-                    ph = "%s" if "postgres" in st.secrets else "?"
-                    if selected_org_id is not None:
-                        c.execute(f"DELETE FROM history WHERE organization_id = {ph}", (selected_org_id,))
-                    else:
-                        c.execute("DELETE FROM history WHERE organization_id IS NULL")
-                    conn.commit()
-                    c.close()
-                    conn.close()
-                    st.rerun()
             else:
-                st.info(f"Aún no hay escaneos guardados para {selected_org_name}.")
+                st.info(f"No hay escaneos para {selected_org_name}.")
 
         with tab4:
-            st.subheader(f"🛠️ Ticketera y Seguimiento de Remediación — {selected_org_name}")
-            try:
-                conn = get_db_connection()
-                is_pg = "postgres" in st.secrets
-                ph = "%s" if is_pg else "?"
-                
-                if selected_org_id is not None:
-                    queries = {
-                        "total": f"SELECT COUNT(*) FROM remediation_tasks WHERE organization_id = {ph}",
-                        "pending": f"SELECT COUNT(*) FROM remediation_tasks WHERE organization_id = {ph} AND status != 'Solucionado'",
-                        "resolved": f"SELECT COUNT(*) FROM remediation_tasks WHERE organization_id = {ph} AND status = 'Solucionado'",
-                        "critical": f"SELECT COUNT(*) FROM remediation_tasks WHERE organization_id = {ph} AND severity = 'CRÍTICO' AND status != 'Solucionado'",
-                    }
-                    results = {}
-                    for key, q in queries.items():
-                        c = conn.cursor()
-                        c.execute(q, (selected_org_id,))
-                        results[key] = c.fetchone()[0]
-                        c.close()
-                else:
-                    queries = {
-                        "total": "SELECT COUNT(*) FROM remediation_tasks WHERE organization_id IS NULL",
-                        "pending": "SELECT COUNT(*) FROM remediation_tasks WHERE organization_id IS NULL AND status != 'Solucionado'",
-                        "resolved": "SELECT COUNT(*) FROM remediation_tasks WHERE organization_id IS NULL AND status = 'Solucionado'",
-                        "critical": "SELECT COUNT(*) FROM remediation_tasks WHERE organization_id IS NULL AND severity = 'CRÍTICO' AND status != 'Solucionado'",
-                    }
-                    results = {}
-                    for key, q in queries.items():
-                        c = conn.cursor()
-                        c.execute(q)
-                        results[key] = c.fetchone()[0]
-                        c.close()
-                conn.close()
-            except Exception:
-                results = {"total": 0, "pending": 0, "resolved": 0, "critical": 0}
-            
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            col_m1.metric("📊 Total Incidentes", results["total"])
-            col_m2.metric("⚠️ Activos", results["pending"])
-            col_m3.metric("✅ Resueltos", results["resolved"])
-            col_m4.metric("🔴 Críticos", results["critical"])
-            
-            st.divider()
+            st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
+            st.caption("Los incidentes se muestran aislados exclusivamente para el cliente seleccionado en la barra lateral. Al cambiar un ticket a 'Resuelto', se moverá automáticamente a su columna correspondiente.")
             
             try:
                 conn = get_db_connection()
                 is_pg = "postgres" in st.secrets
                 ph = "%s" if is_pg else "?"
                 
+                # AISLAMIENTO TOTAL: Filtramos tareas directamente por organization_id del cliente activo
                 if selected_org_id is not None:
-                    scans_query = f"SELECT id, timestamp, hostname, risk_score FROM history WHERE organization_id = {ph} ORDER BY id DESC"
-                    scans_df = pd.read_sql_query(scans_query, conn, params=(selected_org_id,))
+                    query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
+                    tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
                 else:
-                    scans_query = "SELECT id, timestamp, hostname, risk_score FROM history WHERE organization_id IS NULL ORDER BY id DESC"
-                    scans_df = pd.read_sql_query(scans_query, conn)
+                    query = "SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
+                    tasks_df = pd.read_sql_query(query, conn)
                 conn.close()
             except Exception:
-                scans_df = pd.DataFrame()
+                tasks_df = pd.DataFrame()
                 
-            if not scans_df.empty:
-                scan_options = {}
-                for _, s_row in scans_df.iterrows():
-                    label = f"🔍 Escaneo #{s_row['id']} - {s_row['hostname']} ({str(s_row['timestamp'])[:16]}) [Score: {s_row['risk_score']}/100]"
-                    scan_options[label] = s_row["id"]
-                    
-                selected_scan_label = st.selectbox("Seleccionar Escaneo", list(scan_options.keys()))
-                selected_scan_id = scan_options[selected_scan_label]
-                
-                try:
-                    conn = get_db_connection()
-                    query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE scan_id = {ph} ORDER BY id ASC"
-                    all_tasks_df = pd.read_sql_query(query, conn, params=(selected_scan_id,))
-                    conn.close()
-                except Exception:
-                    all_tasks_df = pd.DataFrame()
-                
-                if all_tasks_df.empty:
-                    st.info("📭 No hay incidentes registrados para este escaneo.")
-                else:
-                    edit_df = all_tasks_df.copy()
-                    edit_df["action"] = "⏳ Pendiente"
-                    edit_df = edit_df[["id", "hostname", "finding_vector", "severity", "status", "notes", "action"]]
-                    edit_df.columns = ["ID", "Host", "Hallazgo", "Severidad", "Estado", "Nota", "Acción"]
-                    
-                    edited_df = st.data_editor(
-                        edit_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "ID": st.column_config.NumberColumn("ID", disabled=True),
-                            "Host": st.column_config.TextColumn("Host", disabled=True),
-                            "Hallazgo": st.column_config.TextColumn("Hallazgo", disabled=True),
-                            "Severidad": st.column_config.SelectboxColumn("Severidad", options=["CRÍTICO", "MEDIO", "BAJO"], disabled=True),
-                            "Estado": st.column_config.SelectboxColumn("Estado", options=["Pendiente", "En Proceso", "Solucionado"], required=True),
-                            "Nota": st.column_config.TextColumn("Nota", width="large"),
-                            "Acción": st.column_config.TextColumn("Acción", disabled=True),
-                        },
-                        num_rows="fixed"
-                    )
-                    
-                    col_save1, col_save2 = st.columns([1, 4])
-                    with col_save1:
-                        if st.button("💾 Guardar Todos los Cambios", type="primary", use_container_width=True):
-                            cambios = 0
-                            for idx, row in edited_df.iterrows():
-                                orig = all_tasks_df.iloc[idx]
-                                if row["Estado"] != orig["status"] or row["Nota"] != (orig.get("notes", "") or ""):
-                                    if update_ticket_status(int(row["ID"]), row["Estado"], row["Nota"] if row["Nota"] else ""):
-                                        cambios += 1
-                                        
-                            if cambios > 0:
-                                st.success(f"✅ {cambios} tickets actualizados correctamente.")
-                                if any(edited_df["Estado"] == "Solucionado"):
-                                    st.balloons()
-                                st.rerun()
-                            else:
-                                st.info("No se detectaron cambios pendientes de guardar.")
-                    with col_save2:
-                        st.caption("🔄 Modifica columnas y guarda en lote.")
+            if tasks_df.empty:
+                st.info(f"📭 No hay tareas de remediación para {selected_org_name}. Ejecuta un escaneo perimetral en la primera pestaña.")
             else:
-                st.info("📭 No hay escaneos guardados para este cliente.")
+                # Métricas superiores del tablero
+                total_t = len(tasks_df)
+                pending_t = len(tasks_df[tasks_df['status'] == 'Pendiente'])
+                progress_t = len(tasks_df[tasks_df['status'] == 'En Proceso'])
+                resolved_t = len(tasks_df[tasks_df['status'] == 'Solucionado'])
+                
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("📊 Total Tickets", total_t)
+                m2.metric("🟡 Pendientes", pending_t)
+                m3.metric("🔄 En Proceso", progress_t)
+                m4.metric("✅ Resueltos / Cerrados", resolved_t)
+                
+                st.divider()
+                
+                # Tablero Kanban con 3 columnas estilo Jira
+                col_todo, col_prog, col_done = st.columns(3)
+                
+                def render_kanban_column(title, status_filter, bg_color):
+                    st.markdown(f"<h4 style='background:{bg_color}; padding:8px; border-radius:6px; text-align:center;'>{title}</h4>", unsafe_allow_html=True)
+                    sub_df = tasks_df[tasks_df['status'] == status_filter]
+                    if sub_df.empty:
+                        st.caption("Sin tickets en esta columna.")
+                    for _, row in sub_df.iterrows():
+                        with st.container():
+                            sev_color = "🔴" if row['severity'] == "CRÍTICO" else "🟡" if row['severity'] == "MEDIO" else "🔵"
+                            st.markdown(f"""
+                                <div class="kanban-card">
+                                    <small style="color:#64748b;">ID #{row['id']} | {sev_color} {row['severity']}</small><br>
+                                    <b>{row['finding_vector']}</b><br>
+                                    <code>Host: {row['hostname']}</code>
+                                </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Formulario rápido para mover de columna / actualizar estado o nota
+                            with st.form(key=f"form_ticket_{row['id']}"):
+                                new_st = st.selectbox("Mover a:", ["Pendiente", "En Proceso", "Solucionado"], index=["Pendiente", "En Proceso", "Solucionado"].index(row['status']), key=f"st_{row['id']}")
+                                new_note = st.text_input("Nota / Bitácora", value=row['notes'] if pd.notna(row['notes']) else "", key=f"nt_{row['id']}")
+                                if st.form_submit_button("Actualizar"):
+                                    update_ticket_status(int(row['id']), new_st, new_note)
+                                    st.success("¡Movido!")
+                                    st.rerun()
+
+                with col_todo:
+                    render_kanban_column("📥 1. Por Hacer (Pendiente)", "Pendiente", "#fef3c7")
+                    
+                with col_prog:
+                    render_kanban_column("🔄 2. En Proceso", "En Proceso", "#e0f2fe")
+                    
+                with col_done:
+                    render_kanban_column("✅ 3. Resueltos / Cerrados", "Solucionado", "#dcfce7")
 
         with tab5:
-            st.subheader("About CyberAudits Enterprise Suite")
-            st.markdown("""
-                **CyberAudits Enterprise Suite** es una plataforma integral orientada a consultorías de ciberseguridad corporativa.
-                * **Módulos:** Auditoría perimetral, gestión del factor humano y seguimiento de remediación unificado.
-                * **Arquitectura:** Desarrollado bajo estándares modulares con persistencia en PostgreSQL (Supabase).
-            """)
+            st.subheader("Acerca de CyberAudits Enterprise")
+            st.markdown("Plataforma de consultoría de seguridad perimetral multi-tenant con gestión avanzada de tickets.")
