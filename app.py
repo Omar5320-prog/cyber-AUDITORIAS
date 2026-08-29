@@ -286,10 +286,10 @@ def get_scan_history(org_id=None):
     ph = "%s" if is_pg else "?"
     
     if org_id is not None:
-        query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id = {ph} ORDER BY id DESC'
+        query = f'SELECT id, timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id = {ph} ORDER BY id DESC'
         df = pd.read_sql_query(query, conn, params=(org_id,))
     else:
-        query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id IS NULL ORDER BY id DESC'
+        query = f'SELECT id, timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id IS NULL ORDER BY id DESC'
         df = pd.read_sql_query(query, conn)
         
     conn.close()
@@ -954,10 +954,33 @@ else:
                 st.info("Ejecuta un escaneo primero.")
 
         with tab3:
-            st.subheader(f"📜 Historial de Escaneos — {selected_org_name}")
+            st.subheader(f"📜 Historial de Escaneos y Resúmenes — {selected_org_name}")
             history_df = get_scan_history(org_id=selected_org_id)
             if not history_df.empty:
                 st.dataframe(history_df, use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("### 🗑️ Gestión / Borrado de Escaneos Registrados")
+                scan_to_delete = st.selectbox("Seleccione el ID del Escaneo a Borrar", options=history_df["id"].tolist(), key="select_del_scan")
+                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets", type="secondary"):
+                    try:
+                        conn_del = get_db_connection()
+                        conn_del.autocommit = True
+                        c_del = conn_del.cursor()
+                        is_pg = "postgres" in st.secrets
+                        ph = "%s" if is_pg else "?"
+                        
+                        # Borrar logs, tareas y el historial del escaneo específico
+                        c_del.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_to_delete,))
+                        c_del.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_to_delete,))
+                        c_del.execute(f"DELETE FROM history WHERE id = {ph}", (scan_to_delete,))
+                        
+                        c_del.close()
+                        conn_del.close()
+                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron borrados correctamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al borrar el escaneo: {e}")
             else:
                 st.info(f"No hay escaneos para {selected_org_name}.")
 
@@ -970,7 +993,6 @@ else:
                 is_pg = "postgres" in st.secrets
                 ph = "%s" if is_pg else "?"
                 
-                # Aislamiento estricto por cliente activo
                 if selected_org_id is not None:
                     query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
@@ -984,7 +1006,6 @@ else:
             if tasks_df.empty:
                 st.info(f"📭 No hay tareas de remediación para {selected_org_name}. Ejecuta un escaneo perimetral en la primera pestaña.")
             else:
-                # Métricas superiores del tablero
                 total_t = len(tasks_df)
                 pending_t = len(tasks_df[tasks_df['status'] == 'Pendiente'])
                 progress_t = len(tasks_df[tasks_df['status'] == 'En Proceso'])
@@ -998,7 +1019,6 @@ else:
                 
                 st.divider()
                 
-                # Pestañas estilo Jira para mover y organizar los tickets
                 tab_pending, tab_progress, tab_resolved, tab_all = st.tabs([
                     f"🟡 Pendientes ({pending_t})", 
                     f"🔄 En Proceso ({progress_t})", 
@@ -1006,7 +1026,7 @@ else:
                     f"📋 Todos los Tickets ({total_t})"
                 ])
                 
-                def render_ticket_management_view(sub_df, tab_title):
+                def render_ticket_management_view(sub_df, tab_title, prefix_key):
                     if sub_df.empty:
                         st.info(f"No hay tickets en la sección de '{tab_title}'.")
                         return
@@ -1029,17 +1049,18 @@ else:
                             display_ticket_logs(ticket_id)
                             
                             st.markdown("### ✍️ Actualizar Estado y Dejar Comentario")
-                            with st.form(key=f"form_ticket_detail_{ticket_id}"):
+                            # Llaves únicas basadas en el prefijo de la pestaña para evitar duplicados de st.form
+                            with st.form(key=f"form_{prefix_key}_ticket_detail_{ticket_id}"):
                                 new_status = st.selectbox(
                                     "Mover a Estado / Pestaña", 
                                     ["Pendiente", "En Proceso", "Solucionado"], 
                                     index=["Pendiente", "En Proceso", "Solucionado"].index(row['status']),
-                                    key=f"status_sel_{ticket_id}"
+                                    key=f"status_{prefix_key}_{ticket_id}"
                                 )
                                 new_comment = st.text_area(
                                     "Nuevo Comentario / Nota de Trabajo", 
                                     placeholder="Escribe el avance, detalles de corrección o motivo de cierre...",
-                                    key=f"comment_txt_{ticket_id}"
+                                    key=f"comment_{prefix_key}_{ticket_id}"
                                 )
                                 
                                 submit_update = st.form_submit_button("💾 Guardar y Mover de Pestaña", type="primary")
@@ -1052,16 +1073,16 @@ else:
                                         st.rerun()
 
                 with tab_pending:
-                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Pendiente'], "Pendientes")
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Pendiente'], "Pendientes", "pend")
                     
                 with tab_progress:
-                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'En Proceso'], "En Proceso")
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'En Proceso'], "En Proceso", "prog")
                     
                 with tab_resolved:
-                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Solucionado'], "Resueltos / Cerrados")
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Solucionado'], "Resueltos / Cerrados", "res")
                     
                 with tab_all:
-                    render_ticket_management_view(tasks_df, "Todos los Tickets")
+                    render_ticket_management_view(tasks_df, "Todos los Tickets", "all")
 
         with tab5:
             st.subheader("Acerca de CyberAudits Enterprise")
