@@ -31,142 +31,136 @@ def get_db_connection():
         return sqlite3.connect("cyber_audits.db")
 
 def init_db():
-    try:
-        conn = get_db_connection()
-        conn.autocommit = True
-        c = conn.cursor()
-        is_pg = "postgres" in st.secrets
+    conn = get_db_connection()
+    conn.autocommit = True
+    c = conn.cursor()
+    is_pg = "postgres" in st.secrets
+    
+    if is_pg:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT,
+                hostname TEXT,
+                ip TEXT,
+                risk_score INTEGER,
+                findings_count INTEGER,
+                report_type TEXT,
+                organization_id INTEGER
+            )
+        """)
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         
-        if is_pg:
-            try:
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS organizations (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT UNIQUE NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-            except Exception:
-                pass
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                id SERIAL PRIMARY KEY,
+                organization_id INTEGER,
+                email TEXT NOT NULL,
+                department TEXT,
+                topic TEXT DEFAULT 'Módulo 1 — Phishing',
+                status TEXT DEFAULT 'Pendiente',
+                score INTEGER DEFAULT 0,
+                last_completed TEXT,
+                UNIQUE(email, topic)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_tasks (
+                id SERIAL PRIMARY KEY,
+                organization_id INTEGER,
+                scan_id INTEGER,
+                hostname TEXT,
+                finding_vector TEXT,
+                status TEXT DEFAULT 'Pendiente',
+                notes TEXT
+            )
+        """)
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
+        
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_logs (
+                id SERIAL PRIMARY KEY,
+                task_id INTEGER,
+                timestamp TEXT,
+                status TEXT,
+                notes TEXT
+            )
+        """)
+    else:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                hostname TEXT,
+                ip TEXT,
+                risk_score INTEGER,
+                findings_count INTEGER,
+                report_type TEXT,
+                organization_id INTEGER
+            )
+        """)
+        try:
+            c.execute("ALTER TABLE history ADD COLUMN organization_id INTEGER;")
+        except Exception:
+            pass
 
-            try:
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS history (
-                        id SERIAL PRIMARY KEY,
-                        timestamp TEXT,
-                        hostname TEXT,
-                        ip TEXT,
-                        risk_score INTEGER,
-                        findings_count INTEGER,
-                        report_type TEXT,
-                        organization_id INTEGER
-                    )
-                """)
-            except Exception:
-                pass
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
+                email TEXT,
+                department TEXT,
+                topic TEXT DEFAULT 'Módulo 1 — Phishing',
+                status TEXT DEFAULT 'Pendiente',
+                score INTEGER DEFAULT 0,
+                last_completed TEXT,
+                UNIQUE(email, topic)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER,
+                scan_id INTEGER,
+                hostname TEXT,
+                finding_vector TEXT,
+                status TEXT DEFAULT 'Pendiente',
+                notes TEXT
+            )
+        """)
+        try:
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN organization_id INTEGER;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN scan_id INTEGER;")
+        except Exception:
+            pass
 
-            try:
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS employees (
-                        id SERIAL PRIMARY KEY,
-                        organization_id INTEGER,
-                        email TEXT NOT NULL,
-                        department TEXT,
-                        topic TEXT DEFAULT 'Módulo 1 — Phishing',
-                        status TEXT DEFAULT 'Pendiente',
-                        score INTEGER DEFAULT 0,
-                        last_completed TEXT,
-                        UNIQUE(email, topic)
-                    )
-                """)
-            except Exception:
-                pass
-
-            try:
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS remediation_tasks (
-                        id SERIAL PRIMARY KEY,
-                        organization_id INTEGER,
-                        scan_id INTEGER,
-                        hostname TEXT,
-                        finding_vector TEXT,
-                        status TEXT DEFAULT 'Pendiente',
-                        notes TEXT
-                    )
-                """)
-            except Exception:
-                pass
-
-            try:
-                c.execute("""
-                    CREATE TABLE IF NOT EXISTS remediation_logs (
-                        id SERIAL PRIMARY KEY,
-                        task_id INTEGER,
-                        timestamp TEXT,
-                        status TEXT,
-                        notes TEXT
-                    )
-                """)
-            except Exception:
-                pass
-        else:
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS organizations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    hostname TEXT,
-                    ip TEXT,
-                    risk_score INTEGER,
-                    findings_count INTEGER,
-                    report_type TEXT,
-                    organization_id INTEGER
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS employees (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    organization_id INTEGER,
-                    email TEXT,
-                    department TEXT,
-                    topic TEXT DEFAULT 'Módulo 1 — Phishing',
-                    status TEXT DEFAULT 'Pendiente',
-                    score INTEGER DEFAULT 0,
-                    last_completed TEXT,
-                    UNIQUE(email, topic)
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS remediation_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    organization_id INTEGER,
-                    scan_id INTEGER,
-                    hostname TEXT,
-                    finding_vector TEXT,
-                    status TEXT DEFAULT 'Pendiente',
-                    notes TEXT
-                )
-            """)
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS remediation_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id INTEGER,
-                    timestamp TEXT,
-                    status TEXT,
-                    notes TEXT
-                )
-            """)
-            conn.commit()
-        c.close()
-        conn.close()
-    except Exception:
-        pass
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER,
+                timestamp TEXT,
+                status TEXT,
+                notes TEXT
+            )
+        """)
+        conn.commit()
+    c.close()
+    conn.close()
 
 init_db()
 
@@ -217,8 +211,8 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
         conn.commit()
         c.close()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Error detallado al guardar el escaneo en la base de datos: {e}")
 
 def get_scan_history(org_id=None):
     conn = get_db_connection()
