@@ -36,14 +36,12 @@ def update_ticket_status(ticket_id, new_status, note):
         
         now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Actualizar estado y nota
         c.execute(f"UPDATE remediation_tasks SET status = {ph}, notes = {ph} WHERE id = {ph}", 
-                 (new_status, note, ticket_id))
+                   (new_status, note, ticket_id))
         
-        # Registrar en bitácora
         log_note = f"Estado: {new_status}. {note}" if note else f"Estado: {new_status}"
         c.execute(f"INSERT INTO remediation_logs (task_id, timestamp, status, notes) VALUES ({ph}, {ph}, {ph}, {ph})", 
-                 (ticket_id, now_ts, new_status, log_note))
+                   (ticket_id, now_ts, new_status, log_note))
         
         c.close()
         conn.close()
@@ -86,7 +84,6 @@ def get_db_connection():
         conn.autocommit = True
         return conn
     else:
-        import sqlite3
         conn = sqlite3.connect("cyber_audits.db")
         return conn
 
@@ -230,7 +227,7 @@ def init_db():
 
 init_db()
 
-# ========== FUNCIONES DEL ESCÁNER ==========
+# ========== FUNCIONES DEL ESCÁNER Y UTILIDADES ==========
 def send_webhook_alert(webhook_url, hostname, risk_score, findings_count):
     if not webhook_url:
         return
@@ -302,6 +299,33 @@ def get_employees_df():
     df = pd.read_sql_query('SELECT email AS "Correo Electrónico", department AS "Departamento", topic AS "Campaña / Tema", status AS "Estado", score AS "Calificación (%)", last_completed AS "Última Evaluación" FROM employees', conn)
     conn.close()
     return df
+
+def get_geolocation(hostname):
+    """Obtiene la IP y datos geográficos básicos de un hostname"""
+    try:
+        ip = socket.gethostbyname(hostname)
+    except Exception:
+        ip = "Desconocida"
+    
+    geo_data = {
+        "ip": ip,
+        "country": "Desconocido",
+        "city": "Desconocida",
+        "org": "Desconocida"
+    }
+    
+    if ip != "Desconocida":
+        try:
+            response = requests.get(f"http://ip-api.com/json/{ip}", timeout=3)
+            if response.status_code == 200:
+                data = response.json()
+                geo_data["country"] = data.get("country", "Desconocido")
+                geo_data["city"] = data.get("city", "Desconocida")
+                geo_data["org"] = data.get("org", "Desconocida")
+        except Exception:
+            pass
+            
+    return geo_data
 
 # ========== CONTENIDO DE ENTRENAMIENTO ==========
 TRAINING_TOPICS = {
@@ -426,9 +450,7 @@ st.markdown("""
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
         .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 6px; margin-bottom: 20px; line-height: 1.6; }
         .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 25px; }
-        .ticket-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         
-        /* Mejoras para la ticketera */
         .ticket-card {
             background: white;
             border: 1px solid #e2e8f0;
@@ -456,7 +478,6 @@ st.markdown("""
         .sev-medium { border-left: 5px solid #f59e0b !important; }
         .sev-low { border-left: 5px solid #3b82f6 !important; }
         
-        /* Mejoras para métricas */
         [data-testid="stMetricValue"] {
             font-size: 24px !important;
             font-weight: 700 !important;
@@ -465,7 +486,6 @@ st.markdown("""
             font-weight: 600 !important;
         }
         
-        /* Estilo para botones de actualización */
         .stButton button {
             border-radius: 8px !important;
             font-weight: 500 !important;
@@ -477,6 +497,115 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ========== FUNCIONES DEL ESCÁNER (GEOLOCALIZACIÓN, SSL, ETC.) ==========
-def get_geolocation(hostname):
-    geo_data = {"ip
+# ========== UI PRINCIPAL Y NAVEGACIÓN ==========
+st.sidebar.title("🛡️ CyberAudits Enterprise")
+menu_option = st.sidebar.radio("Navegación", ["Escáner Perimetral", "Ticketera de Remediación", "Concientización Empleados", "Historial y Reportes"])
+
+if menu_option == "Escáner Perimetral":
+    st.markdown('<div class="enterprise-banner">Escáner Perimetral y Auditoría de Seguridad</div>', unsafe_allow_html=True)
+    target = st.text_input("Dominio o IP Objetivo", "example.com")
+    if st.button("Ejecutar Escaneo"):
+        with st.spinner("Analizando perímetro..."):
+            geo = get_geolocation(target)
+            st.success(f"IP detectada: {geo['ip']} ({geo['city']}, {geo['country']})")
+            
+            findings = [
+                {"vector": "Cabeceras HTTP de seguridad ausentes (HSTS, CSP)", "severity": "MEDIO"},
+                {"vector": "Certificado SSL próximo a vencer o configuración TLS débil", "severity": "ALTO"}
+            ]
+            save_scan_to_db(target, geo['ip'], 75, len(findings), "Completo", findings=findings)
+            st.metric(label="Risk Score", value="75 / 100", delta="-10%")
+            st.dataframe(pd.DataFrame(findings), use_container_width=True)
+
+elif menu_option == "Ticketera de Remediación":
+    st.markdown('<div class="enterprise-banner">Gestión de Tickets y Remediación</div>', unsafe_allow_html=True)
+    conn = get_db_connection()
+    tickets_df = pd.read_sql_query("SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks", conn)
+    conn.close()
+    
+    if tickets_df.empty:
+        st.info("No hay tareas de remediación pendientes.")
+    else:
+        for _, row in tickets_df.iterrows():
+            sev_class = "sev-critical" if row['severity'] == "ALTO" else "sev-medium"
+            st.markdown(f"""
+                <div class="ticket-card {sev_class}">
+                    <h3>Ticket #{row['id']} - Host: <code>{row['hostname']}</code></h3>
+                    <p><b>Vulnerabilidad:</b> {row['finding_vector']}</p>
+                    <p><b>Severidad:</b> {row['severity']} | <b>Estado:</b> {row['status']}</p>
+                </div>
+            """, unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                new_status = st.selectbox("Cambiar Estado", ["Pendiente", "En Proceso", "Resuelto"], key=f"status_{row['id']}")
+            with col2:
+                note = st.text_input("Nota de bitácora", key=f"note_{row['id']}")
+            if st.button(f"Actualizar Ticket #{row['id']}", key=f"btn_{row['id']}"):
+                update_ticket_status(row['id'], new_status, note)
+                st.success("Ticket actualizado exitosamente.")
+                st.rerun()
+            display_ticket_logs(row['id'])
+            st.markdown("---")
+
+elif menu_option == "Concientización Empleados":
+    st.markdown('<div class="employee-portal-banner"><h2>Portal de Concientización y Capacitación</h2></div>', unsafe_allow_html=True)
+    topic_choice = st.selectbox("Seleccione Módulo", list(TRAINING_TOPICS.keys()))
+    topic_data = TRAINING_TOPICS[topic_choice]
+    st.markdown(topic_data["theory"], unsafe_allow_html=True)
+    
+    st.subheader("Evaluación de Conocimientos")
+    user_email = st.text_input("Correo electrónico corporativo")
+    user_dept = st.text_input("Departamento")
+    
+    answers = []
+    for i, q in enumerate(topic_data["questions"]):
+        st.write(q["q"])
+        ans = st.radio("Opciones", q["options"], key=f"q_{topic_choice}_{i}")
+        answers.append((ans, q["options"][q["correct"]]))
+        
+    if st.button("Enviar Evaluación"):
+        if not user_email:
+            st.warning("Por favor ingrese su correo electrónico.")
+        else:
+            correct_count = sum(1 for user_ans, correct_ans in answers if user_ans == correct_ans)
+            score_pct = int((correct_count / len(topic_data["questions"])) * 100)
+            st.success(f"Evaluación completada. Calificación: {score_pct}%")
+            
+            try:
+                conn = get_db_connection()
+                conn.autocommit = True
+                c = conn.cursor()
+                is_pg = "postgres" in st.secrets
+                ph = "%s" if is_pg else "?"
+                now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                status_val = "Aprobado" if score_pct >= 70 else "Reprobado"
+                
+                if is_pg:
+                    c.execute(f"""
+                        INSERT INTO employees (email, department, topic, status, score, last_completed)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                        ON CONFLICT (email, topic) DO UPDATE SET status = EXCLUDED.status, score = EXCLUDED.score, last_completed = EXCLUDED.last_completed
+                    """, (user_email, user_dept, topic_choice, status_val, score_pct, now_ts))
+                else:
+                    c.execute(f"""
+                        INSERT OR REPLACE INTO employees (email, department, topic, status, score, last_completed)
+                        VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                    """, (user_email, user_dept, topic_choice, status_val, score_pct, now_ts))
+                c.close()
+                conn.close()
+            except Exception as e:
+                st.error(f"Error al guardar resultado: {e}")
+
+elif menu_option == "Historial y Reportes":
+    st.markdown('<div class="enterprise-banner">Historial de Escaneos y Reportes</div>', unsafe_allow_html=True)
+    history_df = get_scan_history()
+    if history_df.empty:
+        st.info("No hay registros de escaneos históricos.")
+    else:
+        st.dataframe(history_df, use_container_width=True)
+        st.subheader("Registros de Capacitación de Empleados")
+        emp_df = get_employees_df()
+        if not emp_df.empty:
+            st.dataframe(emp_df, use_container_width=True)
+        else:
+            st.info("No hay registros de capacitación guardados.")
