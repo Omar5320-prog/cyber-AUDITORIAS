@@ -687,17 +687,25 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
         section.right_margin = Inches(1)
         
     p_title = doc.add_paragraph()
-    run_title = p_title.add_run(f"INFORME: {report_type.upper()}")
-    run_title.font.size = Pt(15)
+    run_title = p_title.add_run(f"INFORME TÉCNICO DE AUDITORÍA PERIMETRAL: {report_type.upper()}")
+    run_title.font.size = Pt(14)
     run_title.font.bold = True
     run_title.font.color.rgb = RGBColor(15, 23, 42)
     
     p_sub = doc.add_paragraph()
-    run_sub = p_sub.add_run(f"Emitido por: {agency_name} ({agency_tagline})\nObjetivo analizado: {hostname} | Risk Score: {risk_score}/100")
+    run_sub = p_sub.add_run(f"Emitido por: {agency_name} ({agency_tagline})\nObjetivo analizado: {hostname} | Risk Score Global: {risk_score}/100")
     run_sub.font.size = Pt(10)
     run_sub.font.color.rgb = RGBColor(100, 116, 139)
     
-    doc.add_heading("1. Datos Generales y Metadatos del Objetivo", level=2)
+    doc.add_heading("1. Resumen Ejecutivo y Conclusiones", level=2)
+    doc.add_paragraph(
+        f"El presente informe detalla la evaluación de seguridad perimetral realizada sobre el objetivo {hostname}. "
+        f"Tras el análisis automatizado y exhaustivo, se ha determinado un Risk Score global de {risk_score}/100, "
+        f"lo que evidencia la presencia de vulnerabilidades que requieren atención correctiva prioritaria para mitigar "
+        f"riesgos de exposición de datos, suplantación de identidad corporativa (phishing) e interceptación de tráfico en tránsito."
+    )
+    
+    doc.add_heading("2. Datos Generales y Metadatos del Objetivo", level=2)
     table = doc.add_table(rows=6, cols=2)
     table.style = 'Table Grid'
     data = [
@@ -712,23 +720,34 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
         table.cell(i, 0).text = k
         table.cell(i, 1).text = str(v)
         
-    doc.add_heading("2. Detalle de Hallazgos y Guía de Remediación", level=2)
+    doc.add_heading("3. Análisis Escrito y Detalle de Hallazgos", level=2)
     for idx, f in enumerate(findings, 1):
         h = doc.add_paragraph()
-        run_h = h.add_run(f"#{idx} - {f['vector']} [{f['severity']}] | Norma: {f.get('compliance', 'N/A')}")
+        run_h = h.add_run(f"Hallazgo #{idx} - {f['vector']} [{f['severity']}]")
         run_h.font.bold = True
         run_h.font.size = Pt(11)
-        doc.add_paragraph(f"Descripción: {f['desc']}")
-        doc.add_paragraph(f"Impacto de Negocio: {f['impact']}")
+        
+        doc.add_paragraph(f"Norma de Cumplimiento de Referencia: {f.get('compliance', 'N/A')}")
+        doc.add_paragraph(f"Descripción Técnica: {f['desc']}")
+        doc.add_paragraph(f"Impacto Potencial en el Negocio: {f['impact']}")
+        
         p_fix = doc.add_paragraph()
-        p_fix.add_run("Remediación: ").font.bold = True
+        p_fix.add_run("Tipo de Solución / Remediación Recomendada: ").font.bold = True
         p_fix.add_run(f"{f['fix']}")
+        
         if "snippet" in f:
             p_snip = doc.add_paragraph()
-            p_snip.add_run("Configuración sugerida:\n").font.bold = True
+            p_snip.add_run("Configuración o comando sugerido:\n").font.bold = True
             run_code = p_snip.add_run(f"{f['snippet']}")
             run_code.font.name = 'Courier New'
             run_code.font.size = Pt(9.5)
+            
+    doc.add_heading("4. Plan de Acción Recomendado", level=2)
+    doc.add_paragraph(
+        "Se recomienda a la Dirección General y al equipo técnico implementar un plan de remediación en fases, "
+        "comenzando por la resolución inmediata de las brechas catalogadas como críticas, seguidas por el fortalecimiento "
+        "de las directivas de correo electrónico y el cierre de puertos expuestos innecesarios en el perímetro de red."
+    )
             
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -737,10 +756,11 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
 
 def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdomains, geo, email_sec, ssl_info, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, logo_b64, output_filename):
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 55px; width: auto; float: right; margin-top: 2px;" alt="Logo">' if logo_b64 else ""
-    items_html_full = ""
+    
+    findings_written_html = ""
     for idx, f in enumerate(findings, 1):
         snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
-        items_html_full += f"""
+        findings_written_html += f"""
         <div class="finding-card">
             <div class="finding-header">
                 <span class="finding-num">#{idx}</span>
@@ -748,26 +768,43 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
                 <span class="{f['badge']}">{f['severity']}</span>
             </div>
             <div class="finding-body">
-                <p><strong>Norma:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
-                <p><strong>Descripción:</strong> {f['desc']}</p>
-                <p><strong>Impacto:</strong> {f['impact']}</p>
-                <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
+                <p><strong>Norma de Cumplimiento:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
+                <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
+                <p><strong>Impacto en el Negocio:</strong> {f['impact']}</p>
+                <div class="solution-box"><p><strong>Tipo de Solución / Remediación:</strong> <code>{f['fix']}</code></p></div>
                 {snippet_box}
             </div>
         </div>
         """
+
     content_html = f"""
     <div class="header-banner">
         <div class="banner-left">
-            <h1>Informe Técnico Exhaustivo</h1>
+            <h1>Informe Técnico de Auditoría Perimetral</h1>
             <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
         </div>
         <div class="banner-right">{logo_html}</div>
     </div>
-    <div class="executive-box"><p style="margin:0;">Risk Score corporativo: <strong>{risk_score}/100</strong>.</p></div>
+    
+    <h2>1. Resumen Ejecutivo</h2>
+    <p>El presente documento constituye el informe técnico y ejecutivo derivado de la evaluación de seguridad perimetral efectuada sobre el objetivo <strong>{hostname}</strong>. Tras el análisis automatizado, se ha determinado un Risk Score global de <strong>{risk_score}/100</strong>, reflejando el estado actual de exposición frente a vectores de ataque externos.</p>
+    
+    <div class="executive-box">
+        <p style="margin:0;"><strong>Puntuación de Riesgo Global:</strong> {risk_score}/100 | <strong>Total de Hallazgos:</strong> {len(findings)}</p>
+    </div>
+
+    <h2>2. Datos Generales del Objetivo</h2>
+    <p><strong>Dirección IP:</strong> {geo['ip']} | <strong>Ubicación:</strong> {geo['city']}, {geo['country']} ({geo['org']})</p>
+    <p><strong>Estado del Certificado SSL/TLS:</strong> {ssl_info['details']}</p>
+
     <div style="page-break-after: always;"></div>
-    <h2>Hallazgos Detallados</h2>
-    {items_html_full}
+
+    <h2>3. Análisis Escrito y Detalle de Hallazgos</h2>
+    <p>A continuación se detallan de forma escrita los vectores de vulnerabilidad identificados durante la auditoría activa, junto con su respectiva evaluación de impacto y guía de remediación:</p>
+    {findings_written_html}
+
+    <h2>4. Conclusiones y Plan de Acción</h2>
+    <p>Se recomienda la implementación inmediata de los correctivos técnicos especificados en este informe para elevar la postura de seguridad perimetral y garantizar el cumplimiento normativo aplicable.</p>
     """
 
     html_content = f"""
@@ -777,20 +814,20 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
         <meta charset="UTF-8">
         <style>
             @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; }}
-            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
-            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
+            body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.4; }}
+            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 10px; overflow: hidden; }}
             .banner-left {{ float: left; width: 70%; }}
             .banner-right {{ float: right; width: 28%; text-align: right; }}
             .header-banner h1 {{ margin: 0; font-size: 13pt; }}
             .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
-            h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
-            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
-            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
-            .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
-            .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
-            .finding-body {{ padding: 5px 6px; }}
-            .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
-            .solution-box code {{ color: #0369a1; font-size: 7pt; }}
+            h2 {{ color: #0f172a; font-size: 10pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 10px; margin-bottom: 6px; }}
+            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 6px 10px; margin-bottom: 8px; }}
+            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 8px; page-break-inside: avoid; }}
+            .finding-header {{ background-color: #f1f5f9; padding: 5px 8px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
+            .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8.5pt; }}
+            .finding-body {{ padding: 6px 8px; }}
+            .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 5px 8px; margin-top: 4px; }}
+            .solution-box code {{ color: #0369a1; font-size: 7.5pt; }}
         </style>
     </head>
     <body>{content_html}</body>
@@ -954,15 +991,14 @@ else:
                     st.session_state.pdf_filename = pdf_filename
                     st.session_state.docx_bytes = docx_bytes
 
-            # Mostrar botones de descarga directamente en la Pestaña 1 si hay escaneo activo
             if st.session_state.scanned:
-                st.success("🎉 ¡Escaneo finalizado con éxito! Descarga tus reportes ejecutivos y técnicos a continuación:")
+                st.success("🎉 ¡Escaneo finalizado con éxito! Descarga tus reportes escritos a continuación:")
                 col_d1, col_d2 = st.columns(2)
                 with col_d1:
                     if os.path.exists(st.session_state.pdf_filename):
                         with open(st.session_state.pdf_filename, "rb") as pdf_file:
                             st.download_button(
-                                label="📥 Descargar Informe en PDF",
+                                label="📥 Descargar Informe Escrito en PDF",
                                 data=pdf_file,
                                 file_name=st.session_state.pdf_filename,
                                 mime="application/pdf",
@@ -971,7 +1007,7 @@ else:
                 with col_d2:
                     if st.session_state.docx_bytes:
                         st.download_button(
-                            label="📥 Descargar Informe en Word (DOCX)",
+                            label="📥 Descargar Informe Escrito en Word (DOCX)",
                             data=st.session_state.docx_bytes,
                             file_name=f"auditoria_{st.session_state.hostname}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -996,13 +1032,13 @@ else:
                             st.code(f['snippet'], language="bash")
                             
                 st.markdown("---")
-                st.subheader("📥 Descarga de Reportes del Análisis Actual")
+                st.subheader("📥 Descarga de Reportes Escritos del Análisis Actual")
                 col_d3, col_d4 = st.columns(2)
                 with col_d3:
                     if os.path.exists(st.session_state.pdf_filename):
                         with open(st.session_state.pdf_filename, "rb") as pdf_file:
                             st.download_button(
-                                label="📥 Descargar Reporte PDF",
+                                label="📥 Descargar Reporte Escrito PDF",
                                 data=pdf_file,
                                 file_name=st.session_state.pdf_filename,
                                 mime="application/pdf",
@@ -1012,7 +1048,7 @@ else:
                 with col_d4:
                     if st.session_state.docx_bytes:
                         st.download_button(
-                            label="📥 Descargar Reporte Word (DOCX)",
+                            label="📥 Descargar Reporte Escrito Word (DOCX)",
                             data=st.session_state.docx_bytes,
                             file_name=f"auditoria_{st.session_state.hostname}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1020,7 +1056,7 @@ else:
                             type="secondary"
                         )
             else:
-                st.info("ℹ️ Ejecuta un escaneo perimetral en la primera pestaña ('Perimeter Scan') para habilitar los analytics y las opciones de descarga de reportes.")
+                st.info("ℹ️ Ejecuta un escaneo perimetral en la primera pestaña ('Perimeter Scan') para habilitar los analytics y las descargas de los informes escritos.")
 
         with tab3:
             st.subheader(f"📜 Historial de Escaneos y Resúmenes — {selected_org_name}")
@@ -1152,7 +1188,7 @@ else:
                                     key=f"comment_{prefix_key}_{ticket_id}"
                                 )
                                 
-                                submit_update = st.form_submit_button("💾 Guardar y Mover de Pestaña", type="primary")
+                                submit_update = st.form_submit_button("Actualizar", type="primary")
                                 if submit_update:
                                     success = update_ticket_status(ticket_id, new_status, new_comment)
                                     if success:
