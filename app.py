@@ -51,7 +51,7 @@ def update_ticket_status(ticket_id, new_status, note):
         return False
 
 def display_ticket_logs(ticket_id):
-    """Muestra la bitácora de un ticket en formato bonito"""
+    """Muestra la bitácora de comentarios y cambios de un ticket"""
     try:
         conn = get_db_connection()
         is_pg = "postgres" in st.secrets
@@ -68,14 +68,14 @@ def display_ticket_logs(ticket_id):
             status_emoji = "🟡" if log_row['status'] == "Pendiente" else "🔄" if log_row['status'] == "En Proceso" else "✅"
             border_color = "#f59e0b" if log_row['status'] == "Pendiente" else "#3b82f6" if log_row['status'] == "En Proceso" else "#10b981"
             st.markdown(f"""
-                <div style="background:#f8fafc; padding:6px 12px; border-radius:6px; margin-bottom:4px; border-left:3px solid {border_color}; font-size:13px;">
+                <div style="background:#f8fafc; padding:8px 12px; border-radius:6px; margin-bottom:6px; border-left:3px solid {border_color}; font-size:13px;">
                     <span style="font-weight:bold; color:#1e293b;">{status_emoji} {log_row['timestamp']}</span>
                     <span style="background:#e2e8f0; padding:1px 8px; border-radius:10px; font-size:11px; margin-left:8px;">{log_row['status']}</span>
-                    <p style="margin:4px 0 0 0; color:#475569;">{log_row['notes']}</p>
+                    <p style="margin:4px 0 0 0; color:#475569;">{log_row['notes'] if pd.notna(log_row['notes']) and log_row['notes'] != '' else 'Sin comentarios adicionales.'}</p>
                 </div>
             """, unsafe_allow_html=True)
     else:
-        st.info("📭 No hay registros en la bitácora.")
+        st.info("📭 No hay comentarios en la bitácora de este ticket todavía.")
 
 # ========== FUNCIONES DE BASE DE DATOS ==========
 def get_db_connection():
@@ -286,10 +286,10 @@ def get_scan_history(org_id=None):
     ph = "%s" if is_pg else "?"
     
     if org_id is not None:
-        query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id = {ph} ORDER BY id DESC'
+        query = f'SELECT id, timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id = {ph} ORDER BY id DESC'
         df = pd.read_sql_query(query, conn, params=(org_id,))
     else:
-        query = f'SELECT timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id IS NULL ORDER BY id DESC'
+        query = f'SELECT id, timestamp AS "Fecha y Hora", hostname AS "Dominio / Host", ip AS "IP", risk_score AS "Risk Score (/100)", findings_count AS "Vulnerabilidades", report_type AS "Plantilla" FROM history WHERE organization_id IS NULL ORDER BY id DESC'
         df = pd.read_sql_query(query, conn)
         
     conn.close()
@@ -349,7 +349,7 @@ Una contraseña segura se caracteriza por ser larga y difícil de adivinar, evit
         "questions": [
             {"q": "1. ¿Cuál es una característica de una contraseña segura?", "options": ["Es larga y difícil de adivinar.", "Es nuestro nombre seguido de 123.", "Es la misma que utilizamos en todas nuestras cuentas."], "correct": 0},
             {"q": "2. ¿Cuál de las siguientes contraseñas es menos segura?", "options": ["Una frase larga y difícil de adivinar.", "Una combinación de palabras y caracteres.", "123456."], "correct": 2},
-            {"q": "3. ¿Por qué não debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
+            {"q": "3. ¿Por qué no debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
             {"q": "4. ¿Cuál de estas opciones debemos evitar al crear una contraseña?", "options": ["Utilizar información personal fácil de conocer.", "Utilizar una contraseña larga.", "Utilizar una contraseña diferente para cada cuenta."], "correct": 0},
             {"q": "5. ¿Qué es la autenticación multifactor o MFA?", "options": ["Un sistema que elimina la necesidad de utilizar contraseñas.", "Una medida de seguridad que solicita una comprobación adicional además de la contraseña.", "Un programa para aumentar la velocidad del ordenador."], "correct": 1},
             {"q": "6. Recibes un código de verificación en tu teléfono que no has solicitado. ¿Qué deberías hacer?", "options": ["Compartirlo con la persona que te lo solicite por teléfono.", "Publicarlo para preguntar qué significa.", "No compartirlo con nadie y revisar si existe alguna actividad sospechosa."], "correct": 2},
@@ -422,14 +422,11 @@ st.markdown("""
         [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span, [data-testid="stSidebar"] p, [data-testid="stSidebar"] h2 { color: #1e293b !important; }
         [data-testid="stSidebar"] input, [data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
-        .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 6px; margin-bottom: 20px; line-height: 1.6; }
-        .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 25px; }
-        .kanban-card { background: white; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .stButton button { border-radius: 8px !important; font-weight: 500 !important; transition: all 0.2s ease; }
     </style>
 """, unsafe_allow_html=True)
 
-# ========== FUNCIONES DE UTILIDAD DE ESCANEO ==========
+# ========== FUNCIONES DE ESCANEO Y UTILIDADES ==========
 def get_geolocation(hostname):
     geo_data = {"ip": "N/A", "country": "Desconocido", "city": "Desconocido", "org": "Desconocido"}
     try:
@@ -544,7 +541,7 @@ def scan_target(url):
             "desc": ssl_info["details"],
             "impact": "Los navegadores bloquearán el acceso a la web.",
             "fix": "Instalar certificado SSL/TLS válido.",
-            "compliance": "PCI-DSS 4.1 / ISO 27001",
+            "compliance": "PCI-DSS / ISO 27001",
             "snippet": f"certbot --nginx -d {hostname}"
         })
     elif ssl_info["expires_soon"]:
@@ -557,7 +554,7 @@ def scan_target(url):
             "desc": ssl_info["details"],
             "impact": "Los servicios web dejarán de operar al caducar.",
             "fix": "Renovar el certificado.",
-            "compliance": "ISO 27001 A.12.1",
+            "compliance": "ISO 27001",
             "snippet": "certbot renew --dry-run"
         })
     else:
@@ -730,13 +727,6 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
 
 def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdomains, geo, email_sec, ssl_info, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, logo_b64, output_filename):
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 55px; width: auto; float: right; margin-top: 2px;" alt="Logo">' if logo_b64 else ""
-    ports_html = "".join([f"<tr><td><code>{p['port']}</code></td><td><strong>{p['service']}</strong> (Open)</td></tr>" for p in open_ports]) or "<tr><td colspan='2' style='text-align:center;'>No ports detected.</td></tr>"
-    sub_html = "".join([f"<li><code>{sub}</code></li>" for sub in subdomains]) or "<li>No subdomains found.</li>"
-    
-    spf_badge = "<span style='color:green;'><b>OK</b></span>" if email_sec["spf"] else "<span style='color:red;'><b>Ausente</b></span>"
-    dmarc_badge = "<span style='color:green;'><b>OK</b></span>" if email_sec["dmarc"] else "<span style='color:red;'><b>Ausente</b></span>"
-    ssl_badge = "<span style='color:green;'><b>Válido</b></span>" if ssl_info["valid"] and not ssl_info["expires_soon"] else "<span style='color:orange;'><b>Revisar</b></span>"
-    
     items_html_full = ""
     for idx, f in enumerate(findings, 1):
         snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
@@ -759,7 +749,7 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
     content_html = f"""
     <div class="header-banner">
         <div class="banner-left">
-            <h1>Informe Técnico Exhaustivo (Completo)</h1>
+            <h1>Informe Técnico Exhaustivo</h1>
             <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
         </div>
         <div class="banner-right">{logo_html}</div>
@@ -812,15 +802,6 @@ if employee_token:
     
     selected_topic_data = TRAINING_TOPICS.get(topic_token, TRAINING_TOPICS["Módulo 1 — Phishing"])
     st.info(f"👤 Colaborador: **{employee_token}** | Módulo Asignado: **{topic_token}**")
-    
-    conn = get_db_connection()
-    c = conn.cursor()
-    placeholder = "%s" if "postgres" in st.secrets else "?"
-    c.execute(f"SELECT status, score FROM employees WHERE email = {placeholder} AND topic = {placeholder}", (employee_token, topic_token))
-    row = c.fetchone()
-    c.close()
-    conn.close()
-    
     st.markdown(selected_topic_data["theory"])
 else:
     if "scanned" not in st.session_state:
@@ -924,7 +905,7 @@ else:
             "🔍 Perimeter Scan",
             "📊 Security Analytics",
             "📜 Historial de Escaneos",
-            "🛠️ Tablero de Remediación (Jira Style)",
+            "🛠️ Tablero de Remediación (Estilo Jira)",
             "ℹ️ About CyberAudits"
         ])
         
@@ -973,23 +954,45 @@ else:
                 st.info("Ejecuta un escaneo primero.")
 
         with tab3:
-            st.subheader(f"📜 Historial de Escaneos — {selected_org_name}")
+            st.subheader(f"📜 Historial de Escaneos y Resúmenes — {selected_org_name}")
             history_df = get_scan_history(org_id=selected_org_id)
             if not history_df.empty:
                 st.dataframe(history_df, use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("### 🗑️ Gestión / Borrado de Escaneos Registrados")
+                scan_to_delete = st.selectbox("Seleccione el ID del Escaneo a Borrar", options=history_df["id"].tolist(), key="select_del_scan")
+                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets", type="secondary"):
+                    try:
+                        conn_del = get_db_connection()
+                        conn_del.autocommit = True
+                        c_del = conn_del.cursor()
+                        is_pg = "postgres" in st.secrets
+                        ph = "%s" if is_pg else "?"
+                        
+                        # Borrar logs, tareas y el historial del escaneo específico
+                        c_del.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_to_delete,))
+                        c_del.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_to_delete,))
+                        c_del.execute(f"DELETE FROM history WHERE id = {ph}", (scan_to_delete,))
+                        
+                        c_del.close()
+                        conn_del.close()
+                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron borrados correctamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al borrar el escaneo: {e}")
             else:
                 st.info(f"No hay escaneos para {selected_org_name}.")
 
         with tab4:
             st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
-            st.caption("Los incidentes se muestran aislados exclusivamente para el cliente seleccionado en la barra lateral. Al cambiar un ticket a 'Resuelto', se moverá automáticamente a su columna correspondiente.")
+            st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Al cambiar el estado de un ticket y guardar, este se moverá automáticamente a su respectiva pestaña.")
             
             try:
                 conn = get_db_connection()
                 is_pg = "postgres" in st.secrets
                 ph = "%s" if is_pg else "?"
                 
-                # AISLAMIENTO TOTAL: Filtramos tareas directamente por organization_id del cliente activo
                 if selected_org_id is not None:
                     query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
@@ -1003,7 +1006,6 @@ else:
             if tasks_df.empty:
                 st.info(f"📭 No hay tareas de remediación para {selected_org_name}. Ejecuta un escaneo perimetral en la primera pestaña.")
             else:
-                # Métricas superiores del tablero
                 total_t = len(tasks_df)
                 pending_t = len(tasks_df[tasks_df['status'] == 'Pendiente'])
                 progress_t = len(tasks_df[tasks_df['status'] == 'En Proceso'])
@@ -1017,43 +1019,71 @@ else:
                 
                 st.divider()
                 
-                # Tablero Kanban con 3 columnas estilo Jira
-                col_todo, col_prog, col_done = st.columns(3)
+                tab_pending, tab_progress, tab_resolved, tab_all = st.tabs([
+                    f"🟡 Pendientes ({pending_t})", 
+                    f"🔄 En Proceso ({progress_t})", 
+                    f"✅ Resueltos / Cerrados ({resolved_t})",
+                    f"📋 Todos los Tickets ({total_t})"
+                ])
                 
-                def render_kanban_column(title, status_filter, bg_color):
-                    st.markdown(f"<h4 style='background:{bg_color}; padding:8px; border-radius:6px; text-align:center;'>{title}</h4>", unsafe_allow_html=True)
-                    sub_df = tasks_df[tasks_df['status'] == status_filter]
+                def render_ticket_management_view(sub_df, tab_title, prefix_key):
                     if sub_df.empty:
-                        st.caption("Sin tickets en esta columna.")
+                        st.info(f"No hay tickets en la sección de '{tab_title}'.")
+                        return
+                        
                     for _, row in sub_df.iterrows():
-                        with st.container():
-                            sev_color = "🔴" if row['severity'] == "CRÍTICO" else "🟡" if row['severity'] == "MEDIO" else "🔵"
-                            st.markdown(f"""
-                                <div class="kanban-card">
-                                    <small style="color:#64748b;">ID #{row['id']} | {sev_color} {row['severity']}</small><br>
-                                    <b>{row['finding_vector']}</b><br>
-                                    <code>Host: {row['hostname']}</code>
-                                </div>
-                            """, unsafe_allow_html=True)
+                        sev_color = "🔴" if row['severity'] == "CRÍTICO" else "🟡" if row['severity'] == "MEDIO" else "🔵"
+                        ticket_id = int(row['id'])
+                        
+                        with st.expander(f"Ticket #{ticket_id} | {sev_color} [{row['severity']}] — {row['finding_vector']} (Host: {row['hostname']})"):
+                            col_info1, col_info2 = st.columns([2, 1])
+                            with col_info1:
+                                st.markdown(f"**Dominio / Host:** `{row['hostname']}`")
+                                st.markdown(f"**Vector de Vulnerabilidad:** {row['finding_vector']}")
+                                st.markdown(f"**Severidad:** {row['severity']} | **Estado Actual:** `{row['status']}`")
+                            with col_info2:
+                                st.markdown(f"**ID de Ticket:** #{ticket_id}")
+                                
+                            st.markdown("---")
+                            st.markdown("### 💬 Historial de Comentarios y Bitácora")
+                            display_ticket_logs(ticket_id)
                             
-                            # Formulario rápido para mover de columna / actualizar estado o nota
-                            with st.form(key=f"form_ticket_{row['id']}"):
-                                new_st = st.selectbox("Mover a:", ["Pendiente", "En Proceso", "Solucionado"], index=["Pendiente", "En Proceso", "Solucionado"].index(row['status']), key=f"st_{row['id']}")
-                                new_note = st.text_input("Nota / Bitácora", value=row['notes'] if pd.notna(row['notes']) else "", key=f"nt_{row['id']}")
-                                if st.form_submit_button("Actualizar"):
-                                    update_ticket_status(int(row['id']), new_st, new_note)
-                                    st.success("¡Movido!")
-                                    st.rerun()
+                            st.markdown("### ✍️ Actualizar Estado y Dejar Comentario")
+                            # Llaves únicas basadas en el prefijo de la pestaña para evitar duplicados de st.form
+                            with st.form(key=f"form_{prefix_key}_ticket_detail_{ticket_id}"):
+                                new_status = st.selectbox(
+                                    "Mover a Estado / Pestaña", 
+                                    ["Pendiente", "En Proceso", "Solucionado"], 
+                                    index=["Pendiente", "En Proceso", "Solucionado"].index(row['status']),
+                                    key=f"status_{prefix_key}_{ticket_id}"
+                                )
+                                new_comment = st.text_area(
+                                    "Nuevo Comentario / Nota de Trabajo", 
+                                    placeholder="Escribe el avance, detalles de corrección o motivo de cierre...",
+                                    key=f"comment_{prefix_key}_{ticket_id}"
+                                )
+                                
+                                submit_update = st.form_submit_button("💾 Guardar y Mover de Pestaña", type="primary")
+                                if submit_update:
+                                    success = update_ticket_status(ticket_id, new_status, new_comment)
+                                    if success:
+                                        st.success(f"✅ ¡Ticket #{ticket_id} actualizado y movido a la pestaña '{new_status}' con éxito!")
+                                        if new_status == "Solucionado":
+                                            st.balloons()
+                                        st.rerun()
 
-                with col_todo:
-                    render_kanban_column("📥 1. Por Hacer (Pendiente)", "Pendiente", "#fef3c7")
+                with tab_pending:
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Pendiente'], "Pendientes", "pend")
                     
-                with col_prog:
-                    render_kanban_column("🔄 2. En Proceso", "En Proceso", "#e0f2fe")
+                with tab_progress:
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'En Proceso'], "En Proceso", "prog")
                     
-                with col_done:
-                    render_kanban_column("✅ 3. Resueltos / Cerrados", "Solucionado", "#dcfce7")
+                with tab_resolved:
+                    render_ticket_management_view(tasks_df[tasks_df['status'] == 'Solucionado'], "Resueltos / Cerrados", "res")
+                    
+                with tab_all:
+                    render_ticket_management_view(tasks_df, "Todos los Tickets", "all")
 
         with tab5:
             st.subheader("Acerca de CyberAudits Enterprise")
-            st.markdown("Plataforma de consultoría de seguridad perimetral multi-tenant con gestión avanzada de tickets.")
+            st.markdown("Plataforma de consultoría de seguridad perimetral multi-tenant con gestión avanzada de tickets por pestañas y bitácora de comentarios.")
