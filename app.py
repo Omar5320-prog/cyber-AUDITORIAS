@@ -136,6 +136,8 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                finding_desc TEXT,
+                finding_fix TEXT,
                 severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
@@ -143,6 +145,8 @@ def init_db():
         """)
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS finding_desc TEXT;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS finding_fix TEXT;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS severity TEXT;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS notes TEXT;")
         
@@ -200,6 +204,8 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                finding_desc TEXT,
+                finding_fix TEXT,
                 severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
@@ -208,6 +214,8 @@ def init_db():
         try:
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN organization_id INTEGER;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN scan_id INTEGER;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN finding_desc TEXT;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN finding_fix TEXT;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN severity TEXT;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN notes TEXT;")
         except Exception:
@@ -223,6 +231,24 @@ def init_db():
             )
         """)
         conn.commit()
+
+    # Precargar datos de empleados de prueba para que la sección nunca aparezca vacía
+    try:
+        check_emp = pd.read_sql_query("SELECT COUNT(*) as cnt FROM employees", conn)
+        if check_emp.iloc[0]['cnt'] == 0:
+            sample_employees = [
+                ("nielsen.torrealba@empresa.com", "Ciberseguridad", "Módulo 1 — Phishing", "Completado", 100, "2026-08-28 10:00:00"),
+                ("yorman.palacios@empresa.com", "Operaciones", "Módulo 2 — Contraseñas seguras", "Pendiente", 0, "N/A"),
+                ("auditor.externo@empresa.com", "Auditoría", "Módulo 3 — Seguridad en el puesto de trabajo", "En Proceso", 50, "2026-08-27 15:30:00")
+            ]
+            ph_emp = "%s" if is_pg else "?"
+            for emp in sample_employees:
+                c.execute(f"INSERT INTO employees (email, department, topic, status, score, last_completed) VALUES ({ph_emp}, {ph_emp}, {ph_emp}, {ph_emp}, {ph_emp}, {ph_emp})", emp)
+            if not is_pg:
+                conn.commit()
+    except Exception:
+        pass
+
     c.close()
     conn.close()
 
@@ -270,10 +296,12 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
             for f in findings:
                 vec = f['vector']
                 sev = f.get('severity', 'MEDIO')
+                desc = f.get('desc', '')
+                fix = f.get('fix', '')
                 if organization_id is not None:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec, sev))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec, desc, fix, sev))
                 else:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES (NULL, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec, sev))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status) VALUES (NULL, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec, desc, fix, sev))
                     
         c.close()
         conn.close()
@@ -349,7 +377,7 @@ Una contraseña segura se caracteriza por ser larga y difícil de adivinar, evit
         "questions": [
             {"q": "1. ¿Cuál es una característica de una contraseña segura?", "options": ["Es larga y difícil de adivinar.", "Es nuestro nombre seguido de 123.", "Es la misma que utilizamos en todas nuestras cuentas."], "correct": 0},
             {"q": "2. ¿Cuál de las siguientes contraseñas es menos segura?", "options": ["Una frase larga y difícil de adivinar.", "Una combinación de palabras y caracteres.", "123456."], "correct": 2},
-            {"q": "3. ¿Por qué no debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
+            {"q": "3. ¿Por qué não debemos utilizar la misma contraseña para todas nuestras cuentas?", "options": ["Porque si una contraseña queda expuesta, otras cuentas podrían quedar en riesgo.", "Porque las contraseñas solamente funcionan una vez.", "Porque utilizar varias contraseñas hace que Internet sea más lento."], "correct": 0},
             {"q": "4. ¿Cuál de estas opciones debemos evitar al crear una contraseña?", "options": ["Utilizar información personal fácil de conocer.", "Utilizar una contraseña larga.", "Utilizar una contraseña diferente para cada cuenta."], "correct": 0},
             {"q": "5. ¿Qué es la autenticación multifactor o MFA?", "options": ["Un sistema que elimina la necesidad de utilizar contraseñas.", "Una medida de seguridad que solicita una comprobación adicional además de la contraseña.", "Un programa para aumentar la velocidad del ordenador."], "correct": 1},
             {"q": "6. Recibes un código de verificación en tu teléfono que no has solicitado. ¿Qué deberías hacer?", "options": ["Compartirlo con la persona que te lo solicite por teléfono.", "Publicarlo para preguntar qué significa.", "No compartirlo con nadie y revisar si existe alguna actividad sospechosa."], "correct": 2},
@@ -422,6 +450,7 @@ st.markdown("""
         [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] span, [data-testid="stSidebar"] p, [data-testid="stSidebar"] h2 { color: #1e293b !important; }
         [data-testid="stSidebar"] input, [data-testid="stSidebar"] div[data-baseweb="select"] > div { background-color: #ffffff !important; color: #1e293b !important; border-color: #cbd5e1 !important; }
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
+        .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 15px 20px; border-radius: 8px; color: white; margin-bottom: 20px; }
         .stButton button { border-radius: 8px !important; font-weight: 500 !important; transition: all 0.2s ease; }
     </style>
 """, unsafe_allow_html=True)
@@ -677,38 +706,35 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
         section.right_margin = Inches(1)
         
     p_title = doc.add_paragraph()
-    run_title = p_title.add_run(f"INFORME: {report_type.upper()}")
-    run_title.font.size = Pt(15)
+    run_title = p_title.add_run("INFORME EJECUTIVO DE CIBERSEGURIDAD")
+    run_title.font.size = Pt(14)
     run_title.font.bold = True
     run_title.font.color.rgb = RGBColor(15, 23, 42)
     
     p_sub = doc.add_paragraph()
-    run_sub = p_sub.add_run(f"Emitido por: {agency_name} ({agency_tagline})\nObjetivo analizado: {hostname} | Risk Score: {risk_score}/100")
+    run_sub = p_sub.add_run(f"Emitido por: {agency_name} | Objetivo: {hostname} (IP: {geo['ip']})\nDirigido a: {recipient_name} | Asunto: {report_subject}")
     run_sub.font.size = Pt(10)
     run_sub.font.color.rgb = RGBColor(100, 116, 139)
     
-    doc.add_heading("1. Datos Generales y Metadatos del Objetivo", level=2)
-    table = doc.add_table(rows=6, cols=2)
-    table.style = 'Table Grid'
-    data = [
-        ("Dominio / Hostname", hostname),
-        ("Dirección IP", geo['ip']),
-        ("Risk Score Global", f"{risk_score} / 100"),
-        ("Ubicación Geográfica", f"{geo['city']}, {geo['country']} ({geo['org']})"),
-        ("Seguridad de Correo", f"SPF: {'OK' if email_sec['spf'] else 'Ausente'} | DMARC: {'OK' if email_sec['dmarc'] else 'Ausente'}"),
-        ("Certificado SSL/TLS", f"{ssl_info['details']}")
-    ]
-    for i, (k, v) in enumerate(data):
-        table.cell(i, 0).text = k
-        table.cell(i, 1).text = str(v)
+    doc.add_heading("1. Visión Gerencial e Infraestructura", level=2)
+    doc.add_paragraph(
+        f"Se analizó la superficie expuesta del dominio {hostname} combinando seguridad web, puertos abiertos y subdominios. "
+        f"El Risk Score corporativo se sitúa en {risk_score}/100, con un total de {len(findings)} vulnerabilidades detectadas que impactan la operación y la postura de negocio."
+    )
+    
+    doc.add_heading("2. Análisis de Riesgos y Puertos Críticos", level=2)
+    for idx, f in enumerate(findings, 1):
+        p_f = doc.add_paragraph()
+        p_f.add_run(f"• {f['vector']} [{f['severity']}]: ").font.bold = True
+        p_f.add_run(f"{f['impact']}")
         
-    doc.add_heading("2. Detalle de Hallazgos y Guía de Remediación", level=2)
+    doc.add_heading("3. Anexo Técnico y Guía de Remediación", level=2)
     for idx, f in enumerate(findings, 1):
         h = doc.add_paragraph()
-        run_h = h.add_run(f"#{idx} - {f['vector']} [{f['severity']}] | Norma: {f.get('compliance', 'N/A')}")
+        run_h = h.add_run(f"Hallazgo #{idx} - {f['vector']} [{f['severity']}]")
         run_h.font.bold = True
         run_h.font.size = Pt(11)
-        doc.add_paragraph(f"Descripción: {f['desc']}")
+        doc.add_paragraph(f"Descripción Técnica: {f['desc']}")
         doc.add_paragraph(f"Impacto de Negocio: {f['impact']}")
         p_fix = doc.add_paragraph()
         p_fix.add_run("Remediación: ").font.bold = True
@@ -727,10 +753,22 @@ def generate_docx(hostname, geo, email_sec, ssl_info, open_ports, subdomains, fi
 
 def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdomains, geo, email_sec, ssl_info, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, logo_b64, output_filename):
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="max-height: 55px; width: auto; float: right; margin-top: 2px;" alt="Logo">' if logo_b64 else ""
-    items_html_full = ""
+    
+    ports_rows = ""
+    if open_ports:
+        for p in open_ports:
+            ports_rows += f"<tr><td>{p['port']}</td><td>{p['service']} (Open / Abierto)</td></tr>"
+    else:
+        ports_rows = "<tr><td colspan='2'>No se detectaron puertos críticos expuestos.</td></tr>"
+
+    impact_bullets = ""
+    for f in findings:
+        impact_bullets += f"<li><strong>{f['vector']}:</strong> {f['impact']}</li>"
+
+    findings_technical_html = ""
     for idx, f in enumerate(findings, 1):
         snippet_box = f"<pre style=\"background:#f1f5f9;padding:6px;border-radius:4px;font-size:7pt;color:#0369a1;overflow-x:auto;\"><code>{f.get('snippet', '')}</code></pre>" if "snippet" in f else ""
-        items_html_full += f"""
+        findings_technical_html += f"""
         <div class="finding-card">
             <div class="finding-header">
                 <span class="finding-num">#{idx}</span>
@@ -738,26 +776,54 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
                 <span class="{f['badge']}">{f['severity']}</span>
             </div>
             <div class="finding-body">
-                <p><strong>Norma:</strong> <code>{f.get('compliance', 'N/A')}</code></p>
-                <p><strong>Descripción:</strong> {f['desc']}</p>
-                <p><strong>Impacto:</strong> {f['impact']}</p>
+                <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
+                <p><strong>Impacto de Negocio:</strong> {f['impact']}</p>
                 <div class="solution-box"><p><strong>Remediación:</strong> <code>{f['fix']}</code></p></div>
                 {snippet_box}
             </div>
         </div>
         """
+
     content_html = f"""
     <div class="header-banner">
         <div class="banner-left">
-            <h1>Informe Técnico Exhaustivo</h1>
-            <p>Elaborado por: <strong>{agency_name}</strong> ({agency_tagline})</p>
+            <h1>Informe Ejecutivo de Ciberseguridad</h1>
+            <p>Diagnóstico Perimetral, Puertos, Subdominios y Exposición de Negocio</p>
         </div>
         <div class="banner-right">{logo_html}</div>
     </div>
-    <div class="executive-box"><p style="margin:0;">Risk Score corporativo: <strong>{risk_score}/100</strong>.</p></div>
+    
+    <div class="meta-box">
+        <p><strong>OBJETIVO:</strong> {hostname} ({geo['city']}, {geo['country']} - IP: {geo['ip']})</p>
+        <p><strong>DIRIGIDO A:</strong> {recipient_name} | <strong>ASUNTO:</strong> {report_subject}</p>
+    </div>
+
+    <h2>1. Visión Gerencial e Infraestructura</h2>
+    <p>Se analizó la superficie expuesta del dominio <strong>{hostname}</strong> combinando seguridad web, puertos abiertos y subdominios.</p>
+    
+    <table class="ports-table">
+        <tr><th>Puerto</th><th>Servicio / Estado</th></tr>
+        {ports_rows}
+    </table>
+
+    <div style="margin-top: 10px;">
+        <img src="data:image/png;base64,{chart_base64}" style="width: 180px; display: block; margin: 0 auto;" alt="Gráfico de Riesgos">
+    </div>
+
+    <h3>Análisis de Impacto Estratégico:</h3>
+    <ul>
+        {impact_bullets}
+    </ul>
+
     <div style="page-break-after: always;"></div>
-    <h2>Hallazgos Detallados</h2>
-    {items_html_full}
+
+    <h2>2. Anexo Técnico y Guía de Remediación</h2>
+    <p>Especificaciones detalladas para el equipo de ingeniería e infraestructura:</p>
+    {findings_technical_html}
+
+    <div class="footer-note">
+        <p><strong>¿Cómo proteger su empresa?</strong> Contáctenos para implementar la remediación inmediata y blindar su seguridad perimetral.</p>
+    </div>
     """
 
     html_content = f"""
@@ -768,19 +834,25 @@ def generate_pdf(url, findings, stats, chart_base64, open_ports, hostname, subdo
         <style>
             @page {{ size: A4; margin: 10mm 12mm; background-color: #f8fafc; }}
             body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; }}
-            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 6px; overflow: hidden; }}
+            .header-banner {{ background: #0f172a; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 8px; overflow: hidden; }}
             .banner-left {{ float: left; width: 70%; }}
             .banner-right {{ float: right; width: 28%; text-align: right; }}
             .header-banner h1 {{ margin: 0; font-size: 13pt; }}
             .header-banner p {{ margin: 0; color: #94a3b8; font-size: 8pt; }}
-            h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 6px; margin-bottom: 4px; }}
-            .executive-box {{ background-color: #eff6ff; border-left: 3px solid #3b82f6; padding: 5px 8px; margin-bottom: 5px; }}
-            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 5px; page-break-inside: avoid; }}
+            .meta-box {{ background: #eff6ff; padding: 6px 10px; border-left: 3px solid #3b82f6; margin-bottom: 8px; font-size: 8pt; }}
+            .meta-box p {{ margin: 2px 0; }}
+            h2 {{ color: #0f172a; font-size: 9.5pt; border-left: 3px solid #3b82f6; padding-left: 5px; margin-top: 8px; margin-bottom: 4px; }}
+            h3 {{ color: #1e293b; font-size: 9pt; margin-top: 6px; margin-bottom: 3px; }}
+            .ports-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; margin-bottom: 5px; font-size: 8pt; }}
+            .ports-table th, .ports-table td {{ border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; }}
+            .ports-table th {{ background-color: #f1f5f9; color: #0f172a; }}
+            .finding-card {{ background: white; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 6px; page-break-inside: avoid; }}
             .finding-header {{ background-color: #f1f5f9; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; overflow: hidden; }}
             .finding-title {{ font-weight: bold; color: #0f172a; font-size: 8pt; }}
             .finding-body {{ padding: 5px 6px; }}
             .solution-box {{ background-color: #f8fafc; border-left: 3px solid #0284c7; padding: 4px 6px; margin-top: 3px; }}
             .solution-box code {{ color: #0369a1; font-size: 7pt; }}
+            .footer-note {{ margin-top: 15px; padding: 8px; background: #f8fafc; border: 1px dashed #cbd5e1; text-align: center; font-size: 8pt; }}
         </style>
     </head>
     <body>{content_html}</body>
@@ -885,12 +957,12 @@ else:
         agency_name = st.sidebar.text_input("Nombre de la Agencia", value="SecOps Global Partners")
         agency_tagline = st.sidebar.text_input("Subtítulo / Área", value="División de Consultoría y Ciberseguridad")
         logo_file = st.sidebar.file_uploader("Logo de la Agencia (PNG / JPG)", type=["png", "jpg", "jpeg"])
-        report_type = st.sidebar.selectbox("Plantilla de Informe", ["Informe Técnico Exhaustivo (Completo)"])
+        report_type = st.sidebar.selectbox("Plantilla de Informe", ["Informe Ejecutivo de Ciberseguridad"])
         recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
-        report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos")
+        report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales")
         webhook_url_input = st.sidebar.text_input("Webhook URL", type="password")
     else:
-        agency_name, agency_tagline, logo_file, report_type = "SecOps", "Consultoría", None, "Completo"
+        agency_name, agency_tagline, logo_file, report_type = "SecOps", "Consultoría", None, "Ejecutivo"
         recipient_name, report_subject, webhook_url_input = "Dirección", "Riesgos", ""
         
     if is_admin and selected_module == "🎓 Concienciación (Privado - En Desarrollo)":
@@ -944,14 +1016,70 @@ else:
                     st.session_state.pdf_filename = pdf_filename
                     st.session_state.docx_bytes = docx_bytes
 
-        with tab2:
-            st.subheader("Analytics de Seguridad")
             if st.session_state.scanned:
-                st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
-                for f in st.session_state.findings:
-                    st.info(f"**{f['vector']}** [{f['severity']}] - Remediación: {f['fix']}")
+                st.success("🎉 ¡Escaneo finalizado con éxito! Descarga tu Informe Ejecutivo a continuación:")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    if os.path.exists(st.session_state.pdf_filename):
+                        with open(st.session_state.pdf_filename, "rb") as pdf_file:
+                            st.download_button(
+                                label="📥 Descargar Informe Ejecutivo en PDF",
+                                data=pdf_file,
+                                file_name=st.session_state.pdf_filename,
+                                mime="application/pdf",
+                                type="primary"
+                            )
+                with col_d2:
+                    if st.session_state.docx_bytes:
+                        st.download_button(
+                            label="📥 Descargar Informe Ejecutivo en Word (DOCX)",
+                            data=st.session_state.docx_bytes,
+                            file_name=f"auditoria_{st.session_state.hostname}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="secondary"
+                        )
+
+        with tab2:
+            st.subheader("Analytics de Seguridad y Hallazgos Desplegables")
+            if st.session_state.scanned:
+                st.write(f"Risk Score Global: **{st.session_state.risk_score} / 100**")
+                st.markdown("Haz clic en cada hallazgo para ver su descripción detallada y tipo de solución recomendada:")
+                
+                for idx, f in enumerate(st.session_state.findings, 1):
+                    sev_color = "🔴" if f['severity'] == "CRÍTICO" else "🟡" if f['severity'] == "MEDIO" else "🔵"
+                    with st.expander(f"Hallazgo #{idx} | {sev_color} [{f['severity']}] — {f['vector']}"):
+                        st.markdown(f"**Descripción Técnica:** {f['desc']}")
+                        st.markdown(f"**Impacto de Negocio:** {f['impact']}")
+                        st.markdown(f"**Remediación:** {f['fix']}")
+                        if "snippet" in f:
+                            st.code(f['snippet'], language="bash")
+                            
+                st.markdown("---")
+                st.subheader("📥 Descarga del Informe Ejecutivo del Análisis Actual")
+                col_d3, col_d4 = st.columns(2)
+                with col_d3:
+                    if os.path.exists(st.session_state.pdf_filename):
+                        with open(st.session_state.pdf_filename, "rb") as pdf_file:
+                            st.download_button(
+                                label="📥 Descargar Reporte PDF",
+                                data=pdf_file,
+                                file_name=st.session_state.pdf_filename,
+                                mime="application/pdf",
+                                key="btn_pdf_tab2",
+                                type="primary"
+                            )
+                with col_d4:
+                    if st.session_state.docx_bytes:
+                        st.download_button(
+                            label="📥 Descargar Reporte Word (DOCX)",
+                            data=st.session_state.docx_bytes,
+                            file_name=f"auditoria_{st.session_state.hostname}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="btn_docx_tab2",
+                            type="secondary"
+                        )
             else:
-                st.info("Ejecuta un escaneo primero.")
+                st.info("ℹ️ Ejecuta un escaneo perimetral en la primera pestaña ('Perimeter Scan') para habilitar los analytics y las descargas.")
 
         with tab3:
             st.subheader(f"📜 Historial de Escaneos y Resúmenes — {selected_org_name}")
@@ -962,7 +1090,7 @@ else:
                 st.markdown("---")
                 st.markdown("### 🗑️ Gestión / Borrado de Escaneos Registrados")
                 scan_to_delete = st.selectbox("Seleccione el ID del Escaneo a Borrar", options=history_df["id"].tolist(), key="select_del_scan")
-                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets", type="secondary"):
+                if st.button("🗑️ Borrar Escaneo Seleccionado y sus Tickets Asociados", type="secondary"):
                     try:
                         conn_del = get_db_connection()
                         conn_del.autocommit = True
@@ -970,14 +1098,13 @@ else:
                         is_pg = "postgres" in st.secrets
                         ph = "%s" if is_pg else "?"
                         
-                        # Borrar logs, tareas y el historial del escaneo específico
                         c_del.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_to_delete,))
                         c_del.execute(f"DELETE FROM history WHERE id = {ph}", (scan_to_delete,))
                         
                         c_del.close()
                         conn_del.close()
-                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron borrados correctamente.")
+                        st.success(f"✅ Escaneo #{scan_to_delete} y sus tickets asociados fueron eliminados correctamente.")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al borrar el escaneo: {e}")
@@ -986,18 +1113,34 @@ else:
 
         with tab4:
             st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
-            st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Al cambiar el estado de un ticket y guardar, este se moverá automáticamente a su respectiva pestaña.")
+            st.caption("Los incidentes muestran la vulnerabilidad exacta y el tipo de solución detallada vinculada a su escaneo correspondiente.")
             
+            col_purging1, col_purging2 = st.columns([3, 1])
+            with col_purging2:
+                if st.button("🧹 Limpiar Tickets Huérfanos"):
+                    try:
+                        conn_p = get_db_connection()
+                        conn_p.autocommit = True
+                        c_p = conn_p.cursor()
+                        c_p.execute("DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL)")
+                        c_p.execute("DELETE FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL")
+                        c_p.close()
+                        conn_p.close()
+                        st.success("¡Tickets huérfanos eliminados!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al limpiar: {e}")
+
             try:
                 conn = get_db_connection()
                 is_pg = "postgres" in st.secrets
                 ph = "%s" if is_pg else "?"
                 
                 if selected_org_id is not None:
-                    query = f"SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
+                    query = f"SELECT id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
                 else:
-                    query = "SELECT id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
+                    query = "SELECT id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn)
                 conn.close()
             except Exception:
@@ -1034,22 +1177,27 @@ else:
                     for _, row in sub_df.iterrows():
                         sev_color = "🔴" if row['severity'] == "CRÍTICO" else "🟡" if row['severity'] == "MEDIO" else "🔵"
                         ticket_id = int(row['id'])
+                        scan_id = int(row['scan_id']) if pd.notna(row['scan_id']) else "N/A"
                         
-                        with st.expander(f"Ticket #{ticket_id} | {sev_color} [{row['severity']}] — {row['finding_vector']} (Host: {row['hostname']})"):
+                        with st.expander(f"Ticket #{ticket_id} (Scan ID: #{scan_id}) | {sev_color} [{row['severity']}] — {row['finding_vector']} (Host: {row['hostname']})"):
                             col_info1, col_info2 = st.columns([2, 1])
                             with col_info1:
                                 st.markdown(f"**Dominio / Host:** `{row['hostname']}`")
-                                st.markdown(f"**Vector de Vulnerabilidad:** {row['finding_vector']}")
+                                st.markdown(f"**Tipo de Vulnerabilidad:** {row['finding_vector']}")
+                                if pd.notna(row['finding_desc']) and row['finding_desc'] != '':
+                                    st.markdown(f"**Descripción Detallada:** {row['finding_desc']}")
+                                if pd.notna(row['finding_fix']) and row['finding_fix'] != '':
+                                    st.markdown(f"**Tipo de Solución / Remediación:** `{row['finding_fix']}`")
                                 st.markdown(f"**Severidad:** {row['severity']} | **Estado Actual:** `{row['status']}`")
                             with col_info2:
                                 st.markdown(f"**ID de Ticket:** #{ticket_id}")
+                                st.markdown(f"**Asociado al Escaneo ID:** #{scan_id}")
                                 
                             st.markdown("---")
                             st.markdown("### 💬 Historial de Comentarios y Bitácora")
                             display_ticket_logs(ticket_id)
                             
                             st.markdown("### ✍️ Actualizar Estado y Dejar Comentario")
-                            # Llaves únicas basadas en el prefijo de la pestaña para evitar duplicados de st.form
                             with st.form(key=f"form_{prefix_key}_ticket_detail_{ticket_id}"):
                                 new_status = st.selectbox(
                                     "Mover a Estado / Pestaña", 
@@ -1063,7 +1211,7 @@ else:
                                     key=f"comment_{prefix_key}_{ticket_id}"
                                 )
                                 
-                                submit_update = st.form_submit_button("💾 Guardar y Mover de Pestaña", type="primary")
+                                submit_update = st.form_submit_button("Actualizar", type="primary")
                                 if submit_update:
                                     success = update_ticket_status(ticket_id, new_status, new_comment)
                                     if success:
