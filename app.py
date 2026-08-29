@@ -479,4 +479,4 @@ st.markdown("""
 
 # ========== FUNCIONES DEL ESCÁNER (GEOLOCALIZACIÓN, SSL, ETC.) ==========
 def get_geolocation(hostname):
-    geo_data = {"ip": "N/A", "
+    geo_data = {"ip
