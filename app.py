@@ -25,10 +25,13 @@ st.set_page_config(
 
 def get_db_connection():
     if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
-        return psycopg2.connect(st.secrets["postgres"]["url"])
+        conn = psycopg2.connect(st.secrets["postgres"]["url"])
+        conn.autocommit = True
+        return conn
     else:
         import sqlite3
-        return sqlite3.connect("cyber_audits.db")
+        conn = sqlite3.connect("cyber_audits.db")
+        return conn
 
 def init_db():
     conn = get_db_connection()
@@ -78,12 +81,14 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
             )
         """)
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS severity TEXT;")
         
         c.execute("""
             CREATE TABLE IF NOT EXISTS remediation_logs (
@@ -139,6 +144,7 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
             )
@@ -146,6 +152,7 @@ def init_db():
         try:
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN organization_id INTEGER;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN scan_id INTEGER;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN severity TEXT;")
         except Exception:
             pass
 
@@ -178,6 +185,7 @@ def send_webhook_alert(webhook_url, hostname, risk_score, findings_count):
 def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, organization_id=None, findings=None):
     try:
         conn = get_db_connection()
+        conn.autocommit = True
         c = conn.cursor()
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         is_pg = "postgres" in st.secrets
@@ -203,12 +211,12 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
         if findings:
             for f in findings:
                 vec = f['vector']
+                sev = f.get('severity', 'MEDIO')
                 if organization_id is not None:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, status) VALUES ({ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec, sev))
                 else:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, status) VALUES (NULL, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES (NULL, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec, sev))
                     
-        conn.commit()
         c.close()
         conn.close()
     except Exception as e:
@@ -356,6 +364,10 @@ st.markdown("""
         .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
         .training-card { background: #ffffff; border: 1px solid #cbd5e1; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 6px; margin-bottom: 20px; line-height: 1.6; }
         .employee-portal-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a); padding: 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 25px; }
+        .ticket-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .sev-critical { border-left: 5px solid #dc2626; }
+        .sev-medium { border-left: 5px solid #f59e0b; }
+        .sev-low { border-left: 5px solid #3b82f6; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -1453,15 +1465,30 @@ else:
                 selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(scan_options.keys()))
                 selected_scan_id = scan_options[selected_scan_label]
                 
+                # Fetch counts for tabs
+                try:
+                    conn_cnt = get_db_connection()
+                    q_act = f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status != 'Solucionado'"
+                    q_res = f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Solucionado'"
+                    c_cnt = conn_cnt.cursor()
+                    c_cnt.execute(q_act, (selected_scan_id,))
+                    count_active = c_cnt.fetchone()[0]
+                    c_cnt.execute(q_res, (selected_scan_id,))
+                    count_resolved = c_cnt.fetchone()[0]
+                    c_cnt.close()
+                    conn_cnt.close()
+                except Exception:
+                    count_active, count_resolved = 0, 0
+
                 sub_t_active, sub_t_resolved = st.tabs([
-                    "⚠️ Incidentes Activos (Pendiente / En Proceso)",
-                    "✅ Incidentes Solucionados / Cerrados"
+                    f"⚠️ Incidentes Activos ({count_active})",
+                    f"✅ Incidentes Solucionados / Cerrados ({count_resolved})"
                 ])
                 
                 with sub_t_active:
                     try:
                         conn = get_db_connection()
-                        query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE scan_id = {ph} AND status != 'Solucionado' ORDER BY id ASC"
+                        query = f"SELECT id, hostname, finding_vector, severity, status FROM remediation_tasks WHERE scan_id = {ph} AND status != 'Solucionado' ORDER BY id ASC"
                         tasks_df = pd.read_sql_query(query, conn, params=(selected_scan_id,))
                         conn.close()
                     except Exception:
@@ -1472,12 +1499,23 @@ else:
                             t_id = row["id"]
                             t_host = row["hostname"]
                             t_vec = row["finding_vector"]
+                            t_sev = row.get("severity", "MEDIO") or "MEDIO"
                             t_status = row["status"]
                             
+                            sev_class = "sev-medium"
+                            if "CRÍTICO" in t_sev.upper():
+                                sev_class = "sev-critical"
+                            elif "BAJO" in t_sev.upper():
+                                sev_class = "sev-low"
+
+                            st.markdown(f"""
+                                <div class="ticket-card {sev_class}">
+                                    <h3 style="margin-top:0; font-size:16px;">📌 {t_vec}</h3>
+                                    <p style="margin:4px 0; color:#64748b;"><strong>Host:</strong> <code>{t_host}</code> | <strong>Severidad:</strong> <code>{t_sev}</code> | <strong>Estado:</strong> <b>{t_status}</b></p>
+                                </div>
+                            """, unsafe_allow_html=True)
+
                             with st.container():
-                                st.markdown(f"### 📌 {t_vec}")
-                                st.caption(f"Host: `{t_host}` | Estado actual: **{t_status}**")
-                                
                                 col_t1, col_t2 = st.columns([2, 3])
                                 with col_t1:
                                     new_status = st.selectbox(
@@ -1492,14 +1530,12 @@ else:
                                 if st.button("➕ Registrar Avance en Bitácora", key=f"save_task_active_{t_id}"):
                                     if new_note.strip():
                                         try:
-                                            is_pg = "postgres" in st.secrets
-                                            ph = "%s" if is_pg else "?"
                                             conn_u = get_db_connection()
+                                            conn_u.autocommit = True
                                             c_u = conn_u.cursor()
                                             now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                             c_u.execute(f"UPDATE remediation_tasks SET status = {ph} WHERE id = {ph}", (new_status, t_id))
                                             c_u.execute(f"INSERT INTO remediation_logs (task_id, timestamp, status, notes) VALUES ({ph}, {ph}, {ph}, {ph})", (t_id, now_ts, new_status, new_note))
-                                            conn_u.commit()
                                             c_u.close()
                                             conn_u.close()
                                             st.success("¡Avance registrado! El incidente se actualizó correctamente.")
@@ -1531,7 +1567,7 @@ else:
                 with sub_t_resolved:
                     try:
                         conn = get_db_connection()
-                        query = f"SELECT id, hostname, finding_vector, status FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Solucionado' ORDER BY id ASC"
+                        query = f"SELECT id, hostname, finding_vector, severity, status FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Solucionado' ORDER BY id ASC"
                         resolved_df = pd.read_sql_query(query, conn, params=(selected_scan_id,))
                         conn.close()
                     except Exception:
@@ -1542,12 +1578,17 @@ else:
                             t_id = row["id"]
                             t_host = row["hostname"]
                             t_vec = row["finding_vector"]
+                            t_sev = row.get("severity", "MEDIO") or "MEDIO"
                             t_status = row["status"]
                             
+                            st.markdown(f"""
+                                <div class="ticket-card sev-low">
+                                    <h3 style="margin-top:0; font-size:16px;">✅ {t_vec}</h3>
+                                    <p style="margin:4px 0; color:#64748b;"><strong>Host:</strong> <code>{t_host}</code> | <strong>Severidad:</strong> <code>{t_sev}</code> | <strong>Estado:</strong> <b>{t_status} (Cerrado)</b></p>
+                                </div>
+                            """, unsafe_allow_html=True)
+
                             with st.container():
-                                st.markdown(f"### ✅ {t_vec}")
-                                st.caption(f"Host: `{t_host}` | Estado: **{t_status} (Cerrado)**")
-                                
                                 with st.expander(f"🕒 Ver Historial Completo y Bitácora de este Incidente Solucionado"):
                                     try:
                                         conn_l = get_db_connection()
