@@ -9,6 +9,7 @@ import requests
 import io
 import base64
 import re
+import os
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
