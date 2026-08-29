@@ -10,6 +10,7 @@ import io
 import base64
 import re
 import os
+import csv
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -1465,7 +1466,6 @@ else:
                 selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(scan_options.keys()))
                 selected_scan_id = scan_options[selected_scan_label]
                 
-                # Fetch counts for tabs
                 try:
                     conn_cnt = get_db_connection()
                     q_act = f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status != 'Solucionado'"
