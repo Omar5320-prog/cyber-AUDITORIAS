@@ -136,6 +136,8 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                finding_desc TEXT,
+                finding_fix TEXT,
                 severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
@@ -143,6 +145,8 @@ def init_db():
         """)
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS finding_desc TEXT;")
+        c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS finding_fix TEXT;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS severity TEXT;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS notes TEXT;")
         
@@ -200,6 +204,8 @@ def init_db():
                 scan_id INTEGER,
                 hostname TEXT,
                 finding_vector TEXT,
+                finding_desc TEXT,
+                finding_fix TEXT,
                 severity TEXT DEFAULT 'MEDIO',
                 status TEXT DEFAULT 'Pendiente',
                 notes TEXT
@@ -208,6 +214,8 @@ def init_db():
         try:
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN organization_id INTEGER;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN scan_id INTEGER;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN finding_desc TEXT;")
+            c.execute("ALTER TABLE remediation_tasks ADD COLUMN finding_fix TEXT;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN severity TEXT;")
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN notes TEXT;")
         except Exception:
@@ -270,10 +278,12 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
             for f in findings:
                 vec = f['vector']
                 sev = f.get('severity', 'MEDIO')
+                desc = f.get('desc', '')
+                fix = f.get('fix', '')
                 if organization_id is not None:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec, sev))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, vec, desc, fix, sev))
                 else:
-                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES (NULL, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec, sev))
+                    c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status) VALUES (NULL, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (scan_id, hostname, vec, desc, fix, sev))
                     
         c.close()
         conn.close()
@@ -944,14 +954,73 @@ else:
                     st.session_state.pdf_filename = pdf_filename
                     st.session_state.docx_bytes = docx_bytes
 
-        with tab2:
-            st.subheader("Analytics de Seguridad")
+            # Mostrar botones de descarga directamente en la Pestaña 1 si hay escaneo activo
             if st.session_state.scanned:
-                st.write(f"Risk Score: **{st.session_state.risk_score} / 100**")
-                for f in st.session_state.findings:
-                    st.info(f"**{f['vector']}** [{f['severity']}] - Remediación: {f['fix']}")
+                st.success("🎉 ¡Escaneo finalizado con éxito! Descarga tus reportes ejecutivos y técnicos a continuación:")
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    if os.path.exists(st.session_state.pdf_filename):
+                        with open(st.session_state.pdf_filename, "rb") as pdf_file:
+                            st.download_button(
+                                label="📥 Descargar Informe en PDF",
+                                data=pdf_file,
+                                file_name=st.session_state.pdf_filename,
+                                mime="application/pdf",
+                                type="primary"
+                            )
+                with col_d2:
+                    if st.session_state.docx_bytes:
+                        st.download_button(
+                            label="📥 Descargar Informe en Word (DOCX)",
+                            data=st.session_state.docx_bytes,
+                            file_name=f"auditoria_{st.session_state.hostname}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="secondary"
+                        )
+
+        with tab2:
+            st.subheader("Analytics de Seguridad y Hallazgos Desplegables")
+            if st.session_state.scanned:
+                st.write(f"Risk Score Global: **{st.session_state.risk_score} / 100**")
+                st.markdown("Haz clic en cada hallazgo para ver su descripción detallada, impacto en el negocio y tipo de solución recomendada:")
+                
+                for idx, f in enumerate(st.session_state.findings, 1):
+                    sev_color = "🔴" if f['severity'] == "CRÍTICO" else "🟡" if f['severity'] == "MEDIO" else "🔵"
+                    with st.expander(f"Hallazgo #{idx} | {sev_color} [{f['severity']}] — {f['vector']}"):
+                        st.markdown(f"**Norma de Cumplimiento:** `{f.get('compliance', 'N/A')}`")
+                        st.markdown(f"**Descripción del Problema:** {f['desc']}")
+                        st.markdown(f"**Impacto de Negocio:** {f['impact']}")
+                        st.markdown(f"**Tipo de Solución / Remediación:** {f['fix']}")
+                        if "snippet" in f:
+                            st.markdown("**Comando / Configuración Sugerida:**")
+                            st.code(f['snippet'], language="bash")
+                            
+                st.markdown("---")
+                st.subheader("📥 Descarga de Reportes del Análisis Actual")
+                col_d3, col_d4 = st.columns(2)
+                with col_d3:
+                    if os.path.exists(st.session_state.pdf_filename):
+                        with open(st.session_state.pdf_filename, "rb") as pdf_file:
+                            st.download_button(
+                                label="📥 Descargar Reporte PDF",
+                                data=pdf_file,
+                                file_name=st.session_state.pdf_filename,
+                                mime="application/pdf",
+                                key="btn_pdf_tab2",
+                                type="primary"
+                            )
+                with col_d4:
+                    if st.session_state.docx_bytes:
+                        st.download_button(
+                            label="📥 Descargar Reporte Word (DOCX)",
+                            data=st.session_state.docx_bytes,
+                            file_name=f"auditoria_{st.session_state.hostname}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="btn_docx_tab2",
+                            type="secondary"
+                        )
             else:
-                st.info("Ejecuta un escaneo primero.")
+                st.info("ℹ️ Ejecuta un escaneo perimetral en la primera pestaña ('Perimeter Scan') para habilitar los analytics y las opciones de descarga de reportes.")
 
         with tab3:
             st.subheader(f"📜 Historial de Escaneos y Resúmenes — {selected_org_name}")
@@ -985,9 +1054,8 @@ else:
 
         with tab4:
             st.subheader(f"🛠️ Tablero de Remediación (Estilo Jira) — {selected_org_name}")
-            st.caption("Los incidentes se muestran completamente aislados para el cliente seleccionado. Cada ticket está vinculado a su escaneo correspondiente (scan_id).")
+            st.caption("Los incidentes muestran la vulnerabilidad exacta y el tipo de solución detallada vinculada a su escaneo correspondiente.")
             
-            # Botón de mantenimiento para limpiar tickets huérfanos previos
             col_purging1, col_purging2 = st.columns([3, 1])
             with col_purging2:
                 if st.button("🧹 Limpiar Tickets Huérfanos"):
@@ -995,7 +1063,6 @@ else:
                         conn_p = get_db_connection()
                         conn_p.autocommit = True
                         c_p = conn_p.cursor()
-                        # Borra tareas cuyo scan_id ya no existe en la tabla history
                         c_p.execute("DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL)")
                         c_p.execute("DELETE FROM remediation_tasks WHERE scan_id NOT IN (SELECT id FROM history) OR scan_id IS NULL")
                         c_p.close()
@@ -1011,10 +1078,10 @@ else:
                 ph = "%s" if is_pg else "?"
                 
                 if selected_org_id is not None:
-                    query = f"SELECT id, scan_id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
+                    query = f"SELECT id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status, notes FROM remediation_tasks WHERE organization_id = {ph} ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn, params=(selected_org_id,))
                 else:
-                    query = "SELECT id, scan_id, hostname, finding_vector, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
+                    query = "SELECT id, scan_id, hostname, finding_vector, finding_desc, finding_fix, severity, status, notes FROM remediation_tasks WHERE organization_id IS NULL ORDER BY id DESC"
                     tasks_df = pd.read_sql_query(query, conn)
                 conn.close()
             except Exception:
@@ -1057,7 +1124,11 @@ else:
                             col_info1, col_info2 = st.columns([2, 1])
                             with col_info1:
                                 st.markdown(f"**Dominio / Host:** `{row['hostname']}`")
-                                st.markdown(f"**Vector de Vulnerabilidad:** {row['finding_vector']}")
+                                st.markdown(f"**Tipo de Vulnerabilidad:** {row['finding_vector']}")
+                                if pd.notna(row['finding_desc']) and row['finding_desc'] != '':
+                                    st.markdown(f"**Descripción Detallada:** {row['finding_desc']}")
+                                if pd.notna(row['finding_fix']) and row['finding_fix'] != '':
+                                    st.markdown(f"**Tipo de Solución / Remediación:** `{row['finding_fix']}`")
                                 st.markdown(f"**Severidad:** {row['severity']} | **Estado Actual:** `{row['status']}`")
                             with col_info2:
                                 st.markdown(f"**ID de Ticket:** #{ticket_id}")
