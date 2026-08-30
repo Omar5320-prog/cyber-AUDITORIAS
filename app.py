@@ -302,6 +302,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
 # ==========================================
 if "scanned" not in st.session_state: st.session_state.scanned = False
 if "toast_msg" not in st.session_state: st.session_state.toast_msg = ""
+if "toast_type" not in st.session_state: st.session_state.toast_type = "success"
 
 st.markdown('<div class="enterprise-banner">🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.</div>', unsafe_allow_html=True)
 
@@ -317,9 +318,12 @@ for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
 selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
 selected_org_id = org_options[selected_org_name]
 
-# Mostrar mensaje de éxito persistente si existe en la sesión
+# Mostrar mensaje en verde para altas y en rojo para eliminaciones
 if st.session_state.toast_msg:
-    st.sidebar.success(st.session_state.toast_msg)
+    if st.session_state.toast_type == "error":
+        st.sidebar.error(st.session_state.toast_msg)
+    else:
+        st.sidebar.success(st.session_state.toast_msg)
     st.session_state.toast_msg = ""
 
 with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
@@ -331,15 +335,16 @@ with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
                 c_add.execute(f"INSERT INTO organizations (name) VALUES ({'%s' if 'postgres' in st.secrets else '?'})", (new_org,))
                 conn_add.commit(); c_add.close(); conn_add.close()
                 st.session_state.toast_msg = f"✅ ¡Cliente '{new_org}' dado de alta con éxito!"
+                st.session_state.toast_type = "success"
                 st.rerun()
             except Exception:
                 st.sidebar.error("El cliente ya existe o hubo un error.")
 
-# Botón para eliminar cliente actual si no es General
 if selected_org_id is not None:
     if st.sidebar.button("🗑️ Eliminar Cliente Actual", type="secondary"):
         delete_organization(selected_org_id)
         st.session_state.toast_msg = f"🗑️ Cliente '{selected_org_name}' eliminado con éxito."
+        st.session_state.toast_type = "error"
         st.rerun()
 
 st.sidebar.markdown("---")
@@ -434,12 +439,12 @@ with tab3:
         st.dataframe(display_df[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
         
         st.markdown("### 🗑️ Gestión Segura de Escaneos")
-        st.warning("Selecciona el escaneo que deseas retirar y marca la casilla de confirmación para habilitar el borrado.")
+        # Cuadro amarillo eliminado por completo según tu instrucción
         
         del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df.iterrows()}
         scan_to_del_label = st.selectbox("¿Qué escaneo necesitas eliminar?", list(del_options.keys()), key="del_scan_select")
         
-        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo y sus tickets asociados")
+        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo específico y sus tickets asociados")
         
         if st.button("🗑️ Eliminar Escaneo Seleccionado", type="primary"):
             if confirm_delete:
@@ -448,10 +453,10 @@ with tab3:
                 for key in ['findings', 'hostname', 'risk_score', 'pdf_filename', 'docx_bytes']:
                     if key in st.session_state:
                         del st.session_state[key]
-                st.success("✅ Escaneo eliminado con éxito y registros reindexados.")
+                st.success("✅ Escaneo seleccionado eliminado con éxito y registros reindexados.")
                 st.rerun()
             else:
-                st.error("Debes marcar la casilla de confirmación para proceder con la eliminación.")
+                st.error("Debes marcar obligatoriamente la casilla de confirmación para eliminar el escaneo seleccionado.")
     else:
         st.info("No hay historial de escaneos para este cliente.")
 
