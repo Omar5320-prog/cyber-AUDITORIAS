@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import socket
-import ssl
 import datetime
 import requests
 import json
 import io
 import base64
-import os
 from urllib.parse import urlparse
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -155,10 +153,10 @@ def scan_target(url):
             stats["Críticas"] += 1
             findings.append({
                 "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
-                "desc": f"El servidor de {hostname} no emite la cabecera HSTS.",
+                "desc": f"El servidor de {hostname} no emite la cabecera HSTS de seguridad en transporte.",
                 "impact": "Exposición crítica a ataques Man-in-the-Middle y SSL Stripping.",
-                "fix": "Configurar la cabecera Strict-Transport-Security.",
-                "compliance": "PCI-DSS 4.1 / ISO 27001", "snippet": 'add_header Strict-Transport-Security "max-age=31536000;";'
+                "fix": "Configurar la cabecera Strict-Transport-Security en el servidor web.",
+                "compliance": "ISO/IEC 27001:2022 (A.12.6.1) / PCI-DSS 4.1", "snippet": 'add_header Strict-Transport-Security "max-age=31536000;";'
             })
             
         if "Content-Security-Policy" in headers:
@@ -167,10 +165,10 @@ def scan_target(url):
             stats["Medias"] += 1
             findings.append({
                 "vector": "Content Security Policy (CSP) Ausente", "severity": "MEDIO",
-                "desc": f"No se detectaron políticas CSP en {hostname}.",
-                "impact": "Mayor exposición a ataques XSS.",
-                "fix": "Implementar cabecera Content-Security-Policy.",
-                "compliance": "OWASP Top 10", "snippet": 'add_header Content-Security-Policy "default-src \'self\'";'
+                "desc": f"No se detectaron directivas de política de seguridad de contenido (CSP) en {hostname}.",
+                "impact": "Mayor exposición a inyecciones de código y ataques XSS avanzados.",
+                "fix": "Implementar cabecera Content-Security-Policy con dominios de confianza.",
+                "compliance": "NIST SP 800-53 (SC-7) / OWASP Top 10", "snippet": 'add_header Content-Security-Policy "default-src \'self\'";'
             })
             
         if "X-Frame-Options" in headers:
@@ -179,19 +177,19 @@ def scan_target(url):
             stats["Bajas"] += 1
             findings.append({
                 "vector": "Clickjacking - X-Frame-Options Ausente", "severity": "BAJO",
-                "desc": f"El sitio {hostname} no previene ser embebido en iframes.",
-                "impact": "Riesgo de secuestro de clics.",
-                "fix": "Configurar X-Frame-Options en SAMEORIGIN.",
-                "compliance": "ISO 27001", "snippet": 'add_header X-Frame-Options "SAMEORIGIN";'
+                "desc": f"El sitio {hostname} no emite restricciones para evitar ser embebido en iframes.",
+                "impact": "Riesgo de secuestro de clics en interfaces de usuario.",
+                "fix": "Configurar X-Frame-Options en SAMEORIGIN o DENY.",
+                "compliance": "ISO/IEC 27001 (A.14.1.1)", "snippet": 'add_header X-Frame-Options "SAMEORIGIN";'
             })
     except Exception as e:
         stats["Críticas"] += 1
         findings.append({
-            "vector": "Error de Conectividad", "severity": "CRÍTICO",
-            "desc": f"No se pudo completar la solicitud HTTP: {str(e)}",
-            "impact": "Posible caída del servicio.",
-            "fix": "Verificar disponibilidad del servidor.",
-            "compliance": "Disponibilidad", "snippet": "ping check"
+            "vector": "Error de Conectividad o Servicio Inaccesible", "severity": "CRÍTICO",
+            "desc": f"No se pudo completar la solicitud HTTP sobre el objetivo: {str(e)}",
+            "impact": "Posible caída del servicio o bloqueo perimetral estricto.",
+            "fix": "Verificar disponibilidad del servidor y reglas de Firewall.",
+            "compliance": "Disponibilidad Operativa / ISO 27001 (A.17.1)", "snippet": "ping check / firewall rules"
         })
 
     penalty = (stats["Críticas"] * 25) + (stats["Medias"] * 10) + (stats["Bajas"] * 5)
@@ -224,14 +222,15 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
     run_title.font.size, run_title.font.bold, run_title.font.color.rgb = Pt(15), True, RGBColor(15, 23, 42)
     
     doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | Risk Score: {risk_score}/100")
-    doc.add_heading("Detalle de Hallazgos y Guía de Remediación", level=2)
+    doc.add_heading("Detalle de Hallazgos", level=2)
     
     for idx, f in enumerate(findings, 1):
         h = doc.add_paragraph().add_run(f"#{idx} - {f['vector']} [{f['severity']}]")
         h.font.bold = True
         doc.add_paragraph(f"Descripción: {f['desc']}")
         doc.add_paragraph(f"Impacto: {f['impact']}")
-        doc.add_paragraph().add_run(f"Remediación recomendada: {f['fix']}").font.bold = True
+        doc.add_paragraph(f"Marco Regulatorio: {f.get('compliance', 'N/A')}")
+        doc.add_paragraph().add_run(f"Remediación: {f['fix']}").font.bold = True
         
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -275,10 +274,10 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
 
     if "Técnico" in report_type:
         content = header_html + f"""
-            <h2 class="title">1. Resumen de Postura de Seguridad</h2>
-            <p>El Risk Score calculado para la infraestructura es de <strong>{risk_score}/100</strong>.</p>
+            <h2 class="title">1. Resumen Técnico de Postura</h2>
+            <p>Puntuación de Riesgo Técnico: <strong>{risk_score}/100</strong>.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 250px;"></div>
-            <h2 class="title">2. Detalles Técnicos y Remediación</h2>
+            <h2 class="title">2. Evidencia de Vulnerabilidades y Bloques de Configuración</h2>
         """
         for i, f in enumerate(findings, 1):
             bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
@@ -287,46 +286,48 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                 <div class="card-header">#{i} - {f['vector']} <span class="badge {bg}">{f['severity']}</span></div>
                 <div class="card-body">
                     <p><strong>Descripción:</strong> {f['desc']}</p>
-                    <p><strong>Impacto:</strong> {f['impact']}</p>
+                    <p><strong>Impacto Operativo:</strong> {f['impact']}</p>
                     <div style="background:#f0f9ff; border-left:3px solid #0284c7; padding:8px; margin-top:8px;">
-                        <strong>Remediación Técnica:</strong> {f['fix']}
+                        <strong>Remediación Técnica (Snippet / Config):</strong><br>
+                        <code>{f.get('snippet', 'N/A')}</code>
                     </div>
                 </div>
             </div>
             """
-    elif "Narrativo" in report_type:
+    elif "Normativa" in report_type or "ISO" in report_type:
+        content = header_html + f"""
+            <h2 class="title">1. Dictamen de Cumplimiento Normativo (ISO 27001 / NIST)</h2>
+            <p>Índice de Madurez de Cumplimiento: <strong>{risk_score}/100</strong>. Este informe mapea las deficiencias detectadas contra marcos de control internacional para auditorías de certificación.</p>
+            <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
+            <h2 class="title">2. Análisis de Controles Incumplidos</h2>
+        """
+        for i, f in enumerate(findings, 1):
+            bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
+            content += f"""
+            <div class="card">
+                <div class="card-header">Control #{i}: {f['vector']} <span class="badge {bg}">Riesgo {f['severity']}</span></div>
+                <div class="card-body">
+                    <p><strong>Marco Regulatorio / Cláusula:</strong> <code>{f.get('compliance', 'ISO 27001')}</code></p>
+                    <p><strong>Hallazgo de Auditoría:</strong> {f['desc']}</p>
+                    <p><strong>Riesgo de No Conformidad:</strong> {f['impact']}</p>
+                    <div style="background:#f8fafc; border-left:3px solid #0f172a; padding:8px; margin-top:8px;">
+                        <strong>Directriz Corporativa Requerida:</strong> {f['fix']}
+                    </div>
+                </div>
+            </div>
+            """
+    else:
         content = header_html + f"""
             <h2 class="title">Memorándum Ejecutivo de Riesgos</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
-            <p>Por medio de la presente, el equipo de consultoría de <strong>{agency_name}</strong> le hace entrega formal de los resultados obtenidos durante la evaluación perimetral realizada sobre el activo digital <strong>{hostname}</strong>.</p>
-            <p>Tras analizar la superficie expuesta a internet, hemos determinado un Índice de Riesgo de <strong>{risk_score} sobre 100</strong>.</p>
+            <p>El análisis perimetral de <strong>{hostname}</strong> arroja un puntaje global de <strong>{risk_score} sobre 100</strong>.</p>
             <div style="text-align: center; margin: 20px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
-            <h2 class="title">Resumen Ejecutivo de Impacto</h2>
+            <h2 class="title">Resumen Directivo</h2>
             <ul>
         """
         for f in findings:
-            content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']} Para mitigar este riesgo, se recomienda: {f['fix'].lower()}</li>"
-        content += "</ul><p>Quedamos a su entera disposición para coordinar la ejecución del plan de remediación.</p>"
-    else:
-        content = header_html + f"""
-            <h2 class="title">Evaluación de Cumplimiento (Compliance Mapping)</h2>
-            <p>Este informe detalla las brechas de seguridad identificadas en <strong>{hostname}</strong> y su correspondencia con los marcos de control internacionales.</p>
-            <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-top: 15px;">
-                <tr style="background-color: #f1f5f9;">
-                    <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Vulnerabilidad</th>
-                    <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Severidad</th>
-                    <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Marco Normativo / Control</th>
-                </tr>
-        """
-        for f in findings:
-            content += f"""
-                <tr>
-                    <td style="padding: 8px; border: 1px solid #cbd5e1;"><strong>{f['vector']}</strong><br>{f['desc']}</td>
-                    <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center;">{f['severity']}</td>
-                    <td style="padding: 8px; border: 1px solid #cbd5e1;"><code>{f.get('compliance', 'N/A')}</code><br><em>Acción: {f['fix']}</em></td>
-                </tr>
-            """
-        content += "</table>"
+            content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']}</li>"
+        content += "</ul>"
 
     HTML(string=f"<html><head><style>{css_base}</style></head><body>{content}</body></html>").write_pdf(output_filename)
 
@@ -352,7 +353,6 @@ for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
 selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
 selected_org_id = org_options[selected_org_name]
 
-# Mensaje de éxito en verde y de eliminación en rojo
 if st.session_state.toast_msg:
     if st.session_state.toast_type == "error":
         st.sidebar.error(st.session_state.toast_msg)
@@ -406,10 +406,10 @@ with tab1:
         m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
         m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
         m3.metric("Estado del Activo", "Auditado")
-        st.info("💡 Dirígete a la pestaña **Security Analytics & Reportes** para descargar los tres tipos de informes en PDF y Word con un solo escaneo.")
+        st.info("💡 Dirígete a la pestaña **Security Analytics & Reportes** para gestionar las descargas.")
 
 with tab2:
-    st.subheader(f"📊 Security Analytics & Descarga Simultánea de Reportes — {selected_org_name}")
+    st.subheader(f"📊 Security Analytics & Centro de Descarga de Informes — {selected_org_name}")
     conn = get_db_connection()
     ph = "%s" if "postgres" in st.secrets else "?"
     if selected_org_id is not None:
@@ -434,8 +434,8 @@ with tab2:
         except:
             stored_findings = []
             
-        st.markdown("### 📥 Descarga de los 3 Informes (Con un solo escaneo)")
-        st.write("Desde este panel puedes descargar de forma independiente y simultánea los tres formatos de informe sin necesidad de volver a escanear:")
+        st.markdown("### 📥 Centro de Descarga de Informes")
+        st.write("Selecciona y descarga los formatos independientes para este análisis:")
         
         stats_dummy = {"Críticas": sum(1 for x in stored_findings if x.get('severity') == 'CRÍTICO'),
                        "Medias": sum(1 for x in stored_findings if x.get('severity') == 'MEDIO'),
