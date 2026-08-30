@@ -124,45 +124,164 @@ def delete_organization(org_id):
     conn.close()
 
 # ==========================================
-# ESCÁNER
+# ESCÁNER REAL Y EXHAUSTIVO
 # ==========================================
 def get_geolocation(hostname):
     geo_data = {"ip": "N/A", "country": "Desconocido", "city": "Desconocido", "org": "Desconocido"}
     try:
         ip = socket.gethostbyname(hostname)
         geo_data["ip"] = ip
-        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp", timeout=5)
+        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp", timeout=4)
         if response.status_code == 200 and response.json().get("status") == "success":
             data = response.json()
             geo_data.update({"country": data.get("country", ""), "city": data.get("city", ""), "org": data.get("org", "")})
     except: pass
     return geo_data
 
+def check_ssl_certificate(hostname):
+    ssl_info = {"valid": False, "details": "No se pudo verificar el certificado SSL."}
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((hostname, 443), timeout=4) as sock:
+            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                cert = ssock.getpeercert()
+                if cert:
+                    ssl_info["valid"] = True
+                    ssl_info["details"] = "Certificado SSL/TLS activo y válido."
+    except Exception as e:
+        ssl_info["details"] = f"Error SSL: {str(e)}"
+    return ssl_info
+
+def check_email_security(hostname):
+    email_sec = {"spf": False, "dmarc": False}
+    try:
+        res_spf = requests.get(f"https://cloudflare-dns.com/dns-query?name={hostname}&type=TXT", headers={"Accept": "application/dns-json"}, timeout=3)
+        if res_spf.status_code == 200:
+            for ans in res_spf.json().get("Answer", []):
+                if "v=spf1" in ans.get("data", ""): email_sec["spf"] = True
+        res_dmarc = requests.get(f"https://cloudflare-dns.com/dns-query?name=_dmarc.{hostname}&type=TXT", headers={"Accept": "application/dns-json"}, timeout=3)
+        if res_dmarc.status_code == 200:
+            for ans in res_dmarc.json().get("Answer", []):
+                if "v=DMARC1" in ans.get("data", ""): email_sec["dmarc"] = True
+    except: pass
+    return email_sec
+
 def scan_target(url):
     parsed_url = urlparse(url)
     hostname = parsed_url.hostname or url.replace("https://", "").replace("http://", "").split("/")[0]
+    
     findings = []
     stats = {"Críticas": 0, "Medias": 0, "Bajas": 0, "Seguras": 0}
     geo = get_geolocation(hostname)
+    ssl_info = check_ssl_certificate(hostname)
+    email_sec = check_email_security(hostname)
     
-    stats["Críticas"] += 1
-    findings.append({
-        "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
-        "desc": "La cabecera de seguridad HSTS no está presente. Esto permite que ataques de red fuercen la conexión a degradarse a HTTP plano.", 
-        "impact": "Exposición crítica a ataques Man-in-the-Middle y robo de cookies de sesión.", 
-        "fix": "Configurar el servidor web para enviar la cabecera 'Strict-Transport-Security' con un max-age adecuado.", 
-        "compliance": "PCI-DSS 4.1 / ISO 27001 A.10.1", "snippet": 'add_header Strict-Transport-Security "max-age=31536000;";'})
-    
-    stats["Medias"] += 1
-    findings.append({
-        "vector": "Ausencia de Registro SPF/DMARC", "severity": "MEDIO",
-        "desc": "No se detectaron políticas robustas de autenticación de correo electrónico en la zona DNS.", 
-        "impact": "El dominio puede ser utilizado para enviar campañas de phishing suplantando la identidad de la empresa.", 
-        "fix": "Implementar registros TXT para SPF y DMARC restringiendo los servidores autorizados.", 
-        "compliance": "NIST CSF / ISO 27001 A.13.2", "snippet": 'v=DMARC1; p=reject;'})
+    # 1. Análisis de Cabeceras HTTP Reales
+    try:
+        response = requests.get(url, timeout=5, allow_redirects=True)
+        headers = response.headers
+        
+        # HSTS
+        if "Strict-Transport-Security" in headers:
+            stats["Seguras"] += 1
+        else:
+            stats["Críticas"] += 1
+            findings.append({
+                "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
+                "desc": f"El servidor de {hostname} no emite la cabecera HSTS, permitiendo ataques de degradación de protocolo (SSL Stripping).",
+                "impact": "Riesgo de intercepción de tráfico de credenciales en redes no confiables.",
+                "fix": "Añadir la cabecera Strict-Transport-Security en la configuración del servidor web.",
+                "compliance": "PCI-DSS 4.1 / ISO 27001", "snippet": 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";'
+            })
+            
+        # CSP
+        if "Content-Security-Policy" in headers:
+            stats["Seguras"] += 1
+        else:
+            stats["Medias"] += 1
+            findings.append({
+                "vector": "Content Security Policy (CSP) Ausente", "severity": "MEDIO",
+                "desc": f"No se detectó una política de seguridad de contenido (CSP) en las respuestas de {hostname}.",
+                "impact": "Mayor exposición a ataques de Cross-Site Scripting (XSS) e inyección de código malicioso.",
+                "fix": "Implementar la cabecera Content-Security-Policy restringiendo fuentes de scripts.",
+                "compliance": "OWASP Top 10", "snippet": 'add_header Content-Security-Policy "default-src \'self\'";'
+            })
+            
+        # X-Frame-Options
+        if "X-Frame-Options" in headers or "Content-Security-Policy" in headers:
+            stats["Seguras"] += 1
+        else:
+            stats["Medias"] += 1
+            findings.append({
+                "vector": "Protección contra Clickjacking Ausente (X-Frame-Options)", "severity": "MEDIO",
+                "desc": f"El sitio {hostname} no previene ser embebido en iframes de terceros maliciosos.",
+                "impact": "Permite ataques de Clickjacking donde los usuarios pueden ser engañados para hacer clic en elementos invisibles.",
+                "fix": "Configurar la cabecera X-Frame-Options como DENY o SAMEORIGIN.",
+                "compliance": "ISO 27001 A.14.1", "snippet": 'add_header X-Frame-Options "SAMEORIGIN";'
+            })
+            
+        # Server header disclosure
+        if "Server" in headers:
+            stats["Bajas"] += 1
+            findings.append({
+                "vector": "Divulgación de Versión del Servidor Web", "severity": "BAJO",
+                "desc": f"La cabecera 'Server' expone software del backend ({headers.get('Server')}).",
+                "impact": "Facilita la fase de reconocimiento a atacantes para buscar exploits específicos de la versión.",
+                "fix": "Ocultar o enmascarar la cabecera Server en la configuración del servidor.",
+                "compliance": "CIS Benchmarks", "snippet": "ServerTokens Prod / ServerSignature Off"
+            })
+        else:
+            stats["Seguras"] += 1
+
+    except Exception as e:
+        stats["Críticas"] += 1
+        findings.append({
+            "vector": "Error de Conectividad o Sitio Inalcanzable", "severity": "CRÍTICO",
+            "desc": f"No se pudo completar la solicitud HTTP hacia {hostname}: {str(e)}",
+            "impact": "Posible caída del servicio o bloqueo de peticiones perimetrales.",
+            "fix": "Verificar la disponibilidad del servidor y reglas de Firewall/WAF.",
+            "compliance": "Disponibilidad Operativa", "snippet": "ping / curl check"
+        })
+
+    # 2. Seguridad de Correo (SPF / DMARC)
+    if email_sec["spf"]:
+        stats["Seguras"] += 1
+    else:
+        stats["Medias"] += 1
+        findings.append({
+            "vector": "Ausencia de Registro SPF", "severity": "MEDIO",
+            "desc": f"El dominio {hostname} no cuenta con un registro SPF válido configurado en DNS.",
+            "impact": "Vulnerabilidad a suplantación de identidad (Email Spoofing / Phishing corporativo).",
+            "fix": "Publicar un registro TXT con directiva SPF estricta.",
+            "compliance": "ISO 27001 A.13.2", "snippet": f'{hostname}. IN TXT "v=spf1 include:_spf.domain.com ~all"'
+        })
+
+    if email_sec["dmarc"]:
+        stats["Seguras"] += 1
+    else:
+        stats["Medias"] += 1
+        findings.append({
+            "vector": "Ausencia de Política DMARC", "severity": "MEDIO",
+            "desc": f"No se detectó un registro DMARC activo para {hostname}.",
+            "impact": "Ceguera operativa ante abusos de marca y correos fraudulentos masivos.",
+            "fix": "Implementar un registro DMARC en _dmarc.{hostname}.",
+            "compliance": "ISO 27001 A.13.1", "snippet": f'_dmarc.{hostname}. IN TXT "v=DMARC1; p=reject;"'
+        })
+
+    # 3. Estado SSL
+    if not ssl_info["valid"]:
+        stats["Críticas"] += 1
+        findings.append({
+            "vector": "Certificado SSL/TLS Inválido o Ausente", "severity": "CRÍTICO",
+            "desc": f"El certificado SSL para {hostname} presenta fallas de validez o no está configurado.",
+            "impact": "Tráfico expuesto en texto plano y bloqueos de seguridad en navegadores modernos.",
+            "fix": "Renovar o instalar un certificado válido mediante una CA confiable.",
+            "compliance": "PCI-DSS 4.1", "snippet": "certbot renew"
+        })
 
     penalty = (stats["Críticas"] * 25) + (stats["Medias"] * 10) + (stats["Bajas"] * 5)
-    return findings, stats, hostname, geo, max(0, 100 - penalty)
+    risk_score = max(0, 100 - penalty)
+    return findings, stats, hostname, geo, risk_score
 
 
 # ==========================================
@@ -318,7 +437,6 @@ for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
 selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
 selected_org_id = org_options[selected_org_name]
 
-# Mostrar mensaje en verde para altas y en rojo para eliminaciones
 if st.session_state.toast_msg:
     if st.session_state.toast_type == "error":
         st.sidebar.error(st.session_state.toast_msg)
@@ -357,25 +475,12 @@ report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos P
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera"])
 
-conn = get_db_connection()
-ph = "%s" if "postgres" in st.secrets else "?"
-if selected_org_id is not None:
-    raw_history = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
-else:
-    raw_history = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
-conn.close()
-
-if not raw_history.empty:
-    raw_history['Escaneo #'] = range(1, len(raw_history) + 1)
-    display_df = raw_history.sort_values(by='Escaneo #', ascending=False)
-else:
-    display_df = pd.DataFrame(columns=['id', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type', 'findings_json', 'Escaneo #'])
-
 with tab1:
     target_url = st.text_input("URL Objetivo", value="https://")
     if st.button("🚀 Ejecutar Análisis", type="primary"):
         if target_url and target_url != "https://":
-            with st.spinner("Analizando y generando reportes dinámicos..."):
+            if not target_url.startswith("http"): target_url = "https://" + target_url
+            with st.spinner(f"Analizando cabeceras y DNS de {target_url}..."):
                 findings, stats, hostname, geo, risk_score = scan_target(target_url)
                 scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), report_type, selected_org_id, findings)
                 
@@ -410,8 +515,20 @@ with tab1:
 
 with tab2:
     st.subheader(f"📊 Security Analytics — {selected_org_name}")
-    if not raw_history.empty:
-        analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df.iterrows()}
+    # Consulta dinámica al momento de abrir la pestaña (Sin necesidad de F5)
+    conn = get_db_connection()
+    ph = "%s" if "postgres" in st.secrets else "?"
+    if selected_org_id is not None:
+        raw_history_tab2 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
+    else:
+        raw_history_tab2 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
+    conn.close()
+
+    if not raw_history_tab2.empty:
+        raw_history_tab2['Escaneo #'] = range(1, len(raw_history_tab2) + 1)
+        display_df_tab2 = raw_history_tab2.sort_values(by='Escaneo #', ascending=False)
+        
+        analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df_tab2.iterrows()}
         selected_analytics_label = st.selectbox("Seleccionar Escaneo para Analizar", list(analytics_options.keys()), key="analytics_scan_select")
         selected_scan_row = analytics_options[selected_analytics_label]
         
@@ -435,16 +552,26 @@ with tab2:
         st.info("Realiza un escaneo en la primera pestaña para visualizar los datos analíticos.")
 
 with tab3:
-    if not raw_history.empty:
-        st.dataframe(display_df[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
+    # Consulta dinámica al abrir la pestaña (Actualización en tiempo real sin F5)
+    conn = get_db_connection()
+    if selected_org_id is not None:
+        raw_history_tab3 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
+    else:
+        raw_history_tab3 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
+    conn.close()
+
+    if not raw_history_tab3.empty:
+        raw_history_tab3['Escaneo #'] = range(1, len(raw_history_tab3) + 1)
+        display_df_tab3 = raw_history_tab3.sort_values(by='Escaneo #', ascending=False)
+        
+        st.dataframe(display_df_tab3[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
         
         st.markdown("### 🗑️ Gestión Segura de Escaneos")
-        # Cuadro amarillo eliminado por completo según tu instrucción
         
-        del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df.iterrows()}
+        del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df_tab3.iterrows()}
         scan_to_del_label = st.selectbox("¿Qué escaneo necesitas eliminar?", list(del_options.keys()), key="del_scan_select")
         
-        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo específico y sus tickets asociados")
+        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo específico y sus tickets asociados", key="chk_del_scan")
         
         if st.button("🗑️ Eliminar Escaneo Seleccionado", type="primary"):
             if confirm_delete:
@@ -462,8 +589,19 @@ with tab3:
 
 with tab4:
     st.subheader(f"🛠️ Ticketera — {selected_org_name}")
-    if not raw_history.empty:
-        ticket_scan_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']}": row["id"] for _, row in display_df.iterrows()}
+    # Consulta dinámica al abrir la pestaña
+    conn = get_db_connection()
+    if selected_org_id is not None:
+        raw_history_tab4 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
+    else:
+        raw_history_tab4 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
+    conn.close()
+
+    if not raw_history_tab4.empty:
+        raw_history_tab4['Escaneo #'] = range(1, len(raw_history_tab4) + 1)
+        display_df_tab4 = raw_history_tab4.sort_values(by='Escaneo #', ascending=False)
+
+        ticket_scan_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']}": row["id"] for _, row in display_df_tab4.iterrows()}
         selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(ticket_scan_options.keys()), key="ticket_scan_select")
         selected_scan_id = ticket_scan_options[selected_scan_label]
         
