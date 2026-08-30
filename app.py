@@ -5,7 +5,7 @@ import socket
 import ssl
 import datetime
 import requests
-import hashlib
+import json
 import io
 import base64
 import os
@@ -49,8 +49,9 @@ def init_db():
     
     if is_pg:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT)""")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS findings_json TEXT;")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id SERIAL PRIMARY KEY, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
@@ -58,8 +59,10 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id SERIAL PRIMARY KEY, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT)""")
         try: c.execute("ALTER TABLE history ADD COLUMN organization_id INTEGER;")
+        except: pass
+        try: c.execute("ALTER TABLE history ADD COLUMN findings_json TEXT;")
         except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         try:
@@ -79,14 +82,15 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
     conn.autocommit = True
     c = conn.cursor()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    findings_str = json.dumps(findings) if findings else "[]"
     is_pg = "postgres" in st.secrets
     ph = "%s" if is_pg else "?"
     
     if is_pg:
-        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}) RETURNING id", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id))
+        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id, findings_json) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}) RETURNING id", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id, findings_str))
         scan_id = c.fetchone()[0]
     else:
-        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id))
+        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id, findings_json) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id, findings_str))
         scan_id = c.lastrowid
         
     if findings:
@@ -94,13 +98,13 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
             c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, f['vector'], f.get('severity', 'MEDIO')))
     c.close()
     conn.close()
+    return scan_id
 
 def delete_scan(scan_id):
     conn = get_db_connection()
     conn.autocommit = True
     c = conn.cursor()
     ph = "%s" if "postgres" in st.secrets else "?"
-    # Borrar en cascada
     c.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE scan_id = {ph})", (scan_id,))
     c.execute(f"DELETE FROM remediation_tasks WHERE scan_id = {ph}", (scan_id,))
     c.execute(f"DELETE FROM history WHERE id = {ph}", (scan_id,))
@@ -129,7 +133,6 @@ def scan_target(url):
     stats = {"Críticas": 0, "Medias": 0, "Bajas": 0, "Seguras": 0}
     geo = get_geolocation(hostname)
     
-    # Mocking SSL & Headers for speed in UI
     stats["Críticas"] += 1
     findings.append({
         "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
@@ -151,7 +154,7 @@ def scan_target(url):
 
 
 # ==========================================
-# REPORTES EN PDF (3 PLANTILLAS)
+# REPORTES EN PDF Y DOCX
 # ==========================================
 def generate_chart(stats):
     labels, sizes, colors = list(stats.keys()), list(stats.values()), ['#dc2626', '#f59e0b', '#3b82f6', '#10b981']
@@ -166,6 +169,28 @@ def generate_chart(stats):
     plt.savefig(chart_path, dpi=300, bbox_inches='tight', transparent=True)
     plt.close()
     with open(chart_path, "rb") as f: return base64.b64encode(f.read()).decode("utf-8")
+
+def generate_docx(hostname, geo, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject):
+    doc = Document()
+    for section in doc.sections: section.top_margin = section.bottom_margin = section.left_margin = section.right_margin = Inches(1)
+    
+    run_title = doc.add_paragraph().add_run(f"INFORME: {report_type.upper()}")
+    run_title.font.size, run_title.font.bold, run_title.font.color.rgb = Pt(15), True, RGBColor(15, 23, 42)
+    
+    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | Risk Score: {risk_score}/100")
+    doc.add_heading("Detalle de Hallazgos y Guía de Remediación", level=2)
+    
+    for idx, f in enumerate(findings, 1):
+        h = doc.add_paragraph().add_run(f"#{idx} - {f['vector']} [{f['severity']}]")
+        h.font.bold = True
+        doc.add_paragraph(f"Descripción: {f['desc']}")
+        doc.add_paragraph(f"Impacto: {f['impact']}")
+        doc.add_paragraph().add_run(f"Remediación recomendada: {f['fix']}").font.bold = True
+        
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, output_filename):
     css_base = """
@@ -202,7 +227,6 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         </div>
     """
 
-    # --- PLANTILLA 1: TÉCNICO EXHAUSTIVO ---
     if "Técnico" in report_type:
         content = header_html + f"""
             <h2 class="title">1. Resumen de Postura de Seguridad</h2>
@@ -224,8 +248,6 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                 </div>
             </div>
             """
-
-    # --- PLANTILLA 2: NARRATIVO (GERENCIAL) ---
     elif "Narrativo" in report_type:
         content = header_html + f"""
             <h2 class="title">Memorándum Ejecutivo de Riesgos</h2>
@@ -239,8 +261,6 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         for f in findings:
             content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']} Para mitigar este riesgo, recomendamos {f['fix'].lower()}</li>"
         content += "</ul><p>Quedamos a su entera disposición para coordinar la ejecución del plan de remediación.</p>"
-
-    # --- PLANTILLA 3: NORMATIVA ISO / COMPLIANCE ---
     else:
         content = header_html + f"""
             <h2 class="title">Evaluación de Cumplimiento (Compliance Mapping)</h2>
@@ -300,7 +320,23 @@ report_type = st.sidebar.selectbox("Plantilla de Generación", ["Informe Técnic
 recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
 report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera Jira-Style"])
+# PESTAÑAS (Ticketera renombrada sin Jira-Style)
+tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera"])
+
+# Obtener historial y generar numeración secuencial dinámica (Escaneo #1, #2, #3...)
+conn = get_db_connection()
+ph = "%s" if "postgres" in st.secrets else "?"
+if selected_org_id is not None:
+    raw_history = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
+else:
+    raw_history = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
+conn.close()
+
+if not raw_history.empty:
+    raw_history['Escaneo #'] = range(1, len(raw_history) + 1)
+    display_df = raw_history.sort_values(by='Escaneo #', ascending=False)
+else:
+    display_df = pd.DataFrame(columns=['id', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type', 'findings_json', 'Escaneo #'])
 
 with tab1:
     target_url = st.text_input("URL Objetivo", value="https://")
@@ -308,19 +344,20 @@ with tab1:
         if target_url and target_url != "https://":
             with st.spinner("Analizando y generando reportes dinámicos..."):
                 findings, stats, hostname, geo, risk_score = scan_target(target_url)
-                save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), report_type, selected_org_id, findings)
+                scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), report_type, selected_org_id, findings)
                 
                 chart_b64 = generate_chart(stats)
                 pdf_filename = f"auditoria_{hostname}.pdf"
+                docx_bytes = generate_docx(hostname, geo, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject)
                 generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, pdf_filename)
                 
-                st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score, pdf_filename=pdf_filename)
+                st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score, pdf_filename=pdf_filename, docx_bytes=docx_bytes)
 
     if st.session_state.scanned:
         st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # BOTONES CENTRADOS
+        # Botones centrados: PDF, CSV y DOCX (Nuevo reemplazo para Nuevo Escaneo)
         col_esp1, col_btn1, col_btn2, col_btn3, col_esp2 = st.columns([1, 2, 2, 2, 1])
         with col_btn1:
             if os.path.exists(st.session_state.pdf_filename):
@@ -329,52 +366,62 @@ with tab1:
         with col_btn2:
             st.download_button("📝 Exportar CSV", pd.DataFrame(st.session_state.findings).to_csv(index=False, sep=";").encode("utf-8-sig"), file_name=f"hallazgos.csv", mime="text/csv", type="secondary", use_container_width=True)
         with col_btn3:
-            st.button("🔄 Nuevo Escaneo", use_container_width=True)
+            if "docx_bytes" in st.session_state:
+                st.download_button("📥 Descargar Word (DOCX)", st.session_state.docx_bytes, file_name=f"auditoria_{st.session_state.hostname}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary", use_container_width=True)
 
 with tab2:
-    if st.session_state.scanned:
-        for f in st.session_state.findings:
-            with st.expander(f"📌 {f['vector']} [{f['severity']}]"):
-                st.write(f"**Descripción:** {f['desc']}")
-                st.write(f"**Impacto:** {f['impact']}")
-                st.info(f"**Remediación:** {f['fix']}")
-    else: st.info("Ejecuta un escaneo primero.")
+    st.subheader(f"📊 Security Analytics — {selected_org_name}")
+    if not raw_history.empty:
+        # Selector de escaneo para Security Analytics (Escaneo #1, #2, #3...)
+        analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df.iterrows()}
+        selected_analytics_label = st.selectbox("Seleccionar Escaneo para Analizar", list(analytics_options.keys()), key="analytics_scan_select")
+        selected_scan_row = analytics_options[selected_analytics_label]
+        
+        st.markdown(f"**Objetivo:** `{selected_scan_row['hostname']}` | **IP:** `{selected_scan_row['ip']}` | **Risk Score:** `{selected_scan_row['risk_score']}/100`")
+        st.markdown("---")
+        
+        try:
+            stored_findings = json.loads(selected_scan_row['findings_json']) if selected_scan_row['findings_json'] else []
+        except:
+            stored_findings = []
+            
+        if stored_findings:
+            for f in stored_findings:
+                with st.expander(f"📌 {f['vector']} [{f.get('severity', 'MEDIO')}]"):
+                    st.write(f"**Descripción:** {f.get('desc', 'N/A')}")
+                    st.write(f"**Impacto:** {f.get('impact', 'N/A')}")
+                    st.info(f"**Remediación:** {f.get('fix', 'N/A')}")
+        else:
+            st.info("No hay hallazgos registrados para este escaneo.")
+    else:
+        st.info("Realiza un escaneo en la primera pestaña para visualizar los datos analíticos.")
 
 with tab3:
-    conn = get_db_connection()
-    ph = "%s" if "postgres" in st.secrets else "?"
-    if selected_org_id is not None:
-        raw_history = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
-    else:
-        raw_history = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
-    conn.close()
-
     if not raw_history.empty:
-        # Generar secuencia #1, #2, #3 dinámicamente y voltear para ver el más reciente arriba
-        raw_history['Escaneo #'] = range(1, len(raw_history) + 1)
-        display_df = raw_history.sort_values(by='Escaneo #', ascending=False)
-        
-        # Ocultamos el ID real de la base de datos en la tabla visual para que se vea limpio
         st.dataframe(display_df[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
         
         st.markdown("### 🗑️ Gestión de Escaneos")
-        st.warning("Al eliminar un escaneo, se borrarán todos sus tickets asociados.")
+        st.warning("Al eliminar un escaneo, se borrarán todos sus tickets asociados y los números de escaneo se reindexarán automáticamente.")
         
         del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df.iterrows()}
-        scan_to_del_label = st.selectbox("Seleccione el Escaneo a eliminar", list(del_options.keys()))
+        scan_to_del_label = st.selectbox("Seleccione el Escaneo a eliminar", list(del_options.keys()), key="del_scan_select")
         
         if st.button("🗑️ Eliminar Escaneo Seleccionado", type="primary"):
             delete_scan(del_options[scan_to_del_label])
-            st.success("Escaneo y tickets eliminados correctamente.")
+            st.session_state.scanned = False
+            for key in ['findings', 'hostname', 'risk_score', 'pdf_filename', 'docx_bytes']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.success("Escaneo y tickets eliminados correctamente. Reindexando...")
             st.rerun()
-    else: st.info("No hay historial para este cliente.")
+    else:
+        st.info("No hay historial de escaneos para este cliente.")
 
 with tab4:
-    st.subheader(f"🛠️ Ticketera Jira-Style — {selected_org_name}")
+    st.subheader(f"🛠️ Ticketera — {selected_org_name}")
     if not raw_history.empty:
-        # Usamos la misma data ordenada de Tab 3 para mantener la secuencia #1, #2...
         ticket_scan_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']}": row["id"] for _, row in display_df.iterrows()}
-        selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(ticket_scan_options.keys()))
+        selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(ticket_scan_options.keys()), key="ticket_scan_select")
         selected_scan_id = ticket_scan_options[selected_scan_label]
         
         try:
@@ -409,7 +456,6 @@ with tab4:
                     """, unsafe_allow_html=True)
 
                     if not is_closed_tab:
-                        # FORMULARIO PARA LIMPIAR INPUT AUTOMÁTICAMENTE
                         with st.form(key=f"form_ticket_{t_id}", clear_on_submit=True):
                             col_t1, col_t2 = st.columns([2, 3])
                             with col_t1: new_status = st.selectbox("Mover a Estado", ["Pendiente", "En Proceso", "Solucionado"], index=["Pendiente", "En Proceso", "Solucionado"].index(t_status))
