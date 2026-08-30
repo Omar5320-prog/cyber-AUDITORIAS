@@ -111,6 +111,19 @@ def delete_scan(scan_id):
     c.close()
     conn.close()
 
+def delete_organization(org_id):
+    conn = get_db_connection()
+    conn.autocommit = True
+    c = conn.cursor()
+    ph = "%s" if "postgres" in st.secrets else "?"
+    # Eliminar registros asociados en cascada
+    c.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE organization_id = {ph})", (org_id,))
+    c.execute(f"DELETE FROM remediation_tasks WHERE organization_id = {ph}", (org_id,))
+    c.execute(f"DELETE FROM history WHERE organization_id = {ph}", (org_id,))
+    c.execute(f"DELETE FROM organizations WHERE id = {ph}", (org_id,))
+    c.close()
+    conn.close()
+
 # ==========================================
 # ESCÁNER
 # ==========================================
@@ -303,14 +316,25 @@ for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
 selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
 selected_org_id = org_options[selected_org_name]
 
-with st.sidebar.expander("➕ Añadir Nuevo Cliente"):
+with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
     with st.form("add_org_form", clear_on_submit=True):
         new_org = st.text_input("Nombre de la Empresa")
-        if st.form_submit_button("Guardar") and new_org:
-            conn_add = get_db_connection(); c_add = conn_add.cursor()
-            c_add.execute(f"INSERT INTO organizations (name) VALUES ({'%s' if 'postgres' in st.secrets else '?'})", (new_org,))
-            conn_add.commit(); c_add.close(); conn_add.close()
-            st.rerun()
+        if st.form_submit_button("Guardar Cliente") and new_org:
+            try:
+                conn_add = get_db_connection(); c_add = conn_add.cursor()
+                c_add.execute(f"INSERT INTO organizations (name) VALUES ({'%s' if 'postgres' in st.secrets else '?'})", (new_org,))
+                conn_add.commit(); c_add.close(); conn_add.close()
+                st.sidebar.success(f"✅ ¡Cliente '{new_org}' agregado con éxito!")
+                st.rerun()
+            except Exception:
+                st.sidebar.error("El cliente ya existe o hubo un error.")
+
+# Botón para eliminar cliente actual si no es General
+if selected_org_id is not None:
+    if st.sidebar.button("🗑️ Eliminar Cliente Actual", type="secondary"):
+        delete_organization(selected_org_id)
+        st.sidebar.success(f"Cliente '{selected_org_name}' eliminado correctamente.")
+        st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Configuración del Informe")
@@ -320,10 +344,8 @@ report_type = st.sidebar.selectbox("Plantilla de Generación", ["Informe Técnic
 recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
 report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales")
 
-# PESTAÑAS (Ticketera renombrada sin Jira-Style)
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera"])
 
-# Obtener historial y generar numeración secuencial dinámica (Escaneo #1, #2, #3...)
 conn = get_db_connection()
 ph = "%s" if "postgres" in st.secrets else "?"
 if selected_org_id is not None:
@@ -355,9 +377,16 @@ with tab1:
 
     if st.session_state.scanned:
         st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
+        
+        # Tarjeta de resumen ejecutivo post-escaneo
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
+        m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
+        m3.metric("Estado del Activo", "Auditado y Protegido")
+        
+        st.info("💡 **Acción recomendada:** Puedes revisar los detalles técnicos en la pestaña **Security Analytics**, gestionar los incidentes en la **Ticketera**, o descargar los informes listos para entregar.")
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Botones centrados: PDF, CSV y DOCX (Nuevo reemplazo para Nuevo Escaneo)
         col_esp1, col_btn1, col_btn2, col_btn3, col_esp2 = st.columns([1, 2, 2, 2, 1])
         with col_btn1:
             if os.path.exists(st.session_state.pdf_filename):
@@ -372,7 +401,6 @@ with tab1:
 with tab2:
     st.subheader(f"📊 Security Analytics — {selected_org_name}")
     if not raw_history.empty:
-        # Selector de escaneo para Security Analytics (Escaneo #1, #2, #3...)
         analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df.iterrows()}
         selected_analytics_label = st.selectbox("Seleccionar Escaneo para Analizar", list(analytics_options.keys()), key="analytics_scan_select")
         selected_scan_row = analytics_options[selected_analytics_label]
