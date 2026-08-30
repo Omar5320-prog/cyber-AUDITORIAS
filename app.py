@@ -234,7 +234,7 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
             p_fix.add_run(f"Remediación técnica / Snippet:\n{f.get('snippet', 'N/A')}").font.bold = True
             
     elif "Narrativo" in report_type:
-        doc.add_heading("Memorándum Ejecutivo y Situación Actual", level=2)
+        doc.add_heading("Informe Ejecutivo y Situación Actual", level=2)
         doc.add_paragraph(f"Estimado/a {recipient_name},\n\nPor medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo {hostname}. Tras la evaluación, se ha determinado un índice de riesgo global de {risk_score} sobre 100.")
         doc.add_heading("Análisis de Riesgos y Consecuencias", level=3)
         doc.add_paragraph("A continuación se detallan las situaciones detectadas y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:")
@@ -277,24 +277,44 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         .bg-crit { background-color: #dc2626; } .bg-med { background-color: #f59e0b; } .bg-low { background-color: #3b82f6; }
     """
 
-    header_html = f"""
-        <div class="header">
-            <h1>{report_type.upper()}</h1>
-            <p>Emitido por: {agency_name} | {agency_tagline}</p>
-        </div>
-        <div class="meta-box">
-            <table style="width: 100%; border: none;">
-                <tr>
-                    <td style="width: 50%;"><strong>Dirigido a:</strong> {recipient_name}</td>
-                    <td style="width: 50%;"><strong>Asunto:</strong> {report_subject}</td>
-                </tr>
-                <tr>
-                    <td><strong>Objetivo Analizado:</strong> {hostname}</td>
-                    <td><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</td>
-                </tr>
-            </table>
-        </div>
-    """
+    if "Narrativo" in report_type:
+        header_html = f"""
+            <div class="header" style="text-align: center;">
+                <h1 style="margin: 0; font-size: 16pt; letter-spacing: 0.5px;">INFORME EJECUTIVO</h1>
+                <p style="margin: 4px 0 0 0; color: #94a3b8; font-size: 9pt;">Emitido por: {agency_name} | {agency_tagline}</p>
+            </div>
+            <div class="meta-box">
+                <table style="width: 100%; border: none;">
+                    <tr>
+                        <td style="width: 50%;"><strong>Dirigido a:</strong> {recipient_name}</td>
+                        <td style="width: 50%;"><strong>Asunto:</strong> {report_subject}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Objetivo Analizado:</strong> {hostname}</td>
+                        <td><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</td>
+                    </tr>
+                </table>
+            </div>
+        """
+    else:
+        header_html = f"""
+            <div class="header">
+                <h1>{report_type.upper()}</h1>
+                <p>Emitido por: {agency_name} | {agency_tagline}</p>
+            </div>
+            <div class="meta-box">
+                <table style="width: 100%; border: none;">
+                    <tr>
+                        <td style="width: 50%;"><strong>Dirigido a:</strong> {recipient_name}</td>
+                        <td style="width: 50%;"><strong>Asunto:</strong> {report_subject}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Objetivo Analizado:</strong> {hostname}</td>
+                        <td><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</td>
+                    </tr>
+                </table>
+            </div>
+        """
 
     if "Técnico" in report_type:
         content = header_html + f"""
@@ -321,7 +341,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             
     elif "Narrativo" in report_type:
         content = header_html + f"""
-            <h2 class="title">Memorándum Ejecutivo y Situación Actual</h2>
+            <h2 class="title">Informe Ejecutivo y Situación Actual</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
             <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un índice de riesgo global de <strong>{risk_score} sobre 100</strong>.</p>
             <h2 class="title">Análisis de Riesgos y Consecuencias</h2>
