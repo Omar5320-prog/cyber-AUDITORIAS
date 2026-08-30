@@ -16,13 +16,13 @@ import matplotlib.pyplot as plt
 import psycopg2
 from weasyprint import HTML
 
-st.set_page_config(page_title="CyberAudits - Escáner Perimetral", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="CyberAudits Enterprise - Ciberseguridad Ofensiva", page_icon="🛡️", layout="wide")
 
 st.markdown("""
     <style>
         .stApp { background-color: #f8fafc; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         [data-testid="stSidebar"] { background-color: #f0f2f6 !important; border-right: 1px solid #e2e8f0; }
-        .enterprise-banner { background: linear-gradient(90deg, #1e3a8a, #3b82f6); padding: 12px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 500; }
+        .enterprise-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a, #3b82f6); padding: 14px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 600; letter-spacing: 0.5px; }
         .ticket-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .sev-critical { border-left: 5px solid #dc2626; }
         .sev-medium { border-left: 5px solid #f59e0b; }
@@ -31,7 +31,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# BASE DE DATOS
+# BASE DE DATOS PROFESIONAL
 # ==========================================
 def get_db_connection():
     if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
@@ -39,7 +39,7 @@ def get_db_connection():
         conn.autocommit = True
         return conn
     else:
-        return sqlite3.connect("cyber_audits.db")
+        return sqlite3.connect("cyber_audits_enterprise.db")
 
 def init_db():
     conn = get_db_connection()
@@ -124,47 +124,34 @@ def delete_organization(org_id):
     conn.close()
 
 # ==========================================
-# ESCÁNER REAL Y EXHAUSTIVO
+# MOTOR DE ESCANEO PROFUNDO (PENTEST-GRADE)
 # ==========================================
 def get_geolocation(hostname):
     geo_data = {"ip": "N/A", "country": "Desconocido", "city": "Desconocido", "org": "Desconocido"}
     try:
         ip = socket.gethostbyname(hostname)
         geo_data["ip"] = ip
-        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp", timeout=4)
+        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,city,org,isp", timeout=3)
         if response.status_code == 200 and response.json().get("status") == "success":
             data = response.json()
             geo_data.update({"country": data.get("country", ""), "city": data.get("city", ""), "org": data.get("org", "")})
     except: pass
     return geo_data
 
-def check_ssl_certificate(hostname):
-    ssl_info = {"valid": False, "details": "No se pudo verificar el certificado SSL."}
-    try:
-        context = ssl.create_default_context()
-        with socket.create_connection((hostname, 443), timeout=4) as sock:
-            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-                cert = ssock.getpeercert()
-                if cert:
-                    ssl_info["valid"] = True
-                    ssl_info["details"] = "Certificado SSL/TLS activo y válido."
-    except Exception as e:
-        ssl_info["details"] = f"Error SSL: {str(e)}"
-    return ssl_info
-
-def check_email_security(hostname):
-    email_sec = {"spf": False, "dmarc": False}
-    try:
-        res_spf = requests.get(f"https://cloudflare-dns.com/dns-query?name={hostname}&type=TXT", headers={"Accept": "application/dns-json"}, timeout=3)
-        if res_spf.status_code == 200:
-            for ans in res_spf.json().get("Answer", []):
-                if "v=spf1" in ans.get("data", ""): email_sec["spf"] = True
-        res_dmarc = requests.get(f"https://cloudflare-dns.com/dns-query?name=_dmarc.{hostname}&type=TXT", headers={"Accept": "application/dns-json"}, timeout=3)
-        if res_dmarc.status_code == 200:
-            for ans in res_dmarc.json().get("Answer", []):
-                if "v=DMARC1" in ans.get("data", ""): email_sec["dmarc"] = True
-    except: pass
-    return email_sec
+def check_ports(hostname):
+    # Puertos de ataque comunes: 21 (FTP), 22 (SSH), 80 (HTTP), 443 (HTTPS), 3306 (MySQL), 8080 (Proxy/Alt HTTP)
+    common_ports = [21, 22, 80, 443, 3306, 8080]
+    open_ports = []
+    for port in common_ports:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.8)
+            result = s.connect_ex((hostname, port))
+            if result == 0:
+                open_ports.append(port)
+            s.close()
+        except: pass
+    return open_ports
 
 def scan_target(url):
     parsed_url = urlparse(url)
@@ -173,113 +160,108 @@ def scan_target(url):
     findings = []
     stats = {"Críticas": 0, "Medias": 0, "Bajas": 0, "Seguras": 0}
     geo = get_geolocation(hostname)
-    ssl_info = check_ssl_certificate(hostname)
-    email_sec = check_email_security(hostname)
+    open_ports = check_ports(hostname)
     
-    # 1. Análisis de Cabeceras HTTP Reales
+    # Análisis HTTP / Cabeceras / Cookies / Seguridad Perimetral
     try:
         response = requests.get(url, timeout=5, allow_redirects=True)
         headers = response.headers
+        cookies = response.cookies
         
-        # HSTS
+        # 1. HSTS
         if "Strict-Transport-Security" in headers:
             stats["Seguras"] += 1
         else:
             stats["Críticas"] += 1
             findings.append({
                 "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
-                "desc": f"El servidor de {hostname} no emite la cabecera HSTS, permitiendo ataques de degradación de protocolo (SSL Stripping).",
-                "impact": "Riesgo de intercepción de tráfico de credenciales en redes no confiables.",
-                "fix": "Añadir la cabecera Strict-Transport-Security en la configuración del servidor web.",
-                "compliance": "PCI-DSS 4.1 / ISO 27001", "snippet": 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";'
+                "desc": f"El servidor de {hostname} no emite cabecera HSTS, permitiendo ataques Man-in-the-Middle y SSL Stripping.",
+                "impact": "Exposición de tráfico confidencial e intercepción de credenciales en redes públicas.",
+                "fix": "Implementar la cabecera Strict-Transport-Security con un max-age de al menos 1 año.",
+                "compliance": "PCI-DSS 4.1 / ISO 27001 A.10.1", "snippet": 'add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
             })
             
-        # CSP
+        # 2. CSP
         if "Content-Security-Policy" in headers:
             stats["Seguras"] += 1
         else:
             stats["Medias"] += 1
             findings.append({
                 "vector": "Content Security Policy (CSP) Ausente", "severity": "MEDIO",
-                "desc": f"No se detectó una política de seguridad de contenido (CSP) en las respuestas de {hostname}.",
-                "impact": "Mayor exposición a ataques de Cross-Site Scripting (XSS) e inyección de código malicioso.",
-                "fix": "Implementar la cabecera Content-Security-Policy restringiendo fuentes de scripts.",
-                "compliance": "OWASP Top 10", "snippet": 'add_header Content-Security-Policy "default-src \'self\'";'
+                "desc": f"Ausencia de política de seguridad de contenido en {hostname}.",
+                "impact": "Alta vulnerabilidad ante ataques de Inyección de Scripts (XSS) y ejecución de código arbitrario.",
+                "fix": "Definir una cabecera CSP estricta basada en orígenes de confianza.",
+                "compliance": "OWASP Top 10 A03:2021", "snippet": "add_header Content-Security-Policy \"default-src 'self';\";"
             })
             
-        # X-Frame-Options
+        # 3. Clickjacking (X-Frame-Options)
         if "X-Frame-Options" in headers or "Content-Security-Policy" in headers:
             stats["Seguras"] += 1
         else:
             stats["Medias"] += 1
             findings.append({
-                "vector": "Protección contra Clickjacking Ausente (X-Frame-Options)", "severity": "MEDIO",
-                "desc": f"El sitio {hostname} no previene ser embebido en iframes de terceros maliciosos.",
-                "impact": "Permite ataques de Clickjacking donde los usuarios pueden ser engañados para hacer clic en elementos invisibles.",
-                "fix": "Configurar la cabecera X-Frame-Options como DENY o SAMEORIGIN.",
-                "compliance": "ISO 27001 A.14.1", "snippet": 'add_header X-Frame-Options "SAMEORIGIN";'
+                "vector": "Protección Clickjacking Ausente (X-Frame-Options)", "severity": "MEDIO",
+                "desc": f"El sitio {hostname} permite ser embebido en marcos (iframes) de sitios externos.",
+                "impact": "Los atacantes pueden superponer capas invisibles para engañar al usuario y robar clics o acciones.",
+                "fix": "Configurar X-Frame-Options en DENY o SAMEORIGIN.",
+                "compliance": "ISO 27001 A.14.1", "snippet": "add_header X-Frame-Options \"SAMEORIGIN\";"
             })
-            
-        # Server header disclosure
+
+        # 4. Auditoría de Cookies (HttpOnly / Secure flags)
+        insecure_cookies = [c.name for c in cookies if not (c.secure and c.has_non_standard_attr('HttpOnly'))]
+        if cookies and insecure_cookies:
+            stats["Medias"] += 1
+            findings.append({
+                "vector": f"Banderas de Seguridad Ausentes en Cookies ({', '.join(insecure_cookies)})", "severity": "MEDIO",
+                "desc": "Se detectaron cookies de sesión que no tienen activadas las banderas HttpOnly o Secure.",
+                "impact": "Las cookies pueden ser robadas mediante scripts maliciosos (XSS) o filtradas por canales HTTP planos.",
+                "fix": "Configurar las cookies de sesión con flags HttpOnly, Secure y SameSite=Strict.",
+                "compliance": "OWASP ASVS 3.4.2", "snippet": "Set-Cookie: session=xyz; Secure; HttpOnly; SameSite=Strict"
+            })
+
+        # 5. Divulgación de Servidor
         if "Server" in headers:
             stats["Bajas"] += 1
             findings.append({
-                "vector": "Divulgación de Versión del Servidor Web", "severity": "BAJO",
-                "desc": f"La cabecera 'Server' expone software del backend ({headers.get('Server')}).",
-                "impact": "Facilita la fase de reconocimiento a atacantes para buscar exploits específicos de la versión.",
-                "fix": "Ocultar o enmascarar la cabecera Server en la configuración del servidor.",
-                "compliance": "CIS Benchmarks", "snippet": "ServerTokens Prod / ServerSignature Off"
+                "vector": f"Divulgación de Versión Backend ({headers.get('Server')})", "severity": "BAJO",
+                "desc": f"El servidor web expone información directa sobre su tecnología y versión.",
+                "impact": "Facilita la fase de reconocimiento para buscar vulnerabilidades conocidas del software.",
+                "fix": "Ocultar las firmas del servidor en los archivos de configuración.",
+                "compliance": "CIS Benchmarks", "snippet": "ServerTokens Prod"
             })
-        else:
-            stats["Seguras"] += 1
 
     except Exception as e:
         stats["Críticas"] += 1
         findings.append({
-            "vector": "Error de Conectividad o Sitio Inalcanzable", "severity": "CRÍTICO",
-            "desc": f"No se pudo completar la solicitud HTTP hacia {hostname}: {str(e)}",
-            "impact": "Posible caída del servicio o bloqueo de peticiones perimetrales.",
-            "fix": "Verificar la disponibilidad del servidor y reglas de Firewall/WAF.",
-            "compliance": "Disponibilidad Operativa", "snippet": "ping / curl check"
+            "vector": "Falla de Inspección Perimetral o Sitio Caído", "severity": "CRÍTICO",
+            "desc": f"No se pudo establecer conexión HTTP exitosa con {hostname}: {str(e)}",
+            "impact": "Interrupción del servicio o bloqueo estricto por WAF/Firewall perimetral.",
+            "fix": "Revisar reglas de filtrado perimetral y disponibilidad de red.",
+            "compliance": "Disponibilidad SLA", "snippet": "WAF / Firewall status check"
         })
 
-    # 2. Seguridad de Correo (SPF / DMARC)
-    if email_sec["spf"]:
-        stats["Seguras"] += 1
-    else:
-        stats["Medias"] += 1
-        findings.append({
-            "vector": "Ausencia de Registro SPF", "severity": "MEDIO",
-            "desc": f"El dominio {hostname} no cuenta con un registro SPF válido configurado en DNS.",
-            "impact": "Vulnerabilidad a suplantación de identidad (Email Spoofing / Phishing corporativo).",
-            "fix": "Publicar un registro TXT con directiva SPF estricta.",
-            "compliance": "ISO 27001 A.13.2", "snippet": f'{hostname}. IN TXT "v=spf1 include:_spf.domain.com ~all"'
-        })
-
-    if email_sec["dmarc"]:
-        stats["Seguras"] += 1
-    else:
-        stats["Medias"] += 1
-        findings.append({
-            "vector": "Ausencia de Política DMARC", "severity": "MEDIO",
-            "desc": f"No se detectó un registro DMARC activo para {hostname}.",
-            "impact": "Ceguera operativa ante abusos de marca y correos fraudulentos masivos.",
-            "fix": "Implementar un registro DMARC en _dmarc.{hostname}.",
-            "compliance": "ISO 27001 A.13.1", "snippet": f'_dmarc.{hostname}. IN TXT "v=DMARC1; p=reject;"'
-        })
-
-    # 3. Estado SSL
-    if not ssl_info["valid"]:
+    # 6. Puertos de Riesgo Abiertos
+    if 21 in open_ports or 3306 in open_ports:
         stats["Críticas"] += 1
         findings.append({
-            "vector": "Certificado SSL/TLS Inválido o Ausente", "severity": "CRÍTICO",
-            "desc": f"El certificado SSL para {hostname} presenta fallas de validez o no está configurado.",
-            "impact": "Tráfico expuesto en texto plano y bloqueos de seguridad en navegadores modernos.",
-            "fix": "Renovar o instalar un certificado válido mediante una CA confiable.",
-            "compliance": "PCI-DSS 4.1", "snippet": "certbot renew"
+            "vector": "Exposición de Puertos Administrativos / Base de Datos Sensibles", "severity": "CRÍTICO",
+            "desc": f"Se detectaron puertos de alto riesgo abiertos directamente a Internet (Puertos: {open_ports}).",
+            "impact": "Acceso directo a servicios de bases de datos o protocolos obsoletos propensos a ataques de fuerza bruta.",
+            "fix": "Bloquear el acceso público mediante reglas de Firewall (Security Groups) y permitir solo VPNs.",
+            "compliance": "PCI-DSS 1.3 / ISO 27001", "snippet": "iptables / AWS Security Groups hardening"
+        })
+    elif open_ports:
+        stats["Bajas"] += 1
+        findings.append({
+            "vector": f"Puertos Abiertos Detectados ({open_ports})", "severity": "BAJO",
+            "desc": f"Superficie de ataque expuesta con servicios activos en puertos estándar.",
+            "impact": "Mayor superficie expuesta ante escaneos de enumeración.",
+            "fix": "Auditar si todos los servicios detectados necesitan estar expuestos públicamente.",
+            "compliance": "CIS Security Guidelines", "snippet": "nmap port review"
         })
 
-    penalty = (stats["Críticas"] * 25) + (stats["Medias"] * 10) + (stats["Bajas"] * 5)
+    # Cálculo dinámico del Risk Score basado en ponderación de severidad real
+    penalty = (stats["Críticas"] * 30) + (stats["Medias"] * 12) + (stats["Bajas"] * 4)
     risk_score = max(0, 100 - penalty)
     return findings, stats, hostname, geo, risk_score
 
@@ -423,7 +405,7 @@ if "scanned" not in st.session_state: st.session_state.scanned = False
 if "toast_msg" not in st.session_state: st.session_state.toast_msg = ""
 if "toast_type" not in st.session_state: st.session_state.toast_type = "success"
 
-st.markdown('<div class="enterprise-banner">🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.</div>', unsafe_allow_html=True)
+st.markdown('<div class="enterprise-banner">🛡️ <strong>CyberAudits Enterprise Suite:</strong> Escáner de Superficie de Ataque y Gestión de Incidentes.</div>', unsafe_allow_html=True)
 
 st.sidebar.header("🏢 Organización / Cliente")
 try:
@@ -468,19 +450,19 @@ if selected_org_id is not None:
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Configuración del Informe")
 agency_name = st.sidebar.text_input("Agencia", value="SecOps Global Partners")
-agency_tagline = st.sidebar.text_input("Subtítulo", value="División de Ciberseguridad")
+agency_tagline = st.sidebar.text_input("Subtítulo", value="División de Ciberseguridad Ofensiva")
 report_type = st.sidebar.selectbox("Plantilla de Generación", ["Informe Técnico Exhaustivo", "Informe Narrativo (Ejecutivo)", "Normativa (ISO/Compliance)"])
-recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
-report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales")
+recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General / Junta Directiva")
+report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales y Superficie de Ataque")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera"])
 
 with tab1:
-    target_url = st.text_input("URL Objetivo", value="https://")
-    if st.button("🚀 Ejecutar Análisis", type="primary"):
+    target_url = st.text_input("URL Objetivo (Ej: https://dominio.com)", value="https://")
+    if st.button("🚀 Ejecutar Análisis Pentest", type="primary"):
         if target_url and target_url != "https://":
             if not target_url.startswith("http"): target_url = "https://" + target_url
-            with st.spinner(f"Analizando cabeceras y DNS de {target_url}..."):
+            with st.spinner(f"🔍 Ejecutando análisis perimetral profundo sobre {target_url}..."):
                 findings, stats, hostname, geo, risk_score = scan_target(target_url)
                 scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), report_type, selected_org_id, findings)
                 
@@ -497,9 +479,9 @@ with tab1:
         m1, m2, m3 = st.columns(3)
         m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
         m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
-        m3.metric("Estado del Activo", "Auditado y Protegido")
+        m3.metric("Estado del Activo", "Auditado en Tiempo Real")
         
-        st.info("💡 **Acción recomendada:** Puedes revisar los detalles técnicos en la pestaña **Security Analytics**, gestionar los incidentes en la **Ticketera**, o descargar los informes listos para entregar.")
+        st.info("💡 **Acción recomendada:** Revisa el desglose técnico en **Security Analytics**, asigna tareas en la **Ticketera**, o descarga los reportes listos para gerencia.")
         st.markdown("<br>", unsafe_allow_html=True)
         
         col_esp1, col_btn1, col_btn2, col_btn3, col_esp2 = st.columns([1, 2, 2, 2, 1])
@@ -515,7 +497,7 @@ with tab1:
 
 with tab2:
     st.subheader(f"📊 Security Analytics — {selected_org_name}")
-    # Consulta dinámica al momento de abrir la pestaña (Sin necesidad de F5)
+    # Consulta dinámica al vuelo (Sin requerir F5)
     conn = get_db_connection()
     ph = "%s" if "postgres" in st.secrets else "?"
     if selected_org_id is not None:
@@ -546,13 +528,14 @@ with tab2:
                     st.write(f"**Descripción:** {f.get('desc', 'N/A')}")
                     st.write(f"**Impacto:** {f.get('impact', 'N/A')}")
                     st.info(f"**Remediación:** {f.get('fix', 'N/A')}")
+                    if 'snippet' in f: st.code(f['snippet'])
         else:
             st.info("No hay hallazgos registrados para este escaneo.")
     else:
         st.info("Realiza un escaneo en la primera pestaña para visualizar los datos analíticos.")
 
 with tab3:
-    # Consulta dinámica al abrir la pestaña (Actualización en tiempo real sin F5)
+    # Consulta dinámica al vuelo (Sin requerir F5)
     conn = get_db_connection()
     if selected_org_id is not None:
         raw_history_tab3 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
@@ -589,7 +572,7 @@ with tab3:
 
 with tab4:
     st.subheader(f"🛠️ Ticketera — {selected_org_name}")
-    # Consulta dinámica al abrir la pestaña
+    # Consulta dinámica al vuelo
     conn = get_db_connection()
     if selected_org_id is not None:
         raw_history_tab4 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
