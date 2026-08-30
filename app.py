@@ -139,7 +139,6 @@ def get_geolocation(hostname):
     return geo_data
 
 def check_ports(hostname):
-    # Puertos de ataque comunes: 21 (FTP), 22 (SSH), 80 (HTTP), 443 (HTTPS), 3306 (MySQL), 8080 (Proxy/Alt HTTP)
     common_ports = [21, 22, 80, 443, 3306, 8080]
     open_ports = []
     for port in common_ports:
@@ -162,7 +161,6 @@ def scan_target(url):
     geo = get_geolocation(hostname)
     open_ports = check_ports(hostname)
     
-    # Análisis HTTP / Cabeceras / Cookies / Seguridad Perimetral
     try:
         response = requests.get(url, timeout=5, allow_redirects=True)
         headers = response.headers
@@ -189,7 +187,7 @@ def scan_target(url):
             findings.append({
                 "vector": "Content Security Policy (CSP) Ausente", "severity": "MEDIO",
                 "desc": f"Ausencia de política de seguridad de contenido en {hostname}.",
-                "impact": "Alta vulnerabilidad ante ataques de Inyección de Scripts (XSS) y ejecución de código arbitrario.",
+                "impact": "Alta vulnerabilidad ante ataques de Inyección de Scripts (XSS) e ejecución de código arbitrario.",
                 "fix": "Definir una cabecera CSP estricta basada en orígenes de confianza.",
                 "compliance": "OWASP Top 10 A03:2021", "snippet": "add_header Content-Security-Policy \"default-src 'self';\";"
             })
@@ -207,7 +205,7 @@ def scan_target(url):
                 "compliance": "ISO 27001 A.14.1", "snippet": "add_header X-Frame-Options \"SAMEORIGIN\";"
             })
 
-        # 4. Auditoría de Cookies (HttpOnly / Secure flags)
+        # 4. Auditoría de Cookies
         insecure_cookies = [c.name for c in cookies if not (c.secure and c.has_non_standard_attr('HttpOnly'))]
         if cookies and insecure_cookies:
             stats["Medias"] += 1
@@ -229,6 +227,8 @@ def scan_target(url):
                 "fix": "Ocultar las firmas del servidor en los archivos de configuración.",
                 "compliance": "CIS Benchmarks", "snippet": "ServerTokens Prod"
             })
+        else:
+            stats["Seguras"] += 1
 
     except Exception as e:
         stats["Críticas"] += 1
@@ -260,14 +260,13 @@ def scan_target(url):
             "compliance": "CIS Security Guidelines", "snippet": "nmap port review"
         })
 
-    # Cálculo dinámico del Risk Score basado en ponderación de severidad real
     penalty = (stats["Críticas"] * 30) + (stats["Medias"] * 12) + (stats["Bajas"] * 4)
     risk_score = max(0, 100 - penalty)
     return findings, stats, hostname, geo, risk_score
 
 
 # ==========================================
-# REPORTES EN PDF Y DOCX
+# GENERADORES DE REPORTES (PDF Y DOCX)
 # ==========================================
 def generate_chart(stats):
     labels, sizes, colors = list(stats.keys()), list(stats.values()), ['#dc2626', '#f59e0b', '#3b82f6', '#10b981']
@@ -283,7 +282,7 @@ def generate_chart(stats):
     plt.close()
     with open(chart_path, "rb") as f: return base64.b64encode(f.read()).decode("utf-8")
 
-def generate_docx(hostname, geo, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject):
+def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject):
     doc = Document()
     for section in doc.sections: section.top_margin = section.bottom_margin = section.left_margin = section.right_margin = Inches(1)
     
@@ -318,7 +317,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         .card-header { background-color: #f1f5f9; padding: 8px 12px; font-weight: bold; border-bottom: 1px solid #cbd5e1; }
         .card-body { padding: 10px 12px; }
         .badge { float: right; padding: 2px 8px; border-radius: 12px; font-size: 7.5pt; color: white; }
-        .bg-crit { background-color: #dc2626; } .bg-med { background-color: #f59e0b; }
+        .bg-crit { background-color: #dc2626; } .bg-med { background-color: #f59e0b; } .bg-low { background-color: #3b82f6; }
     """
 
     header_html = f"""
@@ -348,7 +347,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <h2 class="title">2. Detalles Técnicos y Remediación</h2>
         """
         for i, f in enumerate(findings, 1):
-            bg = "bg-crit" if f["severity"] == "CRÍTICO" else "bg-med"
+            bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
             content += f"""
             <div class="card">
                 <div class="card-header">#{i} - {f['vector']} <span class="badge {bg}">{f['severity']}</span></div>
@@ -365,19 +364,19 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         content = header_html + f"""
             <h2 class="title">Memorándum Ejecutivo de Riesgos</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
-            <p>Por medio de la presente, el equipo de consultoría de <strong>{agency_name}</strong> le hace entrega formal de los resultados obtenidos durante la evaluación perimetral pasiva realizada sobre el activo digital <strong>{hostname}</strong>.</p>
-            <p>Tras analizar la superficie expuesta a internet, hemos determinado un Índice de Riesgo (Risk Score) de <strong>{risk_score} sobre 100</strong>.</p>
+            <p>Por medio de la presente, el equipo de consultoría de <strong>{agency_name}</strong> le hace entrega formal de los resultados obtenidos durante la evaluación perimetral realizada sobre el activo digital <strong>{hostname}</strong>.</p>
+            <p>Tras analizar la superficie expuesta a internet, hemos determinado un Índice de Riesgo de <strong>{risk_score} sobre 100</strong>.</p>
             <div style="text-align: center; margin: 20px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
-            <h2 class="title">Resumen de Impacto en el Negocio</h2>
+            <h2 class="title">Resumen Ejecutivo de Impacto</h2>
             <ul>
         """
         for f in findings:
-            content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']} Para mitigar este riesgo, recomendamos {f['fix'].lower()}</li>"
-        content += "</ul><p>Quedamos a su entera disposición para coordinar la ejecución del plan de remediación.</p>"
+            content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']} Para mitigar este riesgo, se recomienda: {f['fix'].lower()}</li>"
+        content += "</ul><p>Quedamos a su entera disposición para coordinar la ejecución del plan de remediación con los equipos técnicos.</p>"
     else:
         content = header_html + f"""
             <h2 class="title">Evaluación de Cumplimiento (Compliance Mapping)</h2>
-            <p>Este informe detalla las brechas de seguridad identificadas en <strong>{hostname}</strong> y su relación directa con los marcos de control internacionales.</p>
+            <p>Este informe detalla las brechas de seguridad identificadas en <strong>{hostname}</strong> y su correspondencia con los marcos de control internacionales (ISO 27001, PCI-DSS, OWASP).</p>
             <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt; margin-top: 15px;">
                 <tr style="background-color: #f1f5f9;">
                     <th style="padding: 8px; border: 1px solid #cbd5e1; text-align: left;">Vulnerabilidad</th>
@@ -405,7 +404,7 @@ if "scanned" not in st.session_state: st.session_state.scanned = False
 if "toast_msg" not in st.session_state: st.session_state.toast_msg = ""
 if "toast_type" not in st.session_state: st.session_state.toast_type = "success"
 
-st.markdown('<div class="enterprise-banner">🛡️ <strong>CyberAudits Enterprise Suite:</strong> Escáner de Superficie de Ataque y Gestión de Incidentes.</div>', unsafe_allow_html=True)
+st.markdown('<div class="enterprise-banner">🛡️ <strong>CyberAudits Enterprise Suite:</strong> Escáner Ofensivo EASM y Gestión Multicapa.</div>', unsafe_allow_html=True)
 
 st.sidebar.header("🏢 Organización / Cliente")
 try:
@@ -448,56 +447,36 @@ if selected_org_id is not None:
         st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Configuración del Informe")
+st.sidebar.header("⚙️ Configuración Global del Informe")
 agency_name = st.sidebar.text_input("Agencia", value="SecOps Global Partners")
 agency_tagline = st.sidebar.text_input("Subtítulo", value="División de Ciberseguridad Ofensiva")
-report_type = st.sidebar.selectbox("Plantilla de Generación", ["Informe Técnico Exhaustivo", "Informe Narrativo (Ejecutivo)", "Normativa (ISO/Compliance)"])
 recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General / Junta Directiva")
-report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales y Superficie de Ataque")
+report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Superficie de Ataque Perimetral")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics", "📜 Historial de Escaneos", "🛠️ Ticketera"])
+tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics & Reportes", "📜 Historial de Escaneos", "🛠️ Ticketera"])
 
 with tab1:
     target_url = st.text_input("URL Objetivo (Ej: https://dominio.com)", value="https://")
     if st.button("🚀 Ejecutar Análisis Pentest", type="primary"):
         if target_url and target_url != "https://":
             if not target_url.startswith("http"): target_url = "https://" + target_url
-            with st.spinner(f"🔍 Ejecutando análisis perimetral profundo sobre {target_url}..."):
+            with st.spinner(f"🔍 Analizando superficie de ataque y puertos de {target_url}..."):
                 findings, stats, hostname, geo, risk_score = scan_target(target_url)
-                scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), report_type, selected_org_id, findings)
+                # Guardamos por defecto con una plantilla base; los reportes se generan dinámicamente al descargar
+                scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), "Informe Técnico Exhaustivo", selected_org_id, findings)
                 
-                chart_b64 = generate_chart(stats)
-                pdf_filename = f"auditoria_{hostname}.pdf"
-                docx_bytes = generate_docx(hostname, geo, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject)
-                generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, pdf_filename)
-                
-                st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score, pdf_filename=pdf_filename, docx_bytes=docx_bytes)
+                st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score)
 
     if st.session_state.scanned:
         st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
-        
         m1, m2, m3 = st.columns(3)
         m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
         m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
         m3.metric("Estado del Activo", "Auditado en Tiempo Real")
-        
-        st.info("💡 **Acción recomendada:** Revisa el desglose técnico en **Security Analytics**, asigna tareas en la **Ticketera**, o descarga los reportes listos para gerencia.")
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        col_esp1, col_btn1, col_btn2, col_btn3, col_esp2 = st.columns([1, 2, 2, 2, 1])
-        with col_btn1:
-            if os.path.exists(st.session_state.pdf_filename):
-                with open(st.session_state.pdf_filename, "rb") as pdf_file:
-                    st.download_button("📥 PDF Formateado", pdf_file, file_name=st.session_state.pdf_filename, mime="application/pdf", type="primary", use_container_width=True)
-        with col_btn2:
-            st.download_button("📝 Exportar CSV", pd.DataFrame(st.session_state.findings).to_csv(index=False, sep=";").encode("utf-8-sig"), file_name=f"hallazgos.csv", mime="text/csv", type="secondary", use_container_width=True)
-        with col_btn3:
-            if "docx_bytes" in st.session_state:
-                st.download_button("📥 Descargar Word (DOCX)", st.session_state.docx_bytes, file_name=f"auditoria_{st.session_state.hostname}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary", use_container_width=True)
+        st.info("💡 Dirígete a la pestaña **Security Analytics & Reportes** para ver los resultados detallados y descargar cualquier formato de informe (Técnico, Narrativo o ISO) de forma independiente con un solo clic.")
 
 with tab2:
-    st.subheader(f"📊 Security Analytics — {selected_org_name}")
-    # Consulta dinámica al vuelo (Sin requerir F5)
+    st.subheader(f"📊 Security Analytics & Exportación de Reportes — {selected_org_name}")
     conn = get_db_connection()
     ph = "%s" if "postgres" in st.secrets else "?"
     if selected_org_id is not None:
@@ -511,7 +490,7 @@ with tab2:
         display_df_tab2 = raw_history_tab2.sort_values(by='Escaneo #', ascending=False)
         
         analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df_tab2.iterrows()}
-        selected_analytics_label = st.selectbox("Seleccionar Escaneo para Analizar", list(analytics_options.keys()), key="analytics_scan_select")
+        selected_analytics_label = st.selectbox("Seleccionar Escaneo a Consultar y Exportar", list(analytics_options.keys()), key="analytics_scan_select")
         selected_scan_row = analytics_options[selected_analytics_label]
         
         st.markdown(f"**Objetivo:** `{selected_scan_row['hostname']}` | **IP:** `{selected_scan_row['ip']}` | **Risk Score:** `{selected_scan_row['risk_score']}/100`")
@@ -522,6 +501,40 @@ with tab2:
         except:
             stored_findings = []
             
+        # PANEL DINÁMICO DE DESCARGA DE REPORTES POR CADA ESCANEO SELECCIONADO
+        st.markdown("### 📥 Centro de Exportación de Informes por Plantilla")
+        st.write("Selecciona la plantilla que necesitas y descarga el documento al instante sin necesidad de reescanear:")
+        
+        col_rep1, col_rep2 = st.columns(2)
+        with col_rep1:
+            chosen_template = st.selectbox("Seleccionar Plantilla de Informe", [
+                "Informe Técnico Exhaustivo", 
+                "Informe Narrativo (Ejecutivo)", 
+                "Normativa (ISO/Compliance)"
+            ], key=f"tpl_{selected_scan_row['id']}")
+            
+        with col_rep2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            # Reconstruir estadísticas para el gráfico del PDF
+            stats_dummy = {"Críticas": sum(1 for x in stored_findings if x.get('severity') == 'CRÍTICO'),
+                           "Medias": sum(1 for x in stored_findings if x.get('severity') == 'MEDIO'),
+                           "Bajas": sum(1 for x in stored_findings if x.get('severity') == 'BAJO'),
+                           "Seguras": 2}
+            chart_b64 = generate_chart(stats_dummy)
+            
+            pdf_filename = f"auditoria_{selected_scan_row['hostname']}_{selected_scan_row['id']}.pdf"
+            generate_pdf(stored_findings, chart_b64, selected_scan_row['hostname'], selected_scan_row['risk_score'], agency_name, agency_tagline, chosen_template, recipient_name, report_subject, pdf_filename)
+            docx_bytes = generate_docx(selected_scan_row['hostname'], None, stored_findings, selected_scan_row['risk_score'], agency_name, agency_tagline, chosen_template, recipient_name, report_subject)
+            
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                with open(pdf_filename, "rb") as pdf_file:
+                    st.download_button("📥 Descargar PDF", pdf_file, file_name=pdf_filename, mime="application/pdf", key=f"pdf_btn_{selected_scan_row['id']}", use_container_width=True)
+            with d_col2:
+                st.download_button("📝 Descargar Word", docx_bytes, file_name=f"auditoria_{selected_scan_row['hostname']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"docx_btn_{selected_scan_row['id']}", use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("### 🔍 Desglose de Hallazgos Técnicos")
         if stored_findings:
             for f in stored_findings:
                 with st.expander(f"📌 {f['vector']} [{f.get('severity', 'MEDIO')}]"):
@@ -535,7 +548,6 @@ with tab2:
         st.info("Realiza un escaneo en la primera pestaña para visualizar los datos analíticos.")
 
 with tab3:
-    # Consulta dinámica al vuelo (Sin requerir F5)
     conn = get_db_connection()
     if selected_org_id is not None:
         raw_history_tab3 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
@@ -550,7 +562,6 @@ with tab3:
         st.dataframe(display_df_tab3[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
         
         st.markdown("### 🗑️ Gestión Segura de Escaneos")
-        
         del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df_tab3.iterrows()}
         scan_to_del_label = st.selectbox("¿Qué escaneo necesitas eliminar?", list(del_options.keys()), key="del_scan_select")
         
@@ -560,9 +571,6 @@ with tab3:
             if confirm_delete:
                 delete_scan(del_options[scan_to_del_label])
                 st.session_state.scanned = False
-                for key in ['findings', 'hostname', 'risk_score', 'pdf_filename', 'docx_bytes']:
-                    if key in st.session_state:
-                        del st.session_state[key]
                 st.success("✅ Escaneo seleccionado eliminado con éxito y registros reindexados.")
                 st.rerun()
             else:
@@ -572,7 +580,6 @@ with tab3:
 
 with tab4:
     st.subheader(f"🛠️ Ticketera — {selected_org_name}")
-    # Consulta dinámica al vuelo
     conn = get_db_connection()
     if selected_org_id is not None:
         raw_history_tab4 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
