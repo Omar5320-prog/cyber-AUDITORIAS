@@ -116,7 +116,6 @@ def delete_organization(org_id):
     conn.autocommit = True
     c = conn.cursor()
     ph = "%s" if "postgres" in st.secrets else "?"
-    # Eliminar registros asociados en cascada
     c.execute(f"DELETE FROM remediation_logs WHERE task_id IN (SELECT id FROM remediation_tasks WHERE organization_id = {ph})", (org_id,))
     c.execute(f"DELETE FROM remediation_tasks WHERE organization_id = {ph}", (org_id,))
     c.execute(f"DELETE FROM history WHERE organization_id = {ph}", (org_id,))
@@ -302,6 +301,8 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
 # UI DE LA APLICACIÓN
 # ==========================================
 if "scanned" not in st.session_state: st.session_state.scanned = False
+if "toast_msg" not in st.session_state: st.session_state.toast_msg = ""
+
 st.markdown('<div class="enterprise-banner">🚀 <strong>CyberAudits Enterprise Suite:</strong> Plataforma perimetral de consultoría activa.</div>', unsafe_allow_html=True)
 
 st.sidebar.header("🏢 Organización / Cliente")
@@ -316,6 +317,11 @@ for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
 selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
 selected_org_id = org_options[selected_org_name]
 
+# Mostrar mensaje de éxito persistente si existe en la sesión
+if st.session_state.toast_msg:
+    st.sidebar.success(st.session_state.toast_msg)
+    st.session_state.toast_msg = ""
+
 with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
     with st.form("add_org_form", clear_on_submit=True):
         new_org = st.text_input("Nombre de la Empresa")
@@ -324,7 +330,7 @@ with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
                 conn_add = get_db_connection(); c_add = conn_add.cursor()
                 c_add.execute(f"INSERT INTO organizations (name) VALUES ({'%s' if 'postgres' in st.secrets else '?'})", (new_org,))
                 conn_add.commit(); c_add.close(); conn_add.close()
-                st.sidebar.success(f"✅ ¡Cliente '{new_org}' agregado con éxito!")
+                st.session_state.toast_msg = f"✅ ¡Cliente '{new_org}' dado de alta con éxito!"
                 st.rerun()
             except Exception:
                 st.sidebar.error("El cliente ya existe o hubo un error.")
@@ -333,7 +339,7 @@ with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
 if selected_org_id is not None:
     if st.sidebar.button("🗑️ Eliminar Cliente Actual", type="secondary"):
         delete_organization(selected_org_id)
-        st.sidebar.success(f"Cliente '{selected_org_name}' eliminado correctamente.")
+        st.session_state.toast_msg = f"🗑️ Cliente '{selected_org_name}' eliminado con éxito."
         st.rerun()
 
 st.sidebar.markdown("---")
@@ -378,7 +384,6 @@ with tab1:
     if st.session_state.scanned:
         st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
         
-        # Tarjeta de resumen ejecutivo post-escaneo
         m1, m2, m3 = st.columns(3)
         m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
         m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
@@ -428,20 +433,25 @@ with tab3:
     if not raw_history.empty:
         st.dataframe(display_df[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
         
-        st.markdown("### 🗑️ Gestión de Escaneos")
-        st.warning("Al eliminar un escaneo, se borrarán todos sus tickets asociados y los números de escaneo se reindexarán automáticamente.")
+        st.markdown("### 🗑️ Gestión Segura de Escaneos")
+        st.warning("Selecciona el escaneo que deseas retirar y marca la casilla de confirmación para habilitar el borrado.")
         
         del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df.iterrows()}
-        scan_to_del_label = st.selectbox("Seleccione el Escaneo a eliminar", list(del_options.keys()), key="del_scan_select")
+        scan_to_del_label = st.selectbox("¿Qué escaneo necesitas eliminar?", list(del_options.keys()), key="del_scan_select")
+        
+        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo y sus tickets asociados")
         
         if st.button("🗑️ Eliminar Escaneo Seleccionado", type="primary"):
-            delete_scan(del_options[scan_to_del_label])
-            st.session_state.scanned = False
-            for key in ['findings', 'hostname', 'risk_score', 'pdf_filename', 'docx_bytes']:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.success("Escaneo y tickets eliminados correctamente. Reindexando...")
-            st.rerun()
+            if confirm_delete:
+                delete_scan(del_options[scan_to_del_label])
+                st.session_state.scanned = False
+                for key in ['findings', 'hostname', 'risk_score', 'pdf_filename', 'docx_bytes']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.success("✅ Escaneo eliminado con éxito y registros reindexados.")
+                st.rerun()
+            else:
+                st.error("Debes marcar la casilla de confirmación para proceder con la eliminación.")
     else:
         st.info("No hay historial de escaneos para este cliente.")
 
