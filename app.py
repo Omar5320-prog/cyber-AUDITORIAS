@@ -198,7 +198,7 @@ def scan_target(url):
 
 
 # ==========================================
-# GENERADORES DE REPORTES (PDF Y DOCX)
+# GENERADORES DE REPORTES (PDF Y DOCX DIFERENCIADOS)
 # ==========================================
 def generate_chart(stats):
     labels, sizes, colors = list(stats.keys()), list(stats.values()), ['#dc2626', '#f59e0b', '#3b82f6', '#10b981']
@@ -221,17 +221,41 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
     run_title = doc.add_paragraph().add_run(f"INFORME: {report_type.upper()}")
     run_title.font.size, run_title.font.bold, run_title.font.color.rgb = Pt(15), True, RGBColor(15, 23, 42)
     
-    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | Risk Score: {risk_score}/100")
-    doc.add_heading("Detalle de Hallazgos", level=2)
+    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | Puntuación de Riesgo: {risk_score}/100")
     
-    for idx, f in enumerate(findings, 1):
-        h = doc.add_paragraph().add_run(f"#{idx} - {f['vector']} [{f['severity']}]")
-        h.font.bold = True
-        doc.add_paragraph(f"Descripción: {f['desc']}")
-        doc.add_paragraph(f"Impacto: {f['impact']}")
-        doc.add_paragraph(f"Marco Regulatorio: {f.get('compliance', 'N/A')}")
-        doc.add_paragraph().add_run(f"Remediación: {f['fix']}").font.bold = True
+    if "Técnico" in report_type:
+        doc.add_heading("Detalle Técnico y Bloques de Configuración", level=2)
+        for idx, f in enumerate(findings, 1):
+            h = doc.add_paragraph().add_run(f"#{idx} - {f['vector']} [{f['severity']}]")
+            h.font.bold = True
+            doc.add_paragraph(f"Descripción técnica: {f['desc']}")
+            doc.add_paragraph(f"Impacto operativo: {f['impact']}")
+            p_fix = doc.add_paragraph()
+            p_fix.add_run(f"Remediación técnica / Snippet:\n{f.get('snippet', 'N/A')}").font.bold = True
+            
+    elif "Narrativo" in report_type:
+        doc.add_heading("Memorándum Ejecutivo y Situación Actual", level=2)
+        doc.add_paragraph(f"Estimado/a {recipient_name},\n\nPor medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo {hostname}. Tras la evaluación, se ha determinado un índice de riesgo global de {risk_score} sobre 100.")
+        doc.add_heading("Análisis de Riesgos y Consecuencias", level=3)
+        doc.add_paragraph("A continuación se detallan las situaciones detectadas y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:")
+        for idx, f in enumerate(findings, 1):
+            h = doc.add_paragraph().add_run(f"• {f['vector']} ({f['severity']})")
+            h.font.bold = True
+            doc.add_paragraph(f"Lo que está pasando: {f['desc']}\nEn qué impacta si no se resuelve: {f['impact']}\nAcción recomendada: {f['fix']}")
+        doc.add_paragraph("\nQuedamos a su entera disposición para notificar y coordinar las acciones correctivas con las áreas involucradas.")
         
+    else: # ISO / Compliance
+        doc.add_heading("Dictamen de Cumplimiento Normativo (ISO / NIST)", level=2)
+        doc.add_paragraph(f"Este reporte detalla las desviaciones normativas identificadas en {hostname} evaluadas frente a estándares internacionales de seguridad.")
+        for idx, f in enumerate(findings, 1):
+            h = doc.add_paragraph().add_run(f"Control #{idx} - {f['vector']} [{f['severity']}]")
+            h.font.bold = True
+            doc.add_paragraph(f"Marco Regulatorio / Cláusula de Control: {f.get('compliance', 'ISO 27001')}")
+            doc.add_paragraph(f"Hallazgo de Auditoría: {f['desc']}")
+            doc.add_paragraph(f"Impacto por Incumplimiento: {f['impact']}")
+            p_fix = doc.add_paragraph()
+            p_fix.add_run(f"Directriz de Remediación Obligatoria: {f['fix']}").font.bold = True
+            
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -285,7 +309,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <div class="card">
                 <div class="card-header">#{i} - {f['vector']} <span class="badge {bg}">{f['severity']}</span></div>
                 <div class="card-body">
-                    <p><strong>Descripción:</strong> {f['desc']}</p>
+                    <p><strong>Descripción Técnica:</strong> {f['desc']}</p>
                     <p><strong>Impacto Operativo:</strong> {f['impact']}</p>
                     <div style="background:#f0f9ff; border-left:3px solid #0284c7; padding:8px; margin-top:8px;">
                         <strong>Remediación Técnica (Snippet / Config):</strong><br>
@@ -294,12 +318,35 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                 </div>
             </div>
             """
-    elif "Normativa" in report_type or "ISO" in report_type:
+            
+    elif "Narrativo" in report_type:
+        content = header_html + f"""
+            <h2 class="title">Memorándum Ejecutivo y Situación Actual</h2>
+            <p>Estimado/a <strong>{recipient_name}</strong>,</p>
+            <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un índice de riesgo global de <strong>{risk_score} sobre 100</strong>.</p>
+            <h2 class="title">Análisis de Riesgos y Consecuencias</h2>
+            <p>A continuación se detallan las situaciones detectadas, lo que está pasando y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:</p>
+        """
+        for i, f in enumerate(findings, 1):
+            bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
+            content += f"""
+            <div class="card">
+                <div class="card-header">Hallazgo #{i}: {f['vector']} <span class="badge {bg}">{f['severity']}</span></div>
+                <div class="card-body">
+                    <p><strong>Lo que está pasando:</strong> {f['desc']}</p>
+                    <p><strong>En qué impacta si no se resuelve:</strong> {f['impact']}</p>
+                    <p><strong>Acción recomendada / Notificación:</strong> {f['fix']}</p>
+                </div>
+            </div>
+            """
+        content += "<p style='margin-top:15px;'>Quedamos a su entera disposición para coordinar y notificar las acciones correctivas con las áreas responsables.</p>"
+        
+    else: # ISO / Compliance
         content = header_html + f"""
             <h2 class="title">1. Dictamen de Cumplimiento Normativo (ISO 27001 / NIST)</h2>
-            <p>Índice de Madurez de Cumplimiento: <strong>{risk_score}/100</strong>. Este informe mapea las deficiencias detectadas contra marcos de control internacional para auditorías de certificación.</p>
+            <p>Índice de Madurez de Cumplimiento: <strong>{risk_score}/100</strong>. Este informe mapea las deficiencias detectadas contra marcos de control internacional exigidos en auditorías de certificación.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
-            <h2 class="title">2. Análisis de Controles Incumplidos</h2>
+            <h2 class="title">2. Análisis de Controles Incumplidos y Marcos Regulatorios</h2>
         """
         for i, f in enumerate(findings, 1):
             bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
@@ -307,27 +354,15 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <div class="card">
                 <div class="card-header">Control #{i}: {f['vector']} <span class="badge {bg}">Riesgo {f['severity']}</span></div>
                 <div class="card-body">
-                    <p><strong>Marco Regulatorio / Cláusula:</strong> <code>{f.get('compliance', 'ISO 27001')}</code></p>
+                    <p><strong>Marco Regulatorio / Cláusula de Control:</strong> <code>{f.get('compliance', 'ISO 27001')}</code></p>
                     <p><strong>Hallazgo de Auditoría:</strong> {f['desc']}</p>
                     <p><strong>Riesgo de No Conformidad:</strong> {f['impact']}</p>
                     <div style="background:#f8fafc; border-left:3px solid #0f172a; padding:8px; margin-top:8px;">
-                        <strong>Directriz Corporativa Requerida:</strong> {f['fix']}
+                        <strong>Directriz de Remediación Obligatoria:</strong> {f['fix']}
                     </div>
                 </div>
             </div>
             """
-    else:
-        content = header_html + f"""
-            <h2 class="title">Memorándum Ejecutivo de Riesgos</h2>
-            <p>Estimado/a <strong>{recipient_name}</strong>,</p>
-            <p>El análisis perimetral de <strong>{hostname}</strong> arroja un puntaje global de <strong>{risk_score} sobre 100</strong>.</p>
-            <div style="text-align: center; margin: 20px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
-            <h2 class="title">Resumen Directivo</h2>
-            <ul>
-        """
-        for f in findings:
-            content += f"<li style='margin-bottom:10px;'><strong>{f['vector']}:</strong> {f['impact']}</li>"
-        content += "</ul>"
 
     HTML(string=f"<html><head><style>{css_base}</style></head><body>{content}</body></html>").write_pdf(output_filename)
 
