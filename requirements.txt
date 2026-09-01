@@ -1,7 +1,7 @@
-psycopg2-binary
 streamlit
 pandas
-matplotlib
-docx
-weasyprint
 requests
+matplotlib
+psycopg2-binary
+weasyprint
+python-docx
