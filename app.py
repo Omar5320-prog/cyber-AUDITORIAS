@@ -224,7 +224,7 @@ def _safe_get(url, timeout=8, max_redirects=10):
     session = requests.Session()
     session.headers.update({
         "User-Agent": (
-            "Mozilla/5.0 (compatible; CyberAudits/2.1; "
+            "Mozilla/5.0 (compatible; CyberAudits/2.2; "
             "+https://cyberaudits.local/security-check)"
         ),
         "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
@@ -236,7 +236,11 @@ def _safe_get(url, timeout=8, max_redirects=10):
             current, hostname = _normalize_target(current)
             _validate_public_host(hostname)
 
-            canonical = current.rstrip("/")
+            # IMPORTANTE:
+            # https://dominio.com y https://dominio.com/ pueden formar parte
+            # de una redirección normal. No quitamos la barra final porque
+            # eso generaba falsos positivos de "bucle de redirección".
+            canonical = current
 
             if canonical in visited:
                 raise ValueError(
