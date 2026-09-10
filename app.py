@@ -95,7 +95,18 @@ def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, o
         
     if findings:
         for f in findings:
-            c.execute(f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')", (organization_id, scan_id, hostname, f['vector'], f.get('severity', 'MEDIO')))
+            if f.get("is_vulnerability", True) and f.get("severity") != "INFORMATIVO":
+                c.execute(
+                    f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) "
+                    f"VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')",
+                    (
+                        organization_id,
+                        scan_id,
+                        hostname,
+                        f["vector"],
+                        f.get("severity", "MEDIO")
+                    )
+                )
     c.close()
     conn.close()
     return scan_id
@@ -198,31 +209,74 @@ def _validate_public_host(hostname):
     return addresses
 
 
-def _safe_get(url, timeout=6, max_redirects=5):
+def _safe_get(url, timeout=8, max_redirects=10):
+    """
+    Realiza solicitudes HTTP/HTTPS siguiendo redirecciones de forma controlada.
+
+    - Mantiene cookies entre saltos usando requests.Session().
+    - Valida nuevamente cada destino antes de conectarse.
+    - Impide redirecciones hacia localhost, redes privadas o direcciones reservadas.
+    - Detecta bucles de redirección.
+    """
     current = url
+    visited = set()
 
-    for _ in range(max_redirects + 1):
-        current, hostname = _normalize_target(current)
-        _validate_public_host(hostname)
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (compatible; CyberAudits/2.1; "
+            "+https://cyberaudits.local/security-check)"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-419,es;q=0.9,en;q=0.7",
+    })
 
-        response = requests.get(
-            current,
-            timeout=timeout,
-            allow_redirects=False,
-            headers={"User-Agent": "CyberAudits/2.0 Security Check"}
+    try:
+        for _ in range(max_redirects + 1):
+            current, hostname = _normalize_target(current)
+            _validate_public_host(hostname)
+
+            canonical = current.rstrip("/")
+
+            if canonical in visited:
+                raise ValueError(
+                    "Se detectó un bucle de redirección HTTP en el objetivo."
+                )
+
+            visited.add(canonical)
+
+            response = session.get(
+                current,
+                timeout=timeout,
+                allow_redirects=False,
+                stream=True
+            )
+
+            # No descargamos cuerpos grandes: solo necesitamos estado y cabeceras.
+            response.close()
+
+            if response.status_code not in (301, 302, 303, 307, 308):
+                return response, current
+
+            location = response.headers.get("Location")
+
+            if not location:
+                return response, current
+
+            next_url = urljoin(current, location)
+
+            # Validamos el siguiente salto ANTES de solicitarlo.
+            next_normalized, next_hostname = _normalize_target(next_url)
+            _validate_public_host(next_hostname)
+
+            current = next_normalized
+
+        raise ValueError(
+            f"El objetivo requiere más de {max_redirects} redirecciones HTTP."
         )
 
-        if response.status_code not in (301, 302, 303, 307, 308):
-            return response, current
-
-        location = response.headers.get("Location")
-
-        if not location:
-            return response, current
-
-        current = urljoin(current, location)
-
-    raise ValueError("Se superó el máximo de redirecciones permitido.")
+    finally:
+        session.close()
 
 
 def _tls_certificate_info(hostname):
@@ -581,15 +635,27 @@ def scan_target(url):
             stats["Seguras"] += 1
 
     except Exception as e:
-        add_finding(
-            "Error de conectividad HTTP/HTTPS",
-            "CRÍTICO",
-            f"No se pudo completar la evaluación web: {e}",
-            "No fue posible validar correctamente la postura del servicio web.",
-            "Verificar disponibilidad, DNS, firewall y HTTP/HTTPS.",
-            "Disponibilidad Operativa",
-            category="Disponibilidad"
-        )
+        # Un error del propio proceso de evaluación NO demuestra una vulnerabilidad.
+        # Lo registramos como resultado no concluyente sin penalizar el CyberScore.
+        findings.append({
+            "vector": "Evaluación HTTP/HTTPS no concluyente",
+            "severity": "INFORMATIVO",
+            "desc": f"No se pudo completar esta parte de la evaluación: {e}",
+            "impact": (
+                "Este resultado no implica por sí mismo una vulnerabilidad. "
+                "CyberAudits no pudo verificar todos los controles HTTP/HTTPS."
+            ),
+            "fix": (
+                "Reintentar el análisis. Si persiste, revisar redirecciones, "
+                "protecciones anti-bot o disponibilidad del sitio."
+            ),
+            "compliance": "Control de calidad CyberAudits",
+            "snippet": "",
+            "category": "Diagnóstico",
+            "evidence": str(e),
+            "verified": False,
+            "is_vulnerability": False
+        })
 
     # =====================================
     # REDIRECCIÓN HTTP -> HTTPS
@@ -887,14 +953,32 @@ with tab1:
             if not target_url.startswith("http"): target_url = "https://" + target_url
             with st.spinner("Analizando objetivo..."):
                 findings, stats, hostname, geo, risk_score = scan_target(target_url)
-                scan_id = save_scan_to_db(hostname, geo["ip"], risk_score, len(findings), "Informe Técnico Exhaustivo", selected_org_id, findings)
+                vuln_count = sum(
+                    1 for f in findings
+                    if f.get("is_vulnerability", True)
+                    and f.get("severity") != "INFORMATIVO"
+                )
+                scan_id = save_scan_to_db(
+                    hostname,
+                    geo["ip"],
+                    risk_score,
+                    vuln_count,
+                    "Informe Técnico Exhaustivo",
+                    selected_org_id,
+                    findings
+                )
                 st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score)
 
     if st.session_state.scanned:
         st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
         m1, m2, m3 = st.columns(3)
-        m1.metric("Risk Score", f"{st.session_state.risk_score} / 100")
-        m2.metric("Vulnerabilidades Halladas", len(st.session_state.findings))
+        m1.metric("CyberScore", f"{st.session_state.risk_score} / 100")
+        vuln_count = sum(
+            1 for f in st.session_state.findings
+            if f.get("is_vulnerability", True)
+            and f.get("severity") != "INFORMATIVO"
+        )
+        m2.metric("Vulnerabilidades Halladas", vuln_count)
         m3.metric("Estado del Activo", "Auditado")
         st.info("💡 Dirígete a la pestaña **Security Analytics & Reportes** para gestionar las descargas.")
 
@@ -916,7 +1000,7 @@ with tab2:
         selected_analytics_label = st.selectbox("Seleccionar Escaneo", list(analytics_options.keys()), key="analytics_scan_select")
         selected_scan_row = analytics_options[selected_analytics_label]
         
-        st.markdown(f"**Objetivo:** `{selected_scan_row['hostname']}` | **IP:** `{selected_scan_row['ip']}` | **Risk Score:** `{selected_scan_row['risk_score']}/100`")
+        st.markdown(f"**Objetivo:** `{selected_scan_row['hostname']}` | **IP:** `{selected_scan_row['ip']}` | **CyberScore:** `{selected_scan_row['risk_score']}/100`")
         st.markdown("---")
         
         try:
@@ -966,7 +1050,9 @@ with tab2:
         st.markdown("### 🔍 Desglose de Hallazgos")
         if stored_findings:
             for f in stored_findings:
-                with st.expander(f"📌 {f['vector']} [{f.get('severity', 'MEDIO')}]"):
+                sev_label = f.get("severity", "MEDIO")
+                icon = "ℹ️" if sev_label == "INFORMATIVO" else "📌"
+                with st.expander(f"{icon} {f['vector']} [{sev_label}]"):
                     st.write(f"**Descripción:** {f.get('desc', 'N/A')}")
                     st.write(f"**Impacto:** {f.get('impact', 'N/A')}")
                     st.info(f"**Remediación:** {f.get('fix', 'N/A')}")
