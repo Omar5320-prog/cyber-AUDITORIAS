@@ -9,6 +9,7 @@ import requests
 import json
 import io
 import base64
+import html
 from urllib.parse import urlparse, urljoin
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -16,18 +17,217 @@ import matplotlib.pyplot as plt
 import psycopg2
 from weasyprint import HTML
 
-st.set_page_config(page_title="CyberAudits Enterprise", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="CyberAudits | Security Posture", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
-    <style>
-        .stApp { background-color: #f8fafc; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        [data-testid="stSidebar"] { background-color: #f0f2f6 !important; border-right: 1px solid #e2e8f0; }
-        .enterprise-banner { background: linear-gradient(90deg, #0f172a, #1e3a8a, #3b82f6); padding: 14px 20px; border-radius: 8px; color: white; text-align: center; margin-bottom: 20px; font-weight: 600; letter-spacing: 0.5px; }
-        .ticket-card { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .sev-critical { border-left: 5px solid #dc2626; }
-        .sev-medium { border-left: 5px solid #f59e0b; }
-        .sev-low { border-left: 5px solid #3b82f6; }
-    </style>
+<style>
+    .stApp {
+        background: #f6f8fc;
+        color: #172033;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    [data-testid="stSidebar"] {
+        background: #ffffff !important;
+        border-right: 1px solid #e7ebf3;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.35rem;
+    }
+
+    .block-container {
+        max-width: 1450px;
+        padding-top: 1.8rem;
+        padding-bottom: 4rem;
+    }
+
+    .ca-brand {
+        background: linear-gradient(115deg, #0b1220 0%, #13264b 55%, #215ee9 100%);
+        border-radius: 18px;
+        padding: 24px 28px;
+        color: white;
+        margin-bottom: 18px;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
+    }
+
+    .ca-brand h1 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.1;
+        letter-spacing: -0.5px;
+    }
+
+    .ca-brand p {
+        margin: 8px 0 0 0;
+        color: #dbe7ff;
+        font-size: 14px;
+    }
+
+    .ca-kicker {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: #8fb5ff;
+        margin-bottom: 8px;
+    }
+
+    .score-shell {
+        background: #ffffff;
+        border: 1px solid #e3e8f2;
+        border-radius: 18px;
+        padding: 24px;
+        min-height: 220px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+
+    .score-number {
+        font-size: 72px;
+        line-height: 0.95;
+        font-weight: 800;
+        letter-spacing: -4px;
+        color: #111827;
+    }
+
+    .score-denom {
+        font-size: 22px;
+        color: #7b8496;
+        font-weight: 600;
+        letter-spacing: -1px;
+    }
+
+    .score-label {
+        display: inline-block;
+        margin-top: 14px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #eef4ff;
+        color: #2057c8;
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .muted {
+        color: #687386;
+        font-size: 13px;
+    }
+
+    .pass-card {
+        background: linear-gradient(145deg, #0d172a, #122a57);
+        color: white;
+        border-radius: 20px;
+        padding: 24px;
+        min-height: 260px;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .pass-card:after {
+        content: "";
+        width: 180px;
+        height: 180px;
+        position: absolute;
+        right: -60px;
+        top: -60px;
+        border-radius: 50%;
+        background: rgba(59,130,246,0.18);
+    }
+
+    .pass-pill {
+        display: inline-block;
+        padding: 5px 9px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.12);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .7px;
+    }
+
+    .pass-score {
+        font-size: 48px;
+        line-height: 1;
+        font-weight: 800;
+        margin-top: 22px;
+    }
+
+    .finding-card {
+        background: white;
+        border: 1px solid #e4e9f2;
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin-bottom: 10px;
+        box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
+    }
+
+    .finding-title {
+        font-weight: 750;
+        font-size: 15px;
+        color: #1a2334;
+        margin-bottom: 5px;
+    }
+
+    .finding-meta {
+        font-size: 12px;
+        color: #758096;
+    }
+
+    .sev-critical { border-left: 5px solid #dc2626; }
+    .sev-medium   { border-left: 5px solid #d97706; }
+    .sev-low      { border-left: 5px solid #2563eb; }
+    .sev-info     { border-left: 5px solid #64748b; }
+
+    .small-note {
+        background: #f7f9fd;
+        border: 1px solid #e6ebf4;
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 12px;
+        color: #657087;
+    }
+
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e4e9f2;
+        padding: 14px 16px;
+        border-radius: 14px;
+        box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #677288;
+    }
+
+    button[kind="primary"] {
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 1px solid #e4e9f2;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px 10px 0 0;
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .ticket-card {
+        background: white;
+        border: 1px solid #e4e9f2;
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
+    }
+
+    code {
+        white-space: pre-wrap !important;
+    }
+</style>
 """, unsafe_allow_html=True)
 
 # ==========================================
@@ -49,9 +249,10 @@ def init_db():
     
     if is_pg:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS findings_json TEXT;")
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS scan_meta_json TEXT;")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id SERIAL PRIMARY KEY, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
@@ -59,10 +260,12 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id SERIAL PRIMARY KEY, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
         try: c.execute("ALTER TABLE history ADD COLUMN organization_id INTEGER;")
         except: pass
         try: c.execute("ALTER TABLE history ADD COLUMN findings_json TEXT;")
+        except: pass
+        try: c.execute("ALTER TABLE history ADD COLUMN scan_meta_json TEXT;")
         except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         try:
@@ -77,39 +280,125 @@ def init_db():
 
 init_db()
 
-def save_scan_to_db(hostname, ip, risk_score, findings_count, report_type_val, organization_id=None, findings=None):
+def save_scan_to_db(
+    hostname,
+    ip,
+    risk_score,
+    findings_count,
+    report_type_val,
+    organization_id=None,
+    findings=None,
+    scan_meta=None
+):
     conn = get_db_connection()
-    conn.autocommit = True
     c = conn.cursor()
+
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    findings_str = json.dumps(findings) if findings else "[]"
+    findings_str = json.dumps(findings or [], ensure_ascii=False)
+    meta_str = json.dumps(scan_meta or {}, ensure_ascii=False)
+
     is_pg = "postgres" in st.secrets
     ph = "%s" if is_pg else "?"
-    
+
     if is_pg:
-        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id, findings_json) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}) RETURNING id", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id, findings_str))
+        c.execute(
+            f"""
+            INSERT INTO history
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type,
+                organization_id,
+                findings_json,
+                scan_meta_json
+            )
+            VALUES
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            RETURNING id
+            """,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+                organization_id,
+                findings_str,
+                meta_str
+            )
+        )
         scan_id = c.fetchone()[0]
     else:
-        c.execute(f"INSERT INTO history (timestamp, hostname, ip, risk_score, findings_count, report_type, organization_id, findings_json) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})", (timestamp, hostname, ip, risk_score, findings_count, report_type_val, organization_id, findings_str))
+        c.execute(
+            f"""
+            INSERT INTO history
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type,
+                organization_id,
+                findings_json,
+                scan_meta_json
+            )
+            VALUES
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            """,
+            (
+                timestamp,
+                hostname,
+                ip,
+                risk_score,
+                findings_count,
+                report_type_val,
+                organization_id,
+                findings_str,
+                meta_str
+            )
+        )
         scan_id = c.lastrowid
-        
+
     if findings:
-        for f in findings:
-            if f.get("is_vulnerability", True) and f.get("severity") != "INFORMATIVO":
+        for finding in findings:
+            if (
+                finding.get("is_vulnerability", True)
+                and finding.get("severity") != "INFORMATIVO"
+            ):
                 c.execute(
-                    f"INSERT INTO remediation_tasks (organization_id, scan_id, hostname, finding_vector, severity, status) "
-                    f"VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')",
+                    f"""
+                    INSERT INTO remediation_tasks
                     (
                         organization_id,
                         scan_id,
                         hostname,
-                        f["vector"],
-                        f.get("severity", "MEDIO")
+                        finding_vector,
+                        severity,
+                        status
+                    )
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, 'Pendiente')
+                    """,
+                    (
+                        organization_id,
+                        scan_id,
+                        hostname,
+                        finding["vector"],
+                        finding.get("severity", "MEDIO")
                     )
                 )
+
+    if not is_pg:
+        conn.commit()
+
     c.close()
     conn.close()
     return scan_id
+
 
 def delete_scan(scan_id):
     conn = get_db_connection()
@@ -726,7 +1015,7 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
     run_title = doc.add_paragraph().add_run(f"INFORME: {report_type.upper()}")
     run_title.font.size, run_title.font.bold, run_title.font.color.rgb = Pt(15), True, RGBColor(15, 23, 42)
     
-    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | Puntuación de Riesgo: {risk_score}/100")
+    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | CyberScore de Seguridad: {risk_score}/100")
     
     if "Técnico" in report_type:
         doc.add_heading("Detalle Técnico y Bloques de Configuración", level=2)
@@ -740,7 +1029,7 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
             
     elif "Narrativo" in report_type:
         doc.add_heading("Informe Ejecutivo y Situación Actual", level=2)
-        doc.add_paragraph(f"Estimado/a {recipient_name},\n\nPor medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo {hostname}. Tras la evaluación, se ha determinado un índice de riesgo global de {risk_score} sobre 100.")
+        doc.add_paragraph(f"Estimado/a {recipient_name},\n\nPor medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo {hostname}. Tras la evaluación, se ha determinado un CyberScore global de {risk_score} sobre 100, donde una puntuación mayor representa una mejor postura de seguridad.")
         doc.add_heading("Análisis de Riesgos y Consecuencias", level=3)
         doc.add_paragraph("A continuación se detallan las situaciones detectadas y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:")
         for idx, f in enumerate(findings, 1):
@@ -750,16 +1039,16 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
         doc.add_paragraph("\nQuedamos a su entera disposición para notificar y coordinar las acciones correctivas con las áreas involucradas.")
         
     else: # ISO / Compliance
-        doc.add_heading("Dictamen de Cumplimiento Normativo (ISO / NIST)", level=2)
-        doc.add_paragraph(f"Este reporte detalla las desviaciones normativas identificadas en {hostname} evaluadas frente a estándares internacionales de seguridad.")
+        doc.add_heading("Mapa Orientativo de Controles (ISO / NIST)", level=2)
+        doc.add_paragraph(f"Este reporte relaciona los hallazgos técnicos observados en {hostname} con referencias de buenas prácticas. No constituye una certificación ni determina por sí solo el cumplimiento integral de una norma.")
         for idx, f in enumerate(findings, 1):
             h = doc.add_paragraph().add_run(f"Control #{idx} - {f['vector']} [{f['severity']}]")
             h.font.bold = True
-            doc.add_paragraph(f"Marco Regulatorio / Cláusula de Control: {f.get('compliance', 'ISO 27001')}")
+            doc.add_paragraph(f"Referencia de buenas prácticas / control: {f.get('compliance', 'ISO 27001')}")
             doc.add_paragraph(f"Hallazgo de Auditoría: {f['desc']}")
-            doc.add_paragraph(f"Impacto por Incumplimiento: {f['impact']}")
+            doc.add_paragraph(f"Impacto potencial: {f['impact']}")
             p_fix = doc.add_paragraph()
-            p_fix.add_run(f"Directriz de Remediación Obligatoria: {f['fix']}").font.bold = True
+            p_fix.add_run(f"Recomendación de remediación: {f['fix']}").font.bold = True
             
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -824,7 +1113,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
     if "Técnico" in report_type:
         content = header_html + f"""
             <h2 class="title">1. Resumen Técnico de Postura</h2>
-            <p>Puntuación de Riesgo Técnico: <strong>{risk_score}/100</strong>.</p>
+            <p>CyberScore Técnico: <strong>{risk_score}/100</strong>.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 250px;"></div>
             <h2 class="title">2. Evidencia de Vulnerabilidades y Bloques de Configuración</h2>
         """
@@ -848,7 +1137,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         content = header_html + f"""
             <h2 class="title">Informe Ejecutivo y Situación Actual</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
-            <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un índice de riesgo global de <strong>{risk_score} sobre 100</strong>.</p>
+            <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un CyberScore global de <strong>{risk_score} sobre 100</strong>, donde una puntuación mayor representa una mejor postura de seguridad.</p>
             <h2 class="title">Análisis de Riesgos y Consecuencias</h2>
             <p>A continuación se detallan las situaciones detectadas, lo que está pasando y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:</p>
         """
@@ -868,8 +1157,8 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         
     else: # ISO / Compliance
         content = header_html + f"""
-            <h2 class="title">1. Dictamen de Cumplimiento Normativo (ISO 27001 / NIST)</h2>
-            <p>Índice de Madurez de Cumplimiento: <strong>{risk_score}/100</strong>. Este informe mapea las deficiencias detectadas contra marcos de control internacional exigidos en auditorías de certificación.</p>
+            <h2 class="title">1. Mapa Orientativo de Controles (ISO 27001 / NIST)</h2>
+            <p>CyberScore Técnico: <strong>{risk_score}/100</strong>. Este informe relaciona hallazgos técnicos con referencias de buenas prácticas y no constituye una certificación de cumplimiento.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
             <h2 class="title">2. Análisis de Controles Incumplidos y Marcos Regulatorios</h2>
         """
@@ -879,11 +1168,11 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <div class="card">
                 <div class="card-header">Control #{i}: {f['vector']} <span class="badge {bg}">Riesgo {f['severity']}</span></div>
                 <div class="card-body">
-                    <p><strong>Marco Regulatorio / Cláusula de Control:</strong> <code>{f.get('compliance', 'ISO 27001')}</code></p>
+                    <p><strong>Referencia de buenas prácticas / control:</strong> <code>{f.get('compliance', 'ISO 27001')}</code></p>
                     <p><strong>Hallazgo de Auditoría:</strong> {f['desc']}</p>
-                    <p><strong>Riesgo de No Conformidad:</strong> {f['impact']}</p>
+                    <p><strong>Impacto potencial:</strong> {f['impact']}</p>
                     <div style="background:#f8fafc; border-left:3px solid #0f172a; padding:8px; margin-top:8px;">
-                        <strong>Directriz de Remediación Obligatoria:</strong> {f['fix']}
+                        <strong>Recomendación de remediación:</strong> {f['fix']}
                     </div>
                 </div>
             </div>
@@ -893,24 +1182,291 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
 
 
 # ==========================================
-# UI DE LA APLICACIÓN
+# UI CYBERAUDITS 2.3
 # ==========================================
-if "scanned" not in st.session_state: st.session_state.scanned = False
-if "toast_msg" not in st.session_state: st.session_state.toast_msg = ""
-if "toast_type" not in st.session_state: st.session_state.toast_type = "success"
 
-st.markdown('<div class="enterprise-banner">🛡️ <strong>CyberAudits Enterprise Suite:</strong> Plataforma Perimetral de Consultoría.</div>', unsafe_allow_html=True)
+if "scanned" not in st.session_state:
+    st.session_state.scanned = False
 
-st.sidebar.header("🏢 Organización / Cliente")
+if "toast_msg" not in st.session_state:
+    st.session_state.toast_msg = ""
+
+if "toast_type" not in st.session_state:
+    st.session_state.toast_type = "success"
+
+if "cyberpass_ready" not in st.session_state:
+    st.session_state.cyberpass_ready = False
+
+
+def safe_findings(value):
+    if isinstance(value, list):
+        return value
+
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def safe_meta(value):
+    if isinstance(value, dict):
+        return value
+
+    if not value:
+        return {}
+
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def is_actionable(finding):
+    return (
+        finding.get("severity") in {"CRÍTICO", "MEDIO", "BAJO"}
+        and finding.get("is_vulnerability", True)
+    )
+
+
+def finding_weight(finding):
+    return {
+        "CRÍTICO": 25,
+        "MEDIO": 8,
+        "BAJO": 3,
+        "INFORMATIVO": 0
+    }.get(finding.get("severity", "INFORMATIVO"), 0)
+
+
+def finding_type(finding):
+    severity = finding.get("severity", "INFORMATIVO")
+    category = finding.get("category", "")
+
+    if severity == "INFORMATIVO":
+        return "Informativo"
+
+    if category == "Exposición":
+        return "Exposición de información"
+
+    if category == "TLS":
+        return "Seguridad criptográfica"
+
+    if category == "Transporte":
+        return "Configuración de transporte"
+
+    if category == "Cookies":
+        return "Configuración de sesión"
+
+    if category == "Headers":
+        if severity == "BAJO":
+            return "Hardening recomendado"
+        return "Configuración de seguridad"
+
+    if category == "Disponibilidad":
+        return "Disponibilidad"
+
+    if category == "Validación":
+        return "Validación del objetivo"
+
+    return "Hallazgo de seguridad"
+
+
+def score_status(score):
+    score = int(score or 0)
+
+    if score >= 90:
+        return "EXCELENTE", "Postura sólida en los controles verificados."
+
+    if score >= 80:
+        return "BUENA", "Buena postura, con algunas mejoras recomendadas."
+
+    if score >= 65:
+        return "MEJORABLE", "Hay controles que conviene corregir para reducir exposición."
+
+    if score >= 40:
+        return "RIESGO ALTO", "La postura requiere atención prioritaria."
+
+    return "CRÍTICA", "Se detectaron riesgos que requieren revisión inmediata."
+
+
+def category_scores(findings):
+    groups = {
+        "TLS & Certificado": {"TLS"},
+        "Seguridad Web": {"Headers", "Cookies"},
+        "Transporte": {"Transporte"},
+        "Exposición": {"Exposición"}
+    }
+
+    result = {}
+
+    for label, categories in groups.items():
+        penalty = sum(
+            finding_weight(f)
+            for f in findings
+            if f.get("category") in categories and is_actionable(f)
+        )
+        result[label] = max(0, 100 - min(100, penalty))
+
+    return result
+
+
+def build_scan_meta(stats, findings):
+    informational = sum(
+        1
+        for f in findings
+        if f.get("severity") == "INFORMATIVO"
+    )
+
+    verified_checks = int(sum(stats.values()))
+    total_checks = verified_checks + informational
+
+    if total_checks <= 0:
+        coverage = 0
+    else:
+        coverage = round((verified_checks / total_checks) * 100)
+
+    if coverage >= 90:
+        confidence = "ALTA"
+    elif coverage >= 70:
+        confidence = "MEDIA"
+    else:
+        confidence = "BAJA"
+
+    return {
+        "verified_checks": verified_checks,
+        "total_checks": total_checks,
+        "coverage": coverage,
+        "confidence": confidence,
+        "category_scores": category_scores(findings)
+    }
+
+
+def fallback_scan_meta(findings):
+    informational = sum(
+        1
+        for f in findings
+        if f.get("severity") == "INFORMATIVO"
+    )
+
+    coverage = 100 if informational == 0 else 80
+
+    return {
+        "verified_checks": None,
+        "total_checks": None,
+        "coverage": coverage,
+        "confidence": "ALTA" if coverage >= 90 else "MEDIA",
+        "category_scores": category_scores(findings)
+    }
+
+
+def load_history(organization_id):
+    conn = get_db_connection()
+    ph = "%s" if "postgres" in st.secrets else "?"
+
+    columns = """
+        id,
+        timestamp,
+        hostname,
+        ip,
+        risk_score,
+        findings_count,
+        report_type,
+        findings_json,
+        scan_meta_json
+    """
+
+    if organization_id is not None:
+        df = pd.read_sql_query(
+            f"""
+            SELECT {columns}
+            FROM history
+            WHERE organization_id = {ph}
+            ORDER BY id DESC
+            """,
+            conn,
+            params=(organization_id,)
+        )
+    else:
+        df = pd.read_sql_query(
+            f"""
+            SELECT {columns}
+            FROM history
+            WHERE organization_id IS NULL
+            ORDER BY id DESC
+            """,
+            conn
+        )
+
+    conn.close()
+    return df
+
+
+def count_actionable(findings):
+    return sum(1 for f in findings if is_actionable(f))
+
+
+def severity_class(severity):
+    return {
+        "CRÍTICO": "sev-critical",
+        "MEDIO": "sev-medium",
+        "BAJO": "sev-low",
+        "INFORMATIVO": "sev-info"
+    }.get(severity, "sev-info")
+
+
+def render_finding_card(finding):
+    severity = finding.get("severity", "INFORMATIVO")
+    vector = html.escape(str(finding.get("vector", "Hallazgo")))
+    kind = html.escape(finding_type(finding))
+    category = html.escape(str(finding.get("category", "General")))
+
+    st.markdown(
+        f"""
+        <div class="finding-card {severity_class(severity)}">
+            <div class="finding-title">{vector}</div>
+            <div class="finding-meta">
+                {kind} · {category} · Severidad {html.escape(severity)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ==========================================
+# SIDEBAR / WORKSPACE
+# ==========================================
+
+st.sidebar.markdown("## 🛡️ CyberAudits")
+st.sidebar.caption("Security Posture Workspace")
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("### Organización")
+
 try:
     conn_org = get_db_connection()
-    org_df = pd.read_sql_query("SELECT id, name FROM organizations ORDER BY name ASC", conn_org)
+    org_df = pd.read_sql_query(
+        "SELECT id, name FROM organizations ORDER BY name ASC",
+        conn_org
+    )
     conn_org.close()
-except: org_df = pd.DataFrame(columns=["id", "name"])
+except Exception:
+    org_df = pd.DataFrame(columns=["id", "name"])
 
-org_options = {"General / Sin Asignar": None}
-for _, row in org_df.iterrows(): org_options[row["name"]] = row["id"]
-selected_org_name = st.sidebar.selectbox("Cliente Objetivo", list(org_options.keys()))
+org_options = {"General / Sin asignar": None}
+
+for _, row in org_df.iterrows():
+    org_options[row["name"]] = row["id"]
+
+selected_org_name = st.sidebar.selectbox(
+    "Workspace activo",
+    list(org_options.keys())
+)
+
 selected_org_id = org_options[selected_org_name]
 
 if st.session_state.toast_msg:
@@ -918,260 +1474,1225 @@ if st.session_state.toast_msg:
         st.sidebar.error(st.session_state.toast_msg)
     else:
         st.sidebar.success(st.session_state.toast_msg)
+
     st.session_state.toast_msg = ""
 
-with st.sidebar.expander("➕ Añadir / Gestionar Clientes"):
+
+with st.sidebar.expander("➕ Añadir organización"):
     with st.form("add_org_form", clear_on_submit=True):
-        new_org = st.text_input("Nombre de la Empresa")
-        if st.form_submit_button("Guardar Cliente") and new_org:
+        new_org = st.text_input("Nombre")
+
+        if st.form_submit_button("Guardar") and new_org:
             try:
-                conn_add = get_db_connection(); c_add = conn_add.cursor()
-                c_add.execute(f"INSERT INTO organizations (name) VALUES ({'%s' if 'postgres' in st.secrets else '?'})", (new_org,))
-                conn_add.commit(); c_add.close(); conn_add.close()
-                st.session_state.toast_msg = f"✅ ¡Cliente '{new_org}' dado de alta con éxito!"
+                conn_add = get_db_connection()
+                c_add = conn_add.cursor()
+
+                ph_add = "%s" if "postgres" in st.secrets else "?"
+
+                c_add.execute(
+                    f"INSERT INTO organizations (name) VALUES ({ph_add})",
+                    (new_org.strip(),)
+                )
+
+                if "postgres" not in st.secrets:
+                    conn_add.commit()
+
+                c_add.close()
+                conn_add.close()
+
+                st.session_state.toast_msg = (
+                    f"Organización '{new_org.strip()}' creada."
+                )
                 st.session_state.toast_type = "success"
                 st.rerun()
-            except Exception:
-                st.sidebar.error("El cliente ya existe o hubo un error.")
 
-if selected_org_id is not None:
-    if st.sidebar.button("🗑️ Eliminar Cliente Actual", type="secondary"):
-        delete_organization(selected_org_id)
-        st.session_state.toast_msg = f"🗑️ Cliente '{selected_org_name}' eliminado con éxito."
-        st.session_state.toast_type = "error"
-        st.rerun()
+            except Exception:
+                st.error("No se pudo crear. Puede que el nombre ya exista.")
+
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Configuración del Informe")
-agency_name = st.sidebar.text_input("Agencia", value="SecOps Global Partners")
-agency_tagline = st.sidebar.text_input("Subtítulo", value="División de Ciberseguridad")
-recipient_name = st.sidebar.text_input("Dirigido a", value="Dirección General")
-report_subject = st.sidebar.text_input("Asunto", value="Evaluación de Riesgos Perimetrales")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 Perimeter Scan", "📊 Security Analytics & Reportes", "📜 Historial de Escaneos", "🛠️ Ticketera"])
+with st.sidebar.expander("🧾 Branding de informes"):
+    agency_name = st.text_input(
+        "Agencia",
+        value="CyberAudits Security"
+    )
 
-with tab1:
-    target_url = st.text_input("URL Objetivo", value="https://")
-    if st.button("🚀 Ejecutar Análisis", type="primary"):
-        if target_url and target_url != "https://":
-            if not target_url.startswith("http"): target_url = "https://" + target_url
-            with st.spinner("Analizando objetivo..."):
-                findings, stats, hostname, geo, risk_score = scan_target(target_url)
-                vuln_count = sum(
-                    1 for f in findings
-                    if f.get("is_vulnerability", True)
-                    and f.get("severity") != "INFORMATIVO"
+    agency_tagline = st.text_input(
+        "Subtítulo",
+        value="Security Posture & Remediation"
+    )
+
+    recipient_name = st.text_input(
+        "Dirigido a",
+        value="Dirección General"
+    )
+
+    report_subject = st.text_input(
+        "Asunto",
+        value="Evaluación de Postura de Ciberseguridad"
+    )
+
+
+if selected_org_id is not None:
+    with st.sidebar.expander("⚠️ Zona de administración"):
+        st.warning(
+            "Eliminar una organización también elimina su historial "
+            "y sus tickets asociados."
+        )
+
+        if st.button(
+            "Eliminar organización actual",
+            type="secondary",
+            use_container_width=True
+        ):
+            delete_organization(selected_org_id)
+
+            st.session_state.toast_msg = (
+                f"Organización '{selected_org_name}' eliminada."
+            )
+            st.session_state.toast_type = "error"
+            st.rerun()
+
+
+# ==========================================
+# HEADER
+# ==========================================
+
+st.markdown(
+    """
+    <div class="ca-brand">
+        <div class="ca-kicker">CYBERAUDITS 2.3 · SECURITY POSTURE</div>
+        <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
+        <p>
+            Evaluación verificable de postura de seguridad,
+            priorización de hallazgos y seguimiento de remediación.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation = st.tabs(
+    [
+        "🏠 Dashboard",
+        "🔎 Security Scan",
+        "📄 Reports",
+        "📈 History",
+        "🛠 Remediation"
+    ]
+)
+
+
+# ==========================================
+# DASHBOARD
+# ==========================================
+
+with tab_dashboard:
+    history_df = load_history(selected_org_id)
+
+    if history_df.empty:
+        st.subheader("Tu postura de seguridad empieza acá")
+
+        st.write(
+            "Todavía no hay evaluaciones para este workspace. "
+            "Ejecutá el primer Security Scan para generar el CyberScore."
+        )
+
+        st.info(
+            "El CyberScore resume únicamente los controles que CyberAudits "
+            "puede verificar. No representa una garantía de seguridad absoluta."
+        )
+
+    else:
+        latest = history_df.iloc[0]
+        latest_findings = safe_findings(latest["findings_json"])
+
+        latest_meta = safe_meta(latest.get("scan_meta_json"))
+        if not latest_meta:
+            latest_meta = fallback_scan_meta(latest_findings)
+
+        score = int(latest["risk_score"])
+        status_label, status_description = score_status(score)
+
+        actionable = [
+            f for f in latest_findings
+            if is_actionable(f)
+        ]
+
+        actionable_sorted = sorted(
+            actionable,
+            key=lambda f: {
+                "CRÍTICO": 0,
+                "MEDIO": 1,
+                "BAJO": 2
+            }.get(f.get("severity"), 9)
+        )
+
+        previous_score = None
+
+        if len(history_df) > 1:
+            previous_score = int(history_df.iloc[1]["risk_score"])
+
+        delta = None
+        if previous_score is not None:
+            delta = score - previous_score
+
+        st.caption(
+            f"Workspace: {selected_org_name} · "
+            f"Último objetivo: {latest['hostname']} · "
+            f"Evaluado: {latest['timestamp']}"
+        )
+
+        left_score, right_metrics = st.columns([1.1, 2.2])
+
+        with left_score:
+            st.markdown(
+                f"""
+                <div class="score-shell">
+                    <div class="muted">CyberScore</div>
+                    <div style="margin-top:14px;">
+                        <span class="score-number">{score}</span>
+                        <span class="score-denom">/100</span>
+                    </div>
+                    <span class="score-label">{status_label}</span>
+                    <p class="muted" style="margin-top:16px;">
+                        {html.escape(status_description)}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with right_metrics:
+            m1, m2, m3 = st.columns(3)
+
+            m1.metric(
+                "Cobertura",
+                f"{latest_meta.get('coverage', 0)}%"
+            )
+
+            m2.metric(
+                "Confianza",
+                latest_meta.get("confidence", "N/D")
+            )
+
+            m3.metric(
+                "Hallazgos a atender",
+                len(actionable)
+            )
+
+            n1, n2, n3 = st.columns(3)
+
+            n1.metric(
+                "Críticos",
+                sum(
+                    1 for f in actionable
+                    if f.get("severity") == "CRÍTICO"
                 )
-                scan_id = save_scan_to_db(
+            )
+
+            n2.metric(
+                "Medios",
+                sum(
+                    1 for f in actionable
+                    if f.get("severity") == "MEDIO"
+                )
+            )
+
+            n3.metric(
+                "Bajos",
+                sum(
+                    1 for f in actionable
+                    if f.get("severity") == "BAJO"
+                )
+            )
+
+            if delta is not None:
+                st.caption(
+                    f"Variación respecto al escaneo anterior: "
+                    f"{delta:+d} puntos."
+                )
+
+        st.markdown("### Postura por categoría")
+
+        cats = latest_meta.get(
+            "category_scores",
+            category_scores(latest_findings)
+        )
+
+        cat_cols = st.columns(4)
+
+        ordered_categories = [
+            "TLS & Certificado",
+            "Seguridad Web",
+            "Transporte",
+            "Exposición"
+        ]
+
+        for col, label in zip(cat_cols, ordered_categories):
+            with col:
+                st.metric(
+                    label,
+                    f"{int(cats.get(label, 100))}/100"
+                )
+
+        st.markdown("### Qué corregir primero")
+
+        if actionable_sorted:
+            for finding in actionable_sorted[:3]:
+                render_finding_card(finding)
+
+                with st.expander(
+                    f"Ver solución · {finding.get('vector', 'Hallazgo')}"
+                ):
+                    st.write(
+                        f"**Qué detectamos:** "
+                        f"{finding.get('desc', 'Sin descripción.')}"
+                    )
+
+                    st.write(
+                        f"**Impacto:** "
+                        f"{finding.get('impact', 'Sin detalle.')}"
+                    )
+
+                    st.info(
+                        f"**Qué hacer:** "
+                        f"{finding.get('fix', 'Sin recomendación.')}"
+                    )
+
+                    if finding.get("evidence"):
+                        st.caption(
+                            f"Evidencia: {finding.get('evidence')}"
+                        )
+
+                    if finding.get("snippet"):
+                        st.code(finding.get("snippet"))
+        else:
+            st.success(
+                "No hay hallazgos accionables en los controles "
+                "que pudieron verificarse."
+            )
+
+        st.markdown("### Verificar correcciones")
+
+        verify_col, verify_info = st.columns([1, 2.4])
+
+        with verify_col:
+            if st.button(
+                "🔄 Verificar ahora",
+                type="primary",
+                use_container_width=True
+            ):
+                verify_url = f"https://{latest['hostname']}"
+
+                with st.spinner(
+                    "Reevaluando los controles verificados..."
+                ):
+                    (
+                        new_findings,
+                        new_stats,
+                        new_hostname,
+                        new_geo,
+                        new_score
+                    ) = scan_target(verify_url)
+
+                    new_meta = build_scan_meta(
+                        new_stats,
+                        new_findings
+                    )
+
+                    new_count = count_actionable(
+                        new_findings
+                    )
+
+                    save_scan_to_db(
+                        new_hostname,
+                        new_geo.get("ip", "N/A"),
+                        new_score,
+                        new_count,
+                        "Security Posture Assessment",
+                        selected_org_id,
+                        new_findings,
+                        new_meta
+                    )
+
+                change = new_score - score
+
+                st.session_state.toast_msg = (
+                    f"Verificación completada. "
+                    f"CyberScore {score} → {new_score} "
+                    f"({change:+d})."
+                )
+
+                st.session_state.toast_type = "success"
+                st.rerun()
+
+        with verify_info:
+            st.caption(
+                "CyberAudits vuelve a ejecutar los controles sobre el mismo "
+                "objetivo y genera un nuevo registro. Así podemos comprobar "
+                "si una remediación realmente mejoró la postura."
+            )
+
+        st.markdown("---")
+        st.markdown("### CyberPass · vista privada")
+
+        pass_left, pass_right = st.columns([1.35, 1])
+
+        with pass_left:
+            pass_org = (
+                selected_org_name
+                if selected_org_name != "General / Sin asignar"
+                else latest["hostname"]
+            )
+
+            st.markdown(
+                f"""
+                <div class="pass-card">
+                    <span class="pass-pill">PRIVATE PREVIEW</span>
+                    <div style="margin-top:20px;font-size:13px;color:#b9c9e8;">
+                        CYBERPASS BY CYBERAUDITS
+                    </div>
+                    <div style="font-size:22px;font-weight:800;margin-top:5px;">
+                        {html.escape(str(pass_org))}
+                    </div>
+                    <div class="pass-score">{score}/100</div>
+                    <div style="margin-top:8px;color:#d8e4fb;">
+                        {status_label} · Cobertura {latest_meta.get('coverage', 0)}%
+                        · Confianza {latest_meta.get('confidence', 'N/D')}
+                    </div>
+                    <div style="margin-top:24px;font-size:12px;color:#9fb4d9;">
+                        Última verificación: {html.escape(str(latest['timestamp']))}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with pass_right:
+            st.write(
+                "**¿Qué será el CyberPass?** Una vista compartible que "
+                "permita demostrar qué controles fueron verificados, sin "
+                "exponer detalles técnicos sensibles."
+            )
+
+            st.write(
+                "En esta fase permanece **privado**. La publicación con URL, "
+                "verificación de propiedad y controles de privacidad se "
+                "implementará después de validar este dashboard."
+            )
+
+            if st.button(
+                "Preparar CyberPass",
+                use_container_width=True
+            ):
+                st.session_state.cyberpass_ready = True
+
+            if st.session_state.cyberpass_ready:
+                st.success(
+                    "Vista preparada. Todavía no se creó ningún enlace público."
+                )
+
+            st.caption(
+                "CyberPass no será una certificación ni una garantía de "
+                "seguridad; mostrará evidencia verificable y fecha de revisión."
+            )
+
+
+# ==========================================
+# SECURITY SCAN
+# ==========================================
+
+with tab_scan:
+    st.subheader("Security Scan")
+
+    st.write(
+        "Evaluá una URL pública mediante controles HTTP/HTTPS y TLS "
+        "de bajo impacto."
+    )
+
+    st.caption(
+        "Esta fase no realiza explotación, fuerza bruta ni pruebas intrusivas. "
+        "Los análisis activos más profundos requerirán verificación de propiedad."
+    )
+
+    with st.form("security_scan_form"):
+        target_url = st.text_input(
+            "URL o dominio",
+            value="https://",
+            placeholder="https://empresa.com"
+        )
+
+        run_scan = st.form_submit_button(
+            "🚀 Ejecutar análisis",
+            type="primary",
+            use_container_width=True
+        )
+
+    if run_scan:
+        if target_url and target_url.strip() not in {"http://", "https://"}:
+            with st.spinner(
+                "Analizando TLS, HTTPS, headers y exposición observable..."
+            ):
+                (
+                    findings,
+                    stats,
                     hostname,
-                    geo["ip"],
-                    risk_score,
-                    vuln_count,
-                    "Informe Técnico Exhaustivo",
-                    selected_org_id,
+                    geo,
+                    risk_score
+                ) = scan_target(target_url)
+
+                scan_meta = build_scan_meta(
+                    stats,
                     findings
                 )
-                st.session_state.update(scanned=True, findings=findings, hostname=hostname, risk_score=risk_score)
+
+                findings_count = count_actionable(
+                    findings
+                )
+
+                scan_id = save_scan_to_db(
+                    hostname,
+                    geo.get("ip", "N/A"),
+                    risk_score,
+                    findings_count,
+                    "Security Posture Assessment",
+                    selected_org_id,
+                    findings,
+                    scan_meta
+                )
+
+                st.session_state.update(
+                    scanned=True,
+                    findings=findings,
+                    hostname=hostname,
+                    risk_score=risk_score,
+                    scan_meta=scan_meta,
+                    scan_id=scan_id
+                )
+
+            st.success(
+                f"Análisis completado para {hostname}."
+            )
+
+        else:
+            st.error("Ingresá una URL o dominio válido.")
 
     if st.session_state.scanned:
-        st.success(f"✅ ¡Análisis completado para {st.session_state.hostname}!")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("CyberScore", f"{st.session_state.risk_score} / 100")
-        vuln_count = sum(
-            1 for f in st.session_state.findings
-            if f.get("is_vulnerability", True)
-            and f.get("severity") != "INFORMATIVO"
+        scan_findings = st.session_state.get(
+            "findings",
+            []
         )
-        m2.metric("Vulnerabilidades Halladas", vuln_count)
-        m3.metric("Estado del Activo", "Auditado")
-        st.info("💡 Dirígete a la pestaña **Security Analytics & Reportes** para gestionar las descargas.")
 
-with tab2:
-    st.subheader(f"📊 Security Analytics & Centro de Descarga de Informes — {selected_org_name}")
-    conn = get_db_connection()
-    ph = "%s" if "postgres" in st.secrets else "?"
-    if selected_org_id is not None:
-        raw_history_tab2 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
+        scan_meta = st.session_state.get(
+            "scan_meta",
+            fallback_scan_meta(scan_findings)
+        )
+
+        s1, s2, s3, s4 = st.columns(4)
+
+        s1.metric(
+            "CyberScore",
+            f"{st.session_state.risk_score}/100"
+        )
+
+        s2.metric(
+            "Hallazgos a atender",
+            count_actionable(scan_findings)
+        )
+
+        s3.metric(
+            "Cobertura",
+            f"{scan_meta.get('coverage', 0)}%"
+        )
+
+        s4.metric(
+            "Confianza",
+            scan_meta.get("confidence", "N/D")
+        )
+
+        st.markdown("#### Resultados")
+
+        if scan_findings:
+            for finding in scan_findings:
+                severity = finding.get(
+                    "severity",
+                    "INFORMATIVO"
+                )
+
+                with st.expander(
+                    f"{'ℹ️' if severity == 'INFORMATIVO' else '📌'} "
+                    f"{finding.get('vector', 'Hallazgo')} "
+                    f"[{severity}] · {finding_type(finding)}"
+                ):
+                    st.write(
+                        f"**Descripción:** "
+                        f"{finding.get('desc', 'N/A')}"
+                    )
+
+                    st.write(
+                        f"**Impacto:** "
+                        f"{finding.get('impact', 'N/A')}"
+                    )
+
+                    st.info(
+                        f"**Remediación:** "
+                        f"{finding.get('fix', 'N/A')}"
+                    )
+
+                    if finding.get("evidence"):
+                        st.caption(
+                            f"Evidencia: {finding.get('evidence')}"
+                        )
+
+                    if finding.get("snippet"):
+                        st.code(finding.get("snippet"))
+        else:
+            st.success(
+                "No se encontraron hallazgos en los controles evaluados."
+            )
+
+
+# ==========================================
+# REPORTS
+# ==========================================
+
+with tab_reports:
+    st.subheader("Reports")
+
+    reports_history = load_history(selected_org_id)
+
+    if reports_history.empty:
+        st.info("Primero ejecutá un Security Scan.")
+
     else:
-        raw_history_tab2 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
-    conn.close()
+        reports_history = reports_history.copy()
+        reports_history["Escaneo #"] = range(
+            len(reports_history),
+            0,
+            -1
+        )
 
-    if not raw_history_tab2.empty:
-        raw_history_tab2['Escaneo #'] = range(1, len(raw_history_tab2) + 1)
-        display_df_tab2 = raw_history_tab2.sort_values(by='Escaneo #', ascending=False)
-        
-        analytics_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row for _, row in display_df_tab2.iterrows()}
-        selected_analytics_label = st.selectbox("Seleccionar Escaneo", list(analytics_options.keys()), key="analytics_scan_select")
-        selected_scan_row = analytics_options[selected_analytics_label]
-        
-        st.markdown(f"**Objetivo:** `{selected_scan_row['hostname']}` | **IP:** `{selected_scan_row['ip']}` | **CyberScore:** `{selected_scan_row['risk_score']}/100`")
-        st.markdown("---")
-        
-        try:
-            stored_findings = json.loads(selected_scan_row['findings_json']) if selected_scan_row['findings_json'] else []
-        except:
-            stored_findings = []
-            
-        st.markdown("### 📥 Centro de Descarga de Informes")
-        st.write("Selecciona y descarga los formatos independientes para este análisis:")
-        
-        stats_dummy = {"Críticas": sum(1 for x in stored_findings if x.get('severity') == 'CRÍTICO'),
-                       "Medias": sum(1 for x in stored_findings if x.get('severity') == 'MEDIO'),
-                       "Bajas": sum(1 for x in stored_findings if x.get('severity') == 'BAJO'),
-                       "Seguras": 2}
+        report_options = {
+            (
+                f"{row['timestamp']} · "
+                f"{row['hostname']} · "
+                f"CyberScore {row['risk_score']}/100"
+            ): row
+            for _, row in reports_history.iterrows()
+        }
+
+        selected_report_label = st.selectbox(
+            "Seleccionar evaluación",
+            list(report_options.keys()),
+            key="reports_scan_select"
+        )
+
+        selected_scan_row = report_options[
+            selected_report_label
+        ]
+
+        stored_findings = safe_findings(
+            selected_scan_row["findings_json"]
+        )
+
+        st.caption(
+            f"Objetivo: {selected_scan_row['hostname']} · "
+            f"IP: {selected_scan_row['ip']} · "
+            f"CyberScore: {selected_scan_row['risk_score']}/100"
+        )
+
+        stats_dummy = {
+            "Críticas": sum(
+                1 for x in stored_findings
+                if x.get("severity") == "CRÍTICO"
+            ),
+            "Medias": sum(
+                1 for x in stored_findings
+                if x.get("severity") == "MEDIO"
+            ),
+            "Bajas": sum(
+                1 for x in stored_findings
+                if x.get("severity") == "BAJO"
+            ),
+            "Seguras": max(
+                1,
+                10 - count_actionable(stored_findings)
+            )
+        }
+
         chart_b64 = generate_chart(stats_dummy)
-        
+
         col_rep1, col_rep2, col_rep3 = st.columns(3)
-        
+
         with col_rep1:
             st.markdown("#### 📄 Informe Técnico")
-            pdf_tech = f"tec_{selected_scan_row['id']}.pdf"
-            generate_pdf(stored_findings, chart_b64, selected_scan_row['hostname'], selected_scan_row['risk_score'], agency_name, agency_tagline, "Informe Técnico Exhaustivo", recipient_name, report_subject, pdf_tech)
-            docx_tech = generate_docx(selected_scan_row['hostname'], stored_findings, selected_scan_row['risk_score'], agency_name, agency_tagline, "Informe Técnico Exhaustivo", recipient_name, report_subject)
+
+            pdf_tech = (
+                f"cyberaudits_technical_"
+                f"{selected_scan_row['id']}.pdf"
+            )
+
+            generate_pdf(
+                stored_findings,
+                chart_b64,
+                selected_scan_row["hostname"],
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                "Informe Técnico Exhaustivo",
+                recipient_name,
+                report_subject,
+                pdf_tech
+            )
+
+            docx_tech = generate_docx(
+                selected_scan_row["hostname"],
+                stored_findings,
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                "Informe Técnico Exhaustivo",
+                recipient_name,
+                report_subject
+            )
+
             with open(pdf_tech, "rb") as f:
-                st.download_button("📥 Descargar PDF Técnico", f, file_name=pdf_tech, mime="application/pdf", key=f"pdf_t_{selected_scan_row['id']}", use_container_width=True)
-            st.download_button("📝 Descargar Word Técnico", docx_tech, file_name=f"tec_{selected_scan_row['hostname']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"doc_t_{selected_scan_row['id']}", use_container_width=True)
-            
+                st.download_button(
+                    "Descargar PDF técnico",
+                    f,
+                    file_name=pdf_tech,
+                    mime="application/pdf",
+                    key=f"pdf_t_{selected_scan_row['id']}",
+                    use_container_width=True
+                )
+
+            st.download_button(
+                "Descargar Word técnico",
+                docx_tech,
+                file_name=(
+                    f"cyberaudits_technical_"
+                    f"{selected_scan_row['hostname']}.docx"
+                ),
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                key=f"doc_t_{selected_scan_row['id']}",
+                use_container_width=True
+            )
+
         with col_rep2:
-            st.markdown("#### 📈 Informe Narrativo")
-            pdf_narr = f"narr_{selected_scan_row['id']}.pdf"
-            generate_pdf(stored_findings, chart_b64, selected_scan_row['hostname'], selected_scan_row['risk_score'], agency_name, agency_tagline, "Informe Narrativo (Ejecutivo)", recipient_name, report_subject, pdf_narr)
-            docx_narr = generate_docx(selected_scan_row['hostname'], stored_findings, selected_scan_row['risk_score'], agency_name, agency_tagline, "Informe Narrativo (Ejecutivo)", recipient_name, report_subject)
-            with open(pdf_narr, "rb") as f:
-                st.download_button("📥 Descargar PDF Narrativo", f, file_name=pdf_narr, mime="application/pdf", key=f"pdf_n_{selected_scan_row['id']}", use_container_width=True)
-            st.download_button("📝 Descargar Word Narrativo", docx_narr, file_name=f"narr_{selected_scan_row['hostname']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"doc_n_{selected_scan_row['id']}", use_container_width=True)
-            
+            st.markdown("#### 📈 Informe Ejecutivo")
+
+            pdf_exec = (
+                f"cyberaudits_executive_"
+                f"{selected_scan_row['id']}.pdf"
+            )
+
+            generate_pdf(
+                stored_findings,
+                chart_b64,
+                selected_scan_row["hostname"],
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                "Informe Narrativo (Ejecutivo)",
+                recipient_name,
+                report_subject,
+                pdf_exec
+            )
+
+            docx_exec = generate_docx(
+                selected_scan_row["hostname"],
+                stored_findings,
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                "Informe Narrativo (Ejecutivo)",
+                recipient_name,
+                report_subject
+            )
+
+            with open(pdf_exec, "rb") as f:
+                st.download_button(
+                    "Descargar PDF ejecutivo",
+                    f,
+                    file_name=pdf_exec,
+                    mime="application/pdf",
+                    key=f"pdf_e_{selected_scan_row['id']}",
+                    use_container_width=True
+                )
+
+            st.download_button(
+                "Descargar Word ejecutivo",
+                docx_exec,
+                file_name=(
+                    f"cyberaudits_executive_"
+                    f"{selected_scan_row['hostname']}.docx"
+                ),
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                key=f"doc_e_{selected_scan_row['id']}",
+                use_container_width=True
+            )
+
         with col_rep3:
-            st.markdown("#### 📋 Normativa ISO")
-            pdf_iso = f"iso_{selected_scan_row['id']}.pdf"
-            generate_pdf(stored_findings, chart_b64, selected_scan_row['hostname'], selected_scan_row['risk_score'], agency_name, agency_tagline, "Normativa (ISO/Compliance)", recipient_name, report_subject, pdf_iso)
-            docx_iso = generate_docx(selected_scan_row['hostname'], stored_findings, selected_scan_row['risk_score'], agency_name, agency_tagline, "Normativa (ISO/Compliance)", recipient_name, report_subject)
-            with open(pdf_iso, "rb") as f:
-                st.download_button("📥 Descargar PDF ISO", f, file_name=pdf_iso, mime="application/pdf", key=f"pdf_i_{selected_scan_row['id']}", use_container_width=True)
-            st.download_button("📝 Descargar Word ISO", docx_iso, file_name=f"iso_{selected_scan_row['hostname']}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"doc_i_{selected_scan_row['id']}", use_container_width=True)
+            st.markdown("#### 📋 Mapa de Controles")
 
-        st.markdown("---")
-        st.markdown("### 🔍 Desglose de Hallazgos")
+            pdf_controls = (
+                f"cyberaudits_controls_"
+                f"{selected_scan_row['id']}.pdf"
+            )
+
+            control_report_type = (
+                "Mapa Orientativo de Controles (ISO/NIST)"
+            )
+
+            generate_pdf(
+                stored_findings,
+                chart_b64,
+                selected_scan_row["hostname"],
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                control_report_type,
+                recipient_name,
+                report_subject,
+                pdf_controls
+            )
+
+            docx_controls = generate_docx(
+                selected_scan_row["hostname"],
+                stored_findings,
+                selected_scan_row["risk_score"],
+                agency_name,
+                agency_tagline,
+                control_report_type,
+                recipient_name,
+                report_subject
+            )
+
+            with open(pdf_controls, "rb") as f:
+                st.download_button(
+                    "Descargar PDF de controles",
+                    f,
+                    file_name=pdf_controls,
+                    mime="application/pdf",
+                    key=f"pdf_c_{selected_scan_row['id']}",
+                    use_container_width=True
+                )
+
+            st.download_button(
+                "Descargar Word de controles",
+                docx_controls,
+                file_name=(
+                    f"cyberaudits_controls_"
+                    f"{selected_scan_row['hostname']}.docx"
+                ),
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                key=f"doc_c_{selected_scan_row['id']}",
+                use_container_width=True
+            )
+
+        st.markdown(
+            """
+            <div class="small-note">
+                <strong>Nota:</strong> El mapa ISO/NIST es orientativo.
+                Un escaneo técnico aislado no certifica el cumplimiento
+                integral de una norma.
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.markdown("### Hallazgos incluidos")
+
         if stored_findings:
-            for f in stored_findings:
-                sev_label = f.get("severity", "MEDIO")
-                icon = "ℹ️" if sev_label == "INFORMATIVO" else "📌"
-                with st.expander(f"{icon} {f['vector']} [{sev_label}]"):
-                    st.write(f"**Descripción:** {f.get('desc', 'N/A')}")
-                    st.write(f"**Impacto:** {f.get('impact', 'N/A')}")
-                    st.info(f"**Remediación:** {f.get('fix', 'N/A')}")
-                    if 'snippet' in f: st.code(f['snippet'])
+            for finding in stored_findings:
+                render_finding_card(finding)
         else:
-            st.info("No hay hallazgos registrados para este escaneo.")
-    else:
-        st.info("Realiza un escaneo en la primera pestaña para visualizar los datos.")
+            st.success(
+                "No hay hallazgos registrados para esta evaluación."
+            )
 
-with tab3:
-    conn = get_db_connection()
-    if selected_org_id is not None:
-        raw_history_tab3 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
-    else:
-        raw_history_tab3 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
-    conn.close()
 
-    if not raw_history_tab3.empty:
-        raw_history_tab3['Escaneo #'] = range(1, len(raw_history_tab3) + 1)
-        display_df_tab3 = raw_history_tab3.sort_values(by='Escaneo #', ascending=False)
-        
-        st.dataframe(display_df_tab3[['Escaneo #', 'timestamp', 'hostname', 'ip', 'risk_score', 'findings_count', 'report_type']], hide_index=True, use_container_width=True)
-        
-        st.markdown("### 🗑️ Gestión Segura de Escaneos")
-        del_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']} ({row['timestamp']})": row["id"] for _, row in display_df_tab3.iterrows()}
-        scan_to_del_label = st.selectbox("¿Qué escaneo necesitas eliminar?", list(del_options.keys()), key="del_scan_select")
-        
-        confirm_delete = st.checkbox("⚠️ Confirmo que deseo eliminar permanentemente este escaneo específico y sus tickets asociados", key="chk_del_scan")
-        
-        if st.button("🗑️ Eliminar Escaneo Seleccionado", type="primary"):
+# ==========================================
+# HISTORY
+# ==========================================
+
+with tab_history:
+    st.subheader("History")
+
+    history_tab_df = load_history(selected_org_id)
+
+    if history_tab_df.empty:
+        st.info("No hay evaluaciones registradas.")
+
+    else:
+        trend = history_tab_df.copy()
+        trend["timestamp_dt"] = pd.to_datetime(
+            trend["timestamp"],
+            errors="coerce"
+        )
+
+        trend = trend.sort_values(
+            by="timestamp_dt",
+            ascending=True
+        )
+
+        if len(trend) >= 2:
+            st.markdown("#### Evolución del CyberScore")
+
+            chart_df = (
+                trend[["timestamp_dt", "risk_score"]]
+                .dropna()
+                .set_index("timestamp_dt")
+                .rename(columns={"risk_score": "CyberScore"})
+            )
+
+            st.line_chart(chart_df)
+
+        display_history = history_tab_df[
+            [
+                "id",
+                "timestamp",
+                "hostname",
+                "ip",
+                "risk_score",
+                "findings_count"
+            ]
+        ].copy()
+
+        display_history.columns = [
+            "ID",
+            "Fecha",
+            "Objetivo",
+            "IP",
+            "CyberScore",
+            "Hallazgos"
+        ]
+
+        st.dataframe(
+            display_history,
+            hide_index=True,
+            use_container_width=True
+        )
+
+        st.markdown("#### Eliminar una evaluación")
+
+        delete_options = {
+            (
+                f"{row['timestamp']} · "
+                f"{row['hostname']} · "
+                f"CyberScore {row['risk_score']}/100"
+            ): row["id"]
+            for _, row in history_tab_df.iterrows()
+        }
+
+        scan_to_delete_label = st.selectbox(
+            "Evaluación",
+            list(delete_options.keys()),
+            key="history_delete_select"
+        )
+
+        confirm_delete = st.checkbox(
+            "Confirmo que deseo eliminar esta evaluación "
+            "y sus tickets asociados.",
+            key="history_delete_confirm"
+        )
+
+        if st.button(
+            "Eliminar evaluación",
+            type="secondary"
+        ):
             if confirm_delete:
-                delete_scan(del_options[scan_to_del_label])
+                delete_scan(
+                    delete_options[scan_to_delete_label]
+                )
+
                 st.session_state.scanned = False
-                st.success("✅ Escaneo seleccionado eliminado con éxito.")
+                st.success("Evaluación eliminada.")
                 st.rerun()
             else:
-                st.error("Debes marcar obligatoriamente la casilla de confirmación para eliminar el escaneo seleccionado.")
+                st.error(
+                    "Marcá la confirmación antes de eliminar."
+                )
+
+
+# ==========================================
+# REMEDIATION CENTER
+# ==========================================
+
+with tab_remediation:
+    st.subheader("Remediation Center")
+
+    remediation_history = load_history(
+        selected_org_id
+    )
+
+    if remediation_history.empty:
+        st.info(
+            "Ejecutá un Security Scan para generar tareas "
+            "de remediación."
+        )
+
     else:
-        st.info("No hay historial de escaneos para este cliente.")
+        ticket_scan_options = {
+            (
+                f"{row['timestamp']} · "
+                f"{row['hostname']} · "
+                f"CyberScore {row['risk_score']}/100"
+            ): row["id"]
+            for _, row in remediation_history.iterrows()
+        }
 
-with tab4:
-    st.subheader(f"🛠️ Ticketera — {selected_org_name}")
-    conn = get_db_connection()
-    if selected_org_id is not None:
-        raw_history_tab4 = pd.read_sql_query(f"SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id = {ph} ORDER BY id ASC", conn, params=(selected_org_id,))
-    else:
-        raw_history_tab4 = pd.read_sql_query("SELECT id, timestamp, hostname, ip, risk_score, findings_count, report_type, findings_json FROM history WHERE organization_id IS NULL ORDER BY id ASC", conn)
-    conn.close()
+        selected_ticket_label = st.selectbox(
+            "Evaluación",
+            list(ticket_scan_options.keys()),
+            key="remediation_scan_select"
+        )
 
-    if not raw_history_tab4.empty:
-        raw_history_tab4['Escaneo #'] = range(1, len(raw_history_tab4) + 1)
-        display_df_tab4 = raw_history_tab4.sort_values(by='Escaneo #', ascending=False)
+        selected_scan_id = ticket_scan_options[
+            selected_ticket_label
+        ]
 
-        ticket_scan_options = {f"Escaneo #{row['Escaneo #']} - {row['hostname']}": row["id"] for _, row in display_df_tab4.iterrows()}
-        selected_scan_label = st.selectbox("Seleccionar Escaneo a Trabajar", list(ticket_scan_options.keys()), key="ticket_scan_select")
-        selected_scan_id = ticket_scan_options[selected_scan_label]
-        
-        try:
-            conn_cnt = get_db_connection(); c_cnt = conn_cnt.cursor()
-            c_cnt.execute(f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Pendiente'", (selected_scan_id,))
-            count_pending = c_cnt.fetchone()[0]
-            c_cnt.execute(f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status = 'En Proceso'", (selected_scan_id,))
-            count_progress = c_cnt.fetchone()[0]
-            c_cnt.execute(f"SELECT COUNT(*) FROM remediation_tasks WHERE scan_id = {ph} AND status = 'Solucionado'", (selected_scan_id,))
-            count_resolved = c_cnt.fetchone()[0]
-            c_cnt.close(); conn_cnt.close()
-        except: count_pending = count_progress = count_resolved = 0
+        ph = "%s" if "postgres" in st.secrets else "?"
+
+        conn_cnt = get_db_connection()
+        c_cnt = conn_cnt.cursor()
+
+        counts = {}
+
+        for state in [
+            "Pendiente",
+            "En Proceso",
+            "Solucionado"
+        ]:
+            c_cnt.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM remediation_tasks
+                WHERE scan_id = {ph}
+                AND status = {ph}
+                """,
+                (selected_scan_id, state)
+            )
+
+            counts[state] = c_cnt.fetchone()[0]
+
+        c_cnt.close()
+        conn_cnt.close()
+
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Pendientes", counts["Pendiente"])
+        r2.metric("En proceso", counts["En Proceso"])
+        r3.metric("Solucionados", counts["Solucionado"])
+
+        t_pending, t_progress, t_done = st.tabs(
+            [
+                f"🟡 Pendientes ({counts['Pendiente']})",
+                f"🔄 En proceso ({counts['En Proceso']})",
+                f"✅ Solucionados ({counts['Solucionado']})"
+            ]
+        )
+
+        def render_tickets(status_filter, closed=False):
+            conn = get_db_connection()
+
+            tasks_df = pd.read_sql_query(
+                f"""
+                SELECT
+                    id,
+                    hostname,
+                    finding_vector,
+                    severity,
+                    status
+                FROM remediation_tasks
+                WHERE scan_id = {ph}
+                AND status = {ph}
+                ORDER BY id ASC
+                """,
+                conn,
+                params=(
+                    selected_scan_id,
+                    status_filter
+                )
+            )
+
+            conn.close()
+
+            if tasks_df.empty:
+                st.info(
+                    f"No hay tareas en estado '{status_filter}'."
+                )
+                return
+
+            for _, row in tasks_df.iterrows():
+                ticket_id = row["id"]
+                ticket_host = row["hostname"]
+                ticket_vector = row["finding_vector"]
+                ticket_severity = row["severity"]
+                ticket_status = row["status"]
+
+                sev_css = severity_class(
+                    ticket_severity
+                )
+
+                st.markdown(
+                    f"""
+                    <div class="ticket-card {sev_css}">
+                        <div style="font-weight:800;font-size:15px;">
+                            {'✅' if closed else '📌'}
+                            Ticket #{ticket_id} ·
+                            {html.escape(str(ticket_vector))}
+                        </div>
+                        <div class="finding-meta" style="margin-top:5px;">
+                            {html.escape(str(ticket_host))}
+                            · {html.escape(str(ticket_severity))}
+                            · {html.escape(str(ticket_status))}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                if not closed:
+                    with st.form(
+                        key=f"ticket_form_{ticket_id}",
+                        clear_on_submit=True
+                    ):
+                        c1, c2 = st.columns([1, 2])
+
+                        with c1:
+                            statuses = [
+                                "Pendiente",
+                                "En Proceso",
+                                "Solucionado"
+                            ]
+
+                            new_status = st.selectbox(
+                                "Estado",
+                                statuses,
+                                index=statuses.index(
+                                    ticket_status
+                                )
+                            )
+
+                        with c2:
+                            new_note = st.text_input(
+                                "Nota / evidencia",
+                                placeholder=(
+                                    "Ej.: cabecera aplicada y "
+                                    "configuración desplegada"
+                                )
+                            )
+
+                        if st.form_submit_button(
+                            "Guardar actualización"
+                        ):
+                            conn_u = get_db_connection()
+                            c_u = conn_u.cursor()
+
+                            c_u.execute(
+                                f"""
+                                UPDATE remediation_tasks
+                                SET status = {ph}
+                                WHERE id = {ph}
+                                """,
+                                (
+                                    new_status,
+                                    ticket_id
+                                )
+                            )
+
+                            c_u.execute(
+                                f"""
+                                INSERT INTO remediation_logs
+                                (
+                                    task_id,
+                                    timestamp,
+                                    status,
+                                    notes
+                                )
+                                VALUES
+                                ({ph}, {ph}, {ph}, {ph})
+                                """,
+                                (
+                                    ticket_id,
+                                    datetime.datetime.now().strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    ),
+                                    new_status,
+                                    new_note
+                                )
+                            )
+
+                            if "postgres" not in st.secrets:
+                                conn_u.commit()
+
+                            c_u.close()
+                            conn_u.close()
+
+                            st.success(
+                                "Actualización registrada."
+                            )
+                            st.rerun()
+
+                with st.expander(
+                    f"Bitácora · Ticket #{ticket_id}"
+                ):
+                    conn_l = get_db_connection()
+
+                    logs_df = pd.read_sql_query(
+                        f"""
+                        SELECT timestamp, status, notes
+                        FROM remediation_logs
+                        WHERE task_id = {ph}
+                        ORDER BY id DESC
+                        """,
+                        conn_l,
+                        params=(ticket_id,)
+                    )
+
+                    conn_l.close()
+
+                    if logs_df.empty:
+                        st.caption(
+                            "Todavía no hay movimientos registrados."
+                        )
+                    else:
+                        for _, log in logs_df.iterrows():
+                            st.markdown(
+                                f"**{log['timestamp']}** · "
+                                f"`{log['status']}`  \n"
+                                f"{log['notes'] or 'Sin comentarios.'}"
+                            )
+
+        with t_pending:
+            render_tickets("Pendiente")
+
+        with t_progress:
+            render_tickets("En Proceso")
+
+        with t_done:
+            render_tickets(
+                "Solucionado",
+                closed=True
+            )
 
         st.markdown("---")
-        t_pend, t_prog, t_res = st.tabs([f"🟡 Pendientes ({count_pending})", f"🔄 En Proceso ({count_progress})", f"✅ Solucionados ({count_resolved})"])
-        
-        def render_tickets_for_status(status_filter, is_closed_tab=False):
-            conn = get_db_connection()
-            tasks_df = pd.read_sql_query(f"SELECT id, hostname, finding_vector, severity, status FROM remediation_tasks WHERE scan_id = {ph} AND status = {ph} ORDER BY id ASC", conn, params=(selected_scan_id, status_filter))
-            conn.close()
-                
-            if not tasks_df.empty:
-                for _, row in tasks_df.iterrows():
-                    t_id, t_host, t_vec, t_sev, t_status = row["id"], row["hostname"], row["finding_vector"], row.get("severity", "MEDIO"), row["status"]
-                    sev_class = "sev-critical" if "CRÍTICO" in t_sev.upper() else "sev-low" if "BAJO" in t_sev.upper() else "sev-medium"
-                    
-                    st.markdown(f"""
-                        <div class="ticket-card {sev_class if not is_closed_tab else 'sev-low'}">
-                            <h3 style="margin-top:0; font-size:16px;">{'✅' if is_closed_tab else '📌'} Ticket #{t_id} | {t_vec}</h3>
-                            <p style="margin:4px 0; color:#64748b;"><strong>Severidad:</strong> {t_sev} | <strong>Estado actual:</strong> {t_status}</p>
-                        </div>
-                    """, unsafe_allow_html=True)
 
-                    if not is_closed_tab:
-                        with st.form(key=f"form_ticket_{t_id}", clear_on_submit=True):
-                            col_t1, col_t2 = st.columns([2, 3])
-                            with col_t1: new_status = st.selectbox("Mover a Estado", ["Pendiente", "En Proceso", "Solucionado"], index=["Pendiente", "En Proceso", "Solucionado"].index(t_status))
-                            with col_t2: new_note = st.text_input("Nota de Avance / Bitácora", placeholder="Escribe tu comentario aquí...")
-                                
-                            if st.form_submit_button("Actualizar y Guardar Nota"):
-                                conn_u = get_db_connection(); conn_u.autocommit = True; c_u = conn_u.cursor()
-                                c_u.execute(f"UPDATE remediation_tasks SET status = {ph} WHERE id = {ph}", (new_status, t_id))
-                                c_u.execute(f"INSERT INTO remediation_logs (task_id, timestamp, status, notes) VALUES ({ph}, {ph}, {ph}, {ph})", (t_id, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), new_status, new_note))
-                                c_u.close(); conn_u.close()
-                                
-                                st.success("✅ Comentario ingresado con éxito.")
-                                st.rerun()
-                                    
-                    with st.expander(f"🕒 Ver Bitácora (Ticket #{t_id})"):
-                        conn_l = get_db_connection()
-                        logs_df = pd.read_sql_query(f"SELECT timestamp, status, notes FROM remediation_logs WHERE task_id = {ph} ORDER BY id DESC", conn_l, params=(t_id,))
-                        conn_l.close()
-                        if not logs_df.empty:
-                            for _, log_row in logs_df.iterrows():
-                                st.markdown(f"**{log_row['timestamp']}** — Estado: `{log_row['status']}`\n> _{log_row['notes'] or 'Sin comentarios.'}_")
-                        else: st.info("Sin registros.")
-                    st.markdown("---")
-            else: st.info(f"No hay tickets en estado '{status_filter}'.")
+        st.info(
+            "Cuando termines una remediación, volvé al Dashboard y usá "
+            "“Verificar ahora”. CyberAudits generará una nueva evaluación "
+            "para comprobar si el CyberScore mejoró."
+        )
 
-        with t_pend: render_tickets_for_status("Pendiente")
-        with t_prog: render_tickets_for_status("En Proceso")
-        with t_res: render_tickets_for_status("Solucionado", is_closed_tab=True)
-    else: st.info("Realiza un escaneo para generar tickets.")
