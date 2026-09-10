@@ -232,6 +232,35 @@ st.markdown("""
         box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
     }
 
+    .history-row {
+        background: #ffffff;
+        border: 1px solid #e4e9f2;
+        border-radius: 14px;
+        padding: 14px 16px;
+        margin: 0;
+        min-height: 78px;
+        box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
+        display: flex;
+        align-items: center;
+    }
+
+    .history-title {
+        font-size: 14px;
+        font-weight: 800;
+        color: #182235;
+        margin-bottom: 5px;
+    }
+
+    .history-meta {
+        font-size: 12px;
+        color: #718096;
+        line-height: 1.45;
+    }
+
+    div[data-testid="stButton"] > button[kind="secondary"] {
+        border-radius: 10px !important;
+    }
+
     code {
         white-space: pre-wrap !important;
     }
@@ -2352,7 +2381,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.4 · SECURITY POSTURE</div>
+        <div class="ca-kicker">CYBERAUDITS 2.4.1 · SECURITY POSTURE</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -3233,71 +3262,75 @@ with tab_history:
 
             st.line_chart(chart_df)
 
-        display_history = history_tab_df[
-            [
-                "id",
-                "timestamp",
-                "hostname",
-                "ip",
-                "risk_score",
-                "findings_count"
-            ]
-        ].copy()
+        st.markdown("#### Escaneos guardados")
 
-        display_history.columns = [
-            "ID",
-            "Fecha",
-            "Objetivo",
-            "IP",
-            "CyberScore",
-            "Hallazgos"
-        ]
-
-        st.dataframe(
-            display_history,
-            hide_index=True,
-            use_container_width=True
+        st.caption(
+            "Usá la ✕ de la derecha para eliminar un escaneo. "
+            "También se eliminarán sus tareas y bitácoras de remediación asociadas."
         )
 
-        st.markdown("#### Eliminar una evaluación")
+        for _, row in history_tab_df.iterrows():
+            scan_id = int(row["id"])
+            scan_score = int(row["risk_score"] or 0)
+            scan_findings = int(row["findings_count"] or 0)
 
-        delete_options = {
-            (
-                f"{row['timestamp']} · "
-                f"{row['hostname']} · "
-                f"CyberScore {row['risk_score']}/100"
-            ): row["id"]
-            for _, row in history_tab_df.iterrows()
-        }
+            row_col, delete_col = st.columns(
+                [12, 1],
+                vertical_alignment="center"
+            )
 
-        scan_to_delete_label = st.selectbox(
-            "Evaluación",
-            list(delete_options.keys()),
-            key="history_delete_select"
-        )
-
-        confirm_delete = st.checkbox(
-            "Confirmo que deseo eliminar esta evaluación "
-            "y sus tickets asociados.",
-            key="history_delete_confirm"
-        )
-
-        if st.button(
-            "Eliminar evaluación",
-            type="secondary"
-        ):
-            if confirm_delete:
-                delete_scan(
-                    delete_options[scan_to_delete_label]
+            with row_col:
+                st.markdown(
+                    f"""
+                    <div class="history-row">
+                        <div>
+                            <div class="history-title">
+                                {html.escape(str(row['hostname']))}
+                            </div>
+                            <div class="history-meta">
+                                {html.escape(str(row['timestamp']))}
+                                &nbsp; · &nbsp;
+                                IP: {html.escape(str(row['ip']))}
+                                &nbsp; · &nbsp;
+                                CyberScore: <strong>{scan_score}/100</strong>
+                                &nbsp; · &nbsp;
+                                Hallazgos: <strong>{scan_findings}</strong>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
                 )
 
-                st.session_state.scanned = False
-                st.success("Evaluación eliminada.")
-                st.rerun()
-            else:
-                st.error(
-                    "Marcá la confirmación antes de eliminar."
-                )
+            with delete_col:
+                if st.button(
+                    "✕",
+                    key=f"quick_delete_scan_{scan_id}",
+                    help=f"Eliminar escaneo #{scan_id}",
+                    type="secondary",
+                    use_container_width=True
+                ):
+                    delete_scan(scan_id)
+
+                    if st.session_state.get("scan_id") == scan_id:
+                        st.session_state.scanned = False
+                        st.session_state.pop("scan_id", None)
+                        st.session_state.pop("findings", None)
+                        st.session_state.pop("hostname", None)
+                        st.session_state.pop("risk_score", None)
+                        st.session_state.pop("scan_meta", None)
+
+                    st.session_state.toast_msg = (
+                        f"Escaneo de {row['hostname']} eliminado."
+                    )
+                    st.session_state.toast_type = "success"
+                    st.rerun()
+
+        st.markdown("---")
+        st.caption(
+            "Consejo: conservá al menos dos evaluaciones si querés ver "
+            "la evolución del CyberScore y comprobar mejoras después de una remediación."
+        )
 
 
 # ==========================================
