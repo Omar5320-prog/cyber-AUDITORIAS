@@ -2381,7 +2381,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.4.1 · SECURITY POSTURE</div>
+        <div class="ca-kicker">CYBERAUDITS 2.4.2 · SECURITY POSTURE</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -2986,15 +2986,48 @@ with tab_reports:
             for _, row in reports_history.iterrows()
         }
 
-        selected_report_label = st.selectbox(
-            "Seleccionar evaluación",
-            list(report_options.keys()),
-            key="reports_scan_select"
+        report_select_col, report_delete_col = st.columns(
+            [12, 1],
+            vertical_alignment="bottom"
         )
+
+        with report_select_col:
+            selected_report_label = st.selectbox(
+                "Seleccionar evaluación",
+                list(report_options.keys()),
+                key="reports_scan_select"
+            )
 
         selected_scan_row = report_options[
             selected_report_label
         ]
+
+        with report_delete_col:
+            if st.button(
+                "✕",
+                key=f"delete_report_scan_{int(selected_scan_row['id'])}",
+                help="Eliminar este escaneo",
+                type="secondary",
+                use_container_width=True
+            ):
+                deleted_scan_id = int(selected_scan_row["id"])
+                deleted_hostname = str(selected_scan_row["hostname"])
+
+                delete_scan(deleted_scan_id)
+
+                if st.session_state.get("scan_id") == deleted_scan_id:
+                    st.session_state.scanned = False
+                    st.session_state.pop("scan_id", None)
+                    st.session_state.pop("findings", None)
+                    st.session_state.pop("hostname", None)
+                    st.session_state.pop("risk_score", None)
+                    st.session_state.pop("scan_meta", None)
+
+                st.session_state.toast_msg = (
+                    f"Escaneo de {deleted_hostname} eliminado."
+                )
+                st.session_state.toast_type = "success"
+                st.rerun()
 
         stored_findings = safe_findings(
             selected_scan_row["findings_json"]
@@ -3360,15 +3393,45 @@ with tab_remediation:
             for _, row in remediation_history.iterrows()
         }
 
-        selected_ticket_label = st.selectbox(
-            "Evaluación",
-            list(ticket_scan_options.keys()),
-            key="remediation_scan_select"
+        remediation_select_col, remediation_delete_col = st.columns(
+            [12, 1],
+            vertical_alignment="bottom"
         )
+
+        with remediation_select_col:
+            selected_ticket_label = st.selectbox(
+                "Evaluación",
+                list(ticket_scan_options.keys()),
+                key="remediation_scan_select"
+            )
 
         selected_scan_id = ticket_scan_options[
             selected_ticket_label
         ]
+
+        with remediation_delete_col:
+            if st.button(
+                "✕",
+                key=f"delete_remediation_scan_{int(selected_scan_id)}",
+                help="Eliminar este escaneo y sus tareas",
+                type="secondary",
+                use_container_width=True
+            ):
+                deleted_scan_id = int(selected_scan_id)
+
+                delete_scan(deleted_scan_id)
+
+                if st.session_state.get("scan_id") == deleted_scan_id:
+                    st.session_state.scanned = False
+                    st.session_state.pop("scan_id", None)
+                    st.session_state.pop("findings", None)
+                    st.session_state.pop("hostname", None)
+                    st.session_state.pop("risk_score", None)
+                    st.session_state.pop("scan_meta", None)
+
+                st.session_state.toast_msg = "Escaneo eliminado."
+                st.session_state.toast_type = "success"
+                st.rerun()
 
         ph = "%s" if "postgres" in st.secrets else "?"
 
