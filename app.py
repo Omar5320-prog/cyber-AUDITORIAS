@@ -1,4 +1,6 @@
 import streamlit as st
+import ssl
+import ipaddress
 import pandas as pd
 import sqlite3
 import socket
@@ -7,7 +9,7 @@ import requests
 import json
 import io
 import base64
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 import matplotlib.pyplot as plt
@@ -135,66 +137,752 @@ def get_geolocation(hostname):
             geo_data.update({"country": data.get("country", ""), "city": data.get("city", ""), "org": data.get("org", "")})
     except: pass
     return geo_data
+def _normalize_target(raw_url):
+    raw_url = (raw_url or "").strip()
+
+    if not raw_url:
+        raise ValueError("Objetivo vacío.")
+
+    if "://" not in raw_url:
+        raw_url = "https://" + raw_url
+
+    parsed = urlparse(raw_url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Solo se permiten URLs HTTP/HTTPS.")
+
+    if not parsed.hostname:
+        raise ValueError("No se pudo identificar el dominio.")
+
+    if parsed.username or parsed.password:
+        raise ValueError("No se permiten credenciales dentro de la URL.")
+
+    if parsed.port not in (None, 80, 443):
+        raise ValueError(
+            "En esta versión solo se permiten los puertos web 80 y 443."
+        )
+
+    return raw_url, parsed.hostname.lower()
+
+
+def _validate_public_host(hostname):
+    try:
+        results = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        raise ValueError("El dominio no resuelve por DNS.")
+
+    addresses = {
+        item[4][0].split("%")[0]
+        for item in results
+    }
+
+    if not addresses:
+        raise ValueError(
+            "No se encontraron direcciones IP para el dominio."
+        )
+
+    for addr in addresses:
+        ip = ipaddress.ip_address(addr)
+
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise ValueError(
+                "El objetivo resuelve a una dirección no pública "
+                "y fue bloqueado."
+            )
+
+    return addresses
+
+
+def _safe_get(url, timeout=6, max_redirects=5):
+    current = url
+
+    for _ in range(max_redirects + 1):
+
+        current, hostname = _normalize_target(current)
+
+        _validate_public_host(hostname)
+
+        response = requests.get(
+            current,
+            timeout=timeout,
+            allow_redirects=False,
+            headers={
+                "User-Agent":
+                "CyberAudits/2.0 Security Check"
+            }
+        )
+
+        if response.status_code not in (
+            301, 302, 303, 307, 308
+        ):
+            return response, current
+
+        location = response.headers.get("Location")
+
+        if not location:
+            return response, current
+
+        current = urljoin(current, location)
+
+    raise ValueError(
+        "Se superó el máximo de redirecciones permitido."
+    )
+
+
+def _tls_certificate_info(hostname):
+
+    _validate_public_host(hostname)
+
+    context = ssl.create_default_context()
+
+    with socket.create_connection(
+        (hostname, 443),
+        timeout=6
+    ) as sock:
+
+        with context.wrap_socket(
+            sock,
+            server_hostname=hostname
+        ) as tls_sock:
+
+            cert = tls_sock.getpeercert()
+
+            cipher = tls_sock.cipher()
+
+            tls_version = tls_sock.version()
+
+    not_after_raw = cert.get("notAfter")
+
+    expires_at = None
+    days_left = None
+
+    if not_after_raw:
+
+        expires_ts = ssl.cert_time_to_seconds(
+            not_after_raw
+        )
+
+        expires_at = datetime.datetime.fromtimestamp(
+            expires_ts,
+            tz=datetime.timezone.utc
+        )
+
+        days_left = (
+            expires_at
+            - datetime.datetime.now(
+                datetime.timezone.utc
+            )
+        ).days
+
+    issuer = dict(
+        x[0]
+        for x in cert.get("issuer", [])
+    )
+
+    return {
+        "tls_version":
+            tls_version or "Desconocido",
+
+        "cipher":
+            cipher[0]
+            if cipher
+            else "Desconocido",
+
+        "expires_at":
+            expires_at.isoformat()
+            if expires_at
+            else "Desconocido",
+
+        "days_left":
+            days_left,
+
+        "issuer":
+            issuer.get("organizationName")
+            or issuer.get("commonName")
+            or "Desconocido",
+    }
+
 
 def scan_target(url):
-    parsed_url = urlparse(url)
-    hostname = parsed_url.hostname or url.replace("https://", "").replace("http://", "").split("/")[0]
+
     findings = []
-    stats = {"Críticas": 0, "Medias": 0, "Bajas": 0, "Seguras": 0}
-    geo = get_geolocation(hostname)
-    
-    try:
-        response = requests.get(url, timeout=5, allow_redirects=True)
-        headers = response.headers
-        
-        if "Strict-Transport-Security" in headers:
-            stats["Seguras"] += 1
-        else:
+
+    stats = {
+        "Críticas": 0,
+        "Medias": 0,
+        "Bajas": 0,
+        "Seguras": 0
+    }
+
+    def add_finding(
+        vector,
+        severity,
+        desc,
+        impact,
+        fix,
+        compliance,
+        snippet="",
+        category="Web",
+        evidence=""
+    ):
+
+        severity = severity.upper()
+
+        if severity == "CRÍTICO":
             stats["Críticas"] += 1
-            findings.append({
-                "vector": "HTTP Strict Transport Security (HSTS) Ausente", "severity": "CRÍTICO",
-                "desc": f"El servidor de {hostname} no emite la cabecera HSTS de seguridad en transporte.",
-                "impact": "Exposición crítica a ataques Man-in-the-Middle y SSL Stripping.",
-                "fix": "Configurar la cabecera Strict-Transport-Security en el servidor web.",
-                "compliance": "ISO/IEC 27001:2022 (A.12.6.1) / PCI-DSS 4.1", "snippet": 'add_header Strict-Transport-Security "max-age=31536000;";'
-            })
-            
-        if "Content-Security-Policy" in headers:
-            stats["Seguras"] += 1
-        else:
+
+        elif severity == "MEDIO":
             stats["Medias"] += 1
-            findings.append({
-                "vector": "Content Security Policy (CSP) Ausente", "severity": "MEDIO",
-                "desc": f"No se detectaron directivas de política de seguridad de contenido (CSP) en {hostname}.",
-                "impact": "Mayor exposición a inyecciones de código y ataques XSS avanzados.",
-                "fix": "Implementar cabecera Content-Security-Policy con dominios de confianza.",
-                "compliance": "NIST SP 800-53 (SC-7) / OWASP Top 10", "snippet": 'add_header Content-Security-Policy "default-src \'self\'";'
-            })
-            
-        if "X-Frame-Options" in headers:
-            stats["Seguras"] += 1
+
         else:
             stats["Bajas"] += 1
-            findings.append({
-                "vector": "Clickjacking - X-Frame-Options Ausente", "severity": "BAJO",
-                "desc": f"El sitio {hostname} no emite restricciones para evitar ser embebido en iframes.",
-                "impact": "Riesgo de secuestro de clics en interfaces de usuario.",
-                "fix": "Configurar X-Frame-Options en SAMEORIGIN o DENY.",
-                "compliance": "ISO/IEC 27001 (A.14.1.1)", "snippet": 'add_header X-Frame-Options "SAMEORIGIN";'
-            })
-    except Exception as e:
-        stats["Críticas"] += 1
+
         findings.append({
-            "vector": "Error de Conectividad o Servicio Inaccesible", "severity": "CRÍTICO",
-            "desc": f"No se pudo completar la solicitud HTTP sobre el objetivo: {str(e)}",
-            "impact": "Posible caída del servicio o bloqueo perimetral estricto.",
-            "fix": "Verificar disponibilidad del servidor y reglas de Firewall.",
-            "compliance": "Disponibilidad Operativa / ISO 27001 (A.17.1)", "snippet": "ping check / firewall rules"
+            "vector": vector,
+            "severity": severity,
+            "desc": desc,
+            "impact": impact,
+            "fix": fix,
+            "compliance": compliance,
+            "snippet": snippet,
+            "category": category,
+            "evidence": evidence,
+            "verified": True
         })
 
-    penalty = (stats["Críticas"] * 25) + (stats["Medias"] * 10) + (stats["Bajas"] * 5)
-    risk_score = max(0, 100 - penalty)
-    return findings, stats, hostname, geo, risk_score
+    try:
+
+        normalized_url, hostname = (
+            _normalize_target(url)
+        )
+
+        _validate_public_host(hostname)
+
+    except Exception as e:
+
+        hostname = urlparse(
+            url
+            if "://" in url
+            else "https://" + url
+        ).hostname or "desconocido"
+
+        geo = {
+            "ip": "N/A",
+            "country": "Desconocido",
+            "city": "Desconocido",
+            "org": "Desconocido"
+        }
+
+        add_finding(
+            "Objetivo rechazado por validación de seguridad",
+            "CRÍTICO",
+            f"CyberAudits no inició el análisis: {e}",
+            "La validación evita analizar destinos internos "
+            "o URLs no permitidas.",
+            "Ingresar un dominio público válido usando "
+            "HTTP o HTTPS.",
+            "Control interno CyberAudits",
+            category="Validación"
+        )
+
+        return (
+            findings,
+            stats,
+            hostname,
+            geo,
+            0
+        )
+
+    geo = get_geolocation(hostname)
+
+    # =====================================
+    # TLS / CERTIFICADO
+    # =====================================
+
+    try:
+
+        tls = _tls_certificate_info(hostname)
+
+        days_left = tls["days_left"]
+
+        if days_left is None:
+
+            add_finding(
+                "No se pudo determinar la expiración "
+                "del certificado",
+                "MEDIO",
+                "El servidor respondió por TLS, pero "
+                "no fue posible determinar la fecha "
+                "de expiración.",
+                "Dificulta validar correctamente la "
+                "vigencia del certificado.",
+                "Revisar la cadena y configuración TLS.",
+                "OWASP / buenas prácticas TLS",
+                category="TLS",
+                evidence=
+                    f"TLS={tls['tls_version']} | "
+                    f"Emisor={tls['issuer']}"
+            )
+
+        elif days_left < 0:
+
+            add_finding(
+                "Certificado TLS vencido",
+                "CRÍTICO",
+                f"El certificado está vencido desde "
+                f"hace {abs(days_left)} días.",
+                "Los navegadores pueden bloquear el "
+                "sitio o mostrar advertencias.",
+                "Renovar e instalar un certificado "
+                "TLS válido.",
+                "OWASP / buenas prácticas TLS",
+                category="TLS",
+                evidence=
+                    f"Vencimiento={tls['expires_at']}"
+            )
+
+        elif days_left <= 7:
+
+            add_finding(
+                "Certificado TLS próximo a vencer",
+                "CRÍTICO",
+                f"El certificado vence en "
+                f"{days_left} días.",
+                "Existe riesgo inmediato de "
+                "interrupción o advertencias.",
+                "Renovar el certificado antes "
+                "del vencimiento.",
+                "OWASP / buenas prácticas TLS",
+                category="TLS",
+                evidence=
+                    f"Vencimiento={tls['expires_at']}"
+            )
+
+        elif days_left <= 30:
+
+            add_finding(
+                "Certificado TLS vence pronto",
+                "MEDIO",
+                f"El certificado vence en "
+                f"{days_left} días.",
+                "Puede afectar disponibilidad y "
+                "confianza si no se renueva.",
+                "Programar la renovación del "
+                "certificado.",
+                "OWASP / buenas prácticas TLS",
+                category="TLS",
+                evidence=
+                    f"Vencimiento={tls['expires_at']}"
+            )
+
+        else:
+            stats["Seguras"] += 1
+
+        if tls["tls_version"] in (
+            "TLSv1",
+            "TLSv1.1"
+        ):
+
+            add_finding(
+                "Versión TLS obsoleta",
+                "CRÍTICO",
+                f"Se negoció "
+                f"{tls['tls_version']}.",
+                "Las versiones antiguas de TLS "
+                "tienen debilidades conocidas.",
+                "Permitir únicamente TLS 1.2 "
+                "y TLS 1.3.",
+                "OWASP TLS Cheat Sheet",
+                category="TLS",
+                evidence=
+                    f"Versión="
+                    f"{tls['tls_version']}"
+            )
+
+        else:
+            stats["Seguras"] += 1
+
+    except Exception as e:
+
+        add_finding(
+            "Problema en HTTPS/TLS",
+            "CRÍTICO",
+            "No se pudo establecer correctamente "
+            f"una conexión TLS válida: {e}",
+            "El sitio puede presentar problemas "
+            "de certificado, cifrado o HTTPS.",
+            "Revisar certificado, cadena de "
+            "confianza y configuración TLS.",
+            "OWASP TLS Cheat Sheet",
+            category="TLS"
+        )
+
+    # =====================================
+    # CABECERAS HTTP
+    # =====================================
+
+    try:
+
+        response, final_url = (
+            _safe_get(normalized_url)
+        )
+
+        headers = response.headers
+
+        if final_url.lower().startswith(
+            "https://"
+        ):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "Navegación final sin HTTPS",
+                "CRÍTICO",
+                f"La navegación terminó en "
+                f"{final_url}.",
+                "El tráfico podría viajar "
+                "sin cifrado.",
+                "Forzar HTTPS para todo el sitio.",
+                "OWASP / NIST",
+                category="Transporte",
+                evidence=f"URL final={final_url}"
+            )
+
+        # HSTS
+
+        hsts = headers.get(
+            "Strict-Transport-Security",
+            ""
+        )
+
+        if hsts:
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "HTTP Strict Transport Security "
+                "(HSTS) ausente",
+                "MEDIO",
+                "No se detectó la cabecera HSTS.",
+                "El navegador no queda obligado "
+                "a usar HTTPS en futuras visitas.",
+                "Configurar HSTS después de "
+                "confirmar que todo el sitio "
+                "funciona por HTTPS.",
+                "OWASP Secure Headers",
+                "Strict-Transport-Security: "
+                "max-age=31536000; "
+                "includeSubDomains",
+                "Headers"
+            )
+
+        # CSP
+
+        csp = headers.get(
+            "Content-Security-Policy",
+            ""
+        )
+
+        if csp:
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "Content Security Policy "
+                "(CSP) ausente",
+                "MEDIO",
+                "No se detectó una política CSP.",
+                "Aumenta la exposición ante "
+                "determinados ataques de "
+                "inyección de contenido y XSS.",
+                "Implementar una CSP adaptada "
+                "al sitio.",
+                "OWASP Secure Headers",
+                "Content-Security-Policy: "
+                "default-src 'self'",
+                "Headers"
+            )
+
+        # CLICKJACKING
+
+        xfo = headers.get(
+            "X-Frame-Options",
+            ""
+        )
+
+        if (
+            xfo
+            or "frame-ancestors"
+            in csp.lower()
+        ):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "Protección contra "
+                "Clickjacking no detectada",
+                "BAJO",
+                "No se detectó X-Frame-Options "
+                "ni frame-ancestors.",
+                "El sitio podría ser embebido "
+                "dentro de marcos de terceros.",
+                "Configurar frame-ancestors "
+                "o X-Frame-Options.",
+                "OWASP Secure Headers",
+                "X-Frame-Options: SAMEORIGIN",
+                "Headers"
+            )
+
+        # NOSNIFF
+
+        if (
+            headers.get(
+                "X-Content-Type-Options",
+                ""
+            ).lower()
+            == "nosniff"
+        ):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "X-Content-Type-Options "
+                "ausente o débil",
+                "BAJO",
+                "No se detectó el valor "
+                "recomendado nosniff.",
+                "El navegador podría intentar "
+                "interpretar contenido con un "
+                "tipo diferente.",
+                "Configurar "
+                "X-Content-Type-Options.",
+                "OWASP Secure Headers",
+                "X-Content-Type-Options: "
+                "nosniff",
+                "Headers"
+            )
+
+        # REFERRER POLICY
+
+        if headers.get("Referrer-Policy"):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "Referrer-Policy ausente",
+                "BAJO",
+                "No se detectó una política "
+                "explícita para Referer.",
+                "Puede enviarse más información "
+                "de navegación de la necesaria.",
+                "Definir Referrer-Policy.",
+                "OWASP Secure Headers",
+                "Referrer-Policy: "
+                "strict-origin-when-cross-origin",
+                "Headers"
+            )
+
+        # PERMISSIONS POLICY
+
+        if headers.get("Permissions-Policy"):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "Permissions-Policy ausente",
+                "BAJO",
+                "No se detectó una política "
+                "de permisos del navegador.",
+                "Funciones del navegador pueden "
+                "quedar menos restringidas.",
+                "Definir Permissions-Policy.",
+                "OWASP Secure Headers",
+                "Permissions-Policy: "
+                "camera=(), microphone=(), "
+                "geolocation=()",
+                "Headers"
+            )
+
+        # COOKIES
+
+        set_cookie = headers.get(
+            "Set-Cookie",
+            ""
+        )
+
+        if set_cookie:
+
+            cookie_lower = (
+                set_cookie.lower()
+            )
+
+            if "secure" not in cookie_lower:
+
+                add_finding(
+                    "Cookie sin atributo Secure",
+                    "MEDIO",
+                    "Se observó al menos una "
+                    "cookie sin evidencia del "
+                    "atributo Secure.",
+                    "Una cookie sensible podría "
+                    "enviarse sin cifrado.",
+                    "Aplicar Secure a cookies "
+                    "de sesión.",
+                    "OWASP Session Management",
+                    "Set-Cookie: session=...; "
+                    "Secure; HttpOnly; "
+                    "SameSite=Lax",
+                    "Cookies"
+                )
+
+            else:
+                stats["Seguras"] += 1
+
+            if "httponly" not in cookie_lower:
+
+                add_finding(
+                    "Cookie sin atributo HttpOnly",
+                    "BAJO",
+                    "Se observó al menos una "
+                    "cookie sin evidencia del "
+                    "atributo HttpOnly.",
+                    "JavaScript podría acceder "
+                    "a cookies sensibles.",
+                    "Aplicar HttpOnly a cookies "
+                    "de sesión.",
+                    "OWASP Session Management",
+                    "Set-Cookie: session=...; "
+                    "Secure; HttpOnly; "
+                    "SameSite=Lax",
+                    "Cookies"
+                )
+
+            else:
+                stats["Seguras"] += 1
+
+        # SERVER HEADER
+
+        server = headers.get(
+            "Server",
+            ""
+        )
+
+        if (
+            server
+            and any(
+                ch.isdigit()
+                for ch in server
+            )
+        ):
+
+            add_finding(
+                "Información de versión "
+                "del servidor expuesta",
+                "BAJO",
+                f"El servidor publica: "
+                f"{server}",
+                "La divulgación de versiones "
+                "puede facilitar ataques "
+                "dirigidos.",
+                "Reducir información de "
+                "versión innecesaria.",
+                "OWASP Information Exposure",
+                category="Exposición",
+                evidence=f"Server={server}"
+            )
+
+        else:
+            stats["Seguras"] += 1
+
+    except Exception as e:
+
+        add_finding(
+            "Error de conectividad HTTP/HTTPS",
+            "CRÍTICO",
+            "No se pudo completar la "
+            f"evaluación web: {e}",
+            "No fue posible validar correctamente "
+            "la postura del servicio web.",
+            "Verificar disponibilidad, DNS, "
+            "firewall y HTTP/HTTPS.",
+            "Disponibilidad Operativa",
+            category="Disponibilidad"
+        )
+
+    # =====================================
+    # REDIRECCIÓN HTTP -> HTTPS
+    # =====================================
+
+    try:
+
+        http_url = f"http://{hostname}/"
+
+        _, http_final = _safe_get(http_url)
+
+        if http_final.lower().startswith(
+            "https://"
+        ):
+            stats["Seguras"] += 1
+
+        else:
+
+            add_finding(
+                "HTTP no fuerza redirección "
+                "a HTTPS",
+                "MEDIO",
+                f"El acceso HTTP terminó en "
+                f"{http_final}.",
+                "Un usuario podría permanecer "
+                "en una conexión sin cifrar.",
+                "Redirigir HTTP hacia HTTPS.",
+                "OWASP / buenas prácticas TLS",
+                category="Transporte",
+                evidence=
+                    f"URL final={http_final}"
+            )
+
+    except Exception:
+        # Si HTTP está cerrado,
+        # no se considera una vulnerabilidad.
+        stats["Seguras"] += 1
+
+    # =====================================
+    # CYBERSCORE V2
+    # =====================================
+
+    penalty = (
+        stats["Críticas"] * 25
+        + stats["Medias"] * 8
+        + stats["Bajas"] * 3
+    )
+
+    risk_score = max(
+        0,
+        100 - min(100, penalty)
+    )
+
+    return (
+        findings,
+        stats,
+        hostname,
+        geo,
+        risk_score
+    )
+
 
 
 # ==========================================
