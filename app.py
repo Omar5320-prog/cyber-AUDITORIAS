@@ -202,6 +202,14 @@ st.markdown("""
     button[kind="primary"] {
         border-radius: 10px !important;
         font-weight: 700 !important;
+        background: #215ee9 !important;
+        border-color: #215ee9 !important;
+        color: #ffffff !important;
+    }
+
+    button[kind="primary"]:hover {
+        background: #174fcf !important;
+        border-color: #174fcf !important;
     }
 
     .stTabs [data-baseweb="tab-list"] {
@@ -615,7 +623,213 @@ def _tls_certificate_info(hostname):
     }
 
 
-def scan_target(url):
+
+def _clean_domain(raw_domain):
+    raw_domain = (raw_domain or "").strip().lower()
+
+    if not raw_domain:
+        return ""
+
+    if "://" in raw_domain:
+        parsed = urlparse(raw_domain)
+        raw_domain = parsed.hostname or ""
+
+    raw_domain = raw_domain.strip().strip(".")
+
+    if not raw_domain:
+        raise ValueError("Dominio vacío.")
+
+    try:
+        ascii_domain = raw_domain.encode("idna").decode("ascii")
+    except Exception:
+        raise ValueError("El dominio contiene caracteres no válidos.")
+
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-.")
+
+    if any(ch not in allowed for ch in ascii_domain):
+        raise ValueError("El dominio contiene caracteres no permitidos.")
+
+    labels = ascii_domain.split(".")
+
+    if len(labels) < 2:
+        raise ValueError("Se requiere un dominio público válido.")
+
+    for label in labels:
+        if (
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+        ):
+            raise ValueError("El dominio contiene una etiqueta no válida.")
+
+    return ascii_domain
+
+
+def _dns_query(name, record_type, timeout=6):
+    """
+    Consulta DNS mediante DNS-over-HTTPS.
+    Devuelve un dict normalizado y evita depender de binarios o paquetes extra.
+    """
+    name = _clean_domain(name)
+
+    response = requests.get(
+        "https://dns.google/resolve",
+        params={
+            "name": name,
+            "type": record_type,
+            "do": "1",
+            "cd": "0"
+        },
+        headers={
+            "Accept": "application/dns-json",
+            "User-Agent": "CyberAudits/2.4 DNS Security Check"
+        },
+        timeout=timeout
+    )
+
+    response.raise_for_status()
+    data = response.json()
+
+    return {
+        "status": data.get("Status"),
+        "ad": bool(data.get("AD", False)),
+        "answers": data.get("Answer", []) or [],
+        "authority": data.get("Authority", []) or [],
+        "raw": data
+    }
+
+
+def _dns_answer_data(result):
+    values = []
+
+    for answer in result.get("answers", []):
+        value = str(answer.get("data", "")).strip()
+
+        if value:
+            values.append(value)
+
+    return values
+
+
+def _normalize_txt_value(value):
+    """
+    DNS JSON puede devolver TXT como:
+    "parte 1" "parte 2"
+    Lo normalizamos para facilitar análisis SPF/DMARC.
+    """
+    value = (value or "").strip()
+
+    if not value:
+        return ""
+
+    pieces = []
+    current = ""
+    in_quotes = False
+    escape = False
+
+    for ch in value:
+        if escape:
+            current += ch
+            escape = False
+            continue
+
+        if ch == "\\":
+            escape = True
+            continue
+
+        if ch == '"':
+            if in_quotes:
+                pieces.append(current)
+                current = ""
+                in_quotes = False
+            else:
+                in_quotes = True
+            continue
+
+        if in_quotes:
+            current += ch
+        else:
+            current += ch
+
+    if current:
+        pieces.append(current)
+
+    return "".join(pieces).strip()
+
+
+def _dns_txt_records(name):
+    result = _dns_query(name, "TXT")
+
+    return (
+        [_normalize_txt_value(x) for x in _dns_answer_data(result)],
+        result
+    )
+
+
+def _dns_mx_records(name):
+    result = _dns_query(name, "MX")
+    values = _dns_answer_data(result)
+
+    mx = []
+
+    for value in values:
+        parts = value.split(maxsplit=1)
+
+        if len(parts) == 2:
+            try:
+                priority = int(parts[0])
+            except ValueError:
+                priority = 0
+
+            host = parts[1].rstrip(".")
+            mx.append((priority, host))
+        elif value:
+            mx.append((0, value.rstrip(".")))
+
+    return mx, result
+
+
+def _find_effective_caa(name):
+    """
+    CAA hereda hacia nombres padre.
+    Buscamos desde el hostname hacia arriba para no marcar ausencia
+    cuando existe política CAA efectiva en un ancestro.
+    """
+    domain = _clean_domain(name)
+    labels = domain.split(".")
+
+    # Nunca consultamos solamente el TLD.
+    candidates = [
+        ".".join(labels[i:])
+        for i in range(0, max(1, len(labels) - 1))
+        if len(labels[i:]) >= 2
+    ]
+
+    for candidate in candidates:
+        try:
+            result = _dns_query(candidate, "CAA")
+            values = _dns_answer_data(result)
+
+            if values:
+                return {
+                    "found": True,
+                    "at": candidate,
+                    "records": values,
+                    "ad": result.get("ad", False)
+                }
+        except Exception:
+            continue
+
+    return {
+        "found": False,
+        "at": None,
+        "records": [],
+        "ad": False
+    }
+
+
+def scan_target(url, email_domain=""):
     findings = []
 
     stats = {
@@ -624,6 +838,50 @@ def scan_target(url):
         "Bajas": 0,
         "Seguras": 0
     }
+
+    passed_by_category = {}
+    evaluated_by_category = {}
+    inconclusive_by_category = {}
+
+    def mark_evaluated(category):
+        evaluated_by_category[category] = (
+            evaluated_by_category.get(category, 0) + 1
+        )
+
+    def mark_safe(category):
+        stats["Seguras"] += 1
+        mark_evaluated(category)
+        passed_by_category[category] = (
+            passed_by_category.get(category, 0) + 1
+        )
+
+    def add_inconclusive(
+        vector,
+        desc,
+        category,
+        evidence="",
+        fix="Reintentar la evaluación más tarde."
+    ):
+        inconclusive_by_category[category] = (
+            inconclusive_by_category.get(category, 0) + 1
+        )
+
+        findings.append({
+            "vector": vector,
+            "severity": "INFORMATIVO",
+            "desc": desc,
+            "impact": (
+                "Este resultado no implica por sí mismo una vulnerabilidad. "
+                "El control no pudo verificarse de forma concluyente."
+            ),
+            "fix": fix,
+            "compliance": "Control de calidad CyberAudits",
+            "snippet": "",
+            "category": category,
+            "evidence": evidence,
+            "verified": False,
+            "is_vulnerability": False
+        })
 
     def add_finding(
         vector,
@@ -634,9 +892,27 @@ def scan_target(url):
         compliance,
         snippet="",
         category="Web",
-        evidence=""
+        evidence="",
+        is_vulnerability=True
     ):
         severity = severity.upper()
+
+        if severity == "INFORMATIVO":
+            findings.append({
+                "vector": vector,
+                "severity": "INFORMATIVO",
+                "desc": desc,
+                "impact": impact,
+                "fix": fix,
+                "compliance": compliance,
+                "snippet": snippet,
+                "category": category,
+                "evidence": evidence,
+                "verified": True,
+                "is_vulnerability": False
+            })
+            mark_evaluated(category)
+            return
 
         if severity == "CRÍTICO":
             stats["Críticas"] += 1
@@ -644,6 +920,8 @@ def scan_target(url):
             stats["Medias"] += 1
         else:
             stats["Bajas"] += 1
+
+        mark_evaluated(category)
 
         findings.append({
             "vector": vector,
@@ -655,8 +933,13 @@ def scan_target(url):
             "snippet": snippet,
             "category": category,
             "evidence": evidence,
-            "verified": True
+            "verified": True,
+            "is_vulnerability": is_vulnerability
         })
+
+    # =====================================
+    # TARGET VALIDATION
+    # =====================================
 
     try:
         normalized_url, hostname = _normalize_target(url)
@@ -684,12 +967,20 @@ def scan_target(url):
             category="Validación"
         )
 
-        return findings, stats, hostname, geo, 0
+        scan_details = {
+            "passed_by_category": passed_by_category,
+            "evaluated_by_category": evaluated_by_category,
+            "inconclusive_by_category": inconclusive_by_category,
+            "email_domain": "",
+            "dnssec_ad": None
+        }
+
+        return findings, stats, hostname, geo, 0, scan_details
 
     geo = get_geolocation(hostname)
 
     # =====================================
-    # TLS / CERTIFICADO
+    # TLS / CERTIFICATE
     # =====================================
 
     try:
@@ -697,15 +988,13 @@ def scan_target(url):
         days_left = tls["days_left"]
 
         if days_left is None:
-            add_finding(
-                "No se pudo determinar la expiración del certificado",
-                "MEDIO",
-                "El servidor respondió por TLS, pero no fue posible determinar la fecha de expiración.",
-                "Dificulta validar correctamente la vigencia del certificado.",
-                "Revisar la cadena y configuración TLS.",
-                "OWASP / buenas prácticas TLS",
-                category="TLS",
-                evidence=f"TLS={tls['tls_version']} | Emisor={tls['issuer']}"
+            add_inconclusive(
+                "Expiración del certificado no concluyente",
+                "El servidor respondió por TLS, pero no fue posible determinar "
+                "la fecha de expiración.",
+                "TLS",
+                evidence=f"TLS={tls['tls_version']} | Emisor={tls['issuer']}",
+                fix="Revisar la cadena y configuración TLS."
             )
 
         elif days_left < 0:
@@ -743,8 +1032,9 @@ def scan_target(url):
                 category="TLS",
                 evidence=f"Vencimiento={tls['expires_at']}"
             )
+
         else:
-            stats["Seguras"] += 1
+            mark_safe("TLS")
 
         if tls["tls_version"] in ("TLSv1", "TLSv1.1"):
             add_finding(
@@ -758,21 +1048,22 @@ def scan_target(url):
                 evidence=f"Versión={tls['tls_version']}"
             )
         else:
-            stats["Seguras"] += 1
+            mark_safe("TLS")
 
     except Exception as e:
-        add_finding(
-            "Problema en HTTPS/TLS",
-            "CRÍTICO",
-            f"No se pudo establecer correctamente una conexión TLS válida: {e}",
-            "El sitio puede presentar problemas de certificado, cifrado o HTTPS.",
-            "Revisar certificado, cadena de confianza y configuración TLS.",
-            "OWASP TLS Cheat Sheet",
-            category="TLS"
+        add_inconclusive(
+            "Evaluación TLS no concluyente",
+            f"No se pudo completar correctamente la conexión TLS: {e}",
+            "TLS",
+            evidence=str(e),
+            fix=(
+                "Revisar certificado, cadena de confianza, disponibilidad "
+                "del puerto 443 y configuración TLS."
+            )
         )
 
     # =====================================
-    # CABECERAS HTTP
+    # HTTP / SECURITY HEADERS
     # =====================================
 
     try:
@@ -780,7 +1071,7 @@ def scan_target(url):
         headers = response.headers
 
         if final_url.lower().startswith("https://"):
-            stats["Seguras"] += 1
+            mark_safe("Transporte")
         else:
             add_finding(
                 "Navegación final sin HTTPS",
@@ -794,8 +1085,9 @@ def scan_target(url):
             )
 
         hsts = headers.get("Strict-Transport-Security", "")
+
         if hsts:
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "HTTP Strict Transport Security (HSTS) ausente",
@@ -809,14 +1101,16 @@ def scan_target(url):
             )
 
         csp = headers.get("Content-Security-Policy", "")
+
         if csp:
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "Content Security Policy (CSP) ausente",
                 "MEDIO",
                 "No se detectó una política CSP.",
-                "Aumenta la exposición ante determinados ataques de inyección de contenido y XSS.",
+                "Aumenta la exposición ante determinados ataques de inyección "
+                "de contenido y XSS.",
                 "Implementar una CSP adaptada al sitio.",
                 "OWASP Secure Headers",
                 "Content-Security-Policy: default-src 'self'",
@@ -824,8 +1118,9 @@ def scan_target(url):
             )
 
         xfo = headers.get("X-Frame-Options", "")
+
         if xfo or "frame-ancestors" in csp.lower():
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "Protección contra Clickjacking no detectada",
@@ -839,7 +1134,7 @@ def scan_target(url):
             )
 
         if headers.get("X-Content-Type-Options", "").lower() == "nosniff":
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "X-Content-Type-Options ausente o débil",
@@ -853,7 +1148,7 @@ def scan_target(url):
             )
 
         if headers.get("Referrer-Policy"):
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "Referrer-Policy ausente",
@@ -867,7 +1162,7 @@ def scan_target(url):
             )
 
         if headers.get("Permissions-Policy"):
-            stats["Seguras"] += 1
+            mark_safe("Headers")
         else:
             add_finding(
                 "Permissions-Policy ausente",
@@ -881,6 +1176,7 @@ def scan_target(url):
             )
 
         set_cookie = headers.get("Set-Cookie", "")
+
         if set_cookie:
             cookie_lower = set_cookie.lower()
 
@@ -896,7 +1192,7 @@ def scan_target(url):
                     "Cookies"
                 )
             else:
-                stats["Seguras"] += 1
+                mark_safe("Cookies")
 
             if "httponly" not in cookie_lower:
                 add_finding(
@@ -910,9 +1206,10 @@ def scan_target(url):
                     "Cookies"
                 )
             else:
-                stats["Seguras"] += 1
+                mark_safe("Cookies")
 
         server = headers.get("Server", "")
+
         if server and any(ch.isdigit() for ch in server):
             add_finding(
                 "Información de versión del servidor expuesta",
@@ -925,33 +1222,22 @@ def scan_target(url):
                 evidence=f"Server={server}"
             )
         else:
-            stats["Seguras"] += 1
+            mark_safe("Exposición")
 
     except Exception as e:
-        # Un error del propio proceso de evaluación NO demuestra una vulnerabilidad.
-        # Lo registramos como resultado no concluyente sin penalizar el CyberScore.
-        findings.append({
-            "vector": "Evaluación HTTP/HTTPS no concluyente",
-            "severity": "INFORMATIVO",
-            "desc": f"No se pudo completar esta parte de la evaluación: {e}",
-            "impact": (
-                "Este resultado no implica por sí mismo una vulnerabilidad. "
-                "CyberAudits no pudo verificar todos los controles HTTP/HTTPS."
-            ),
-            "fix": (
+        add_inconclusive(
+            "Evaluación HTTP/HTTPS no concluyente",
+            f"No se pudo completar esta parte de la evaluación: {e}",
+            "Headers",
+            evidence=str(e),
+            fix=(
                 "Reintentar el análisis. Si persiste, revisar redirecciones, "
                 "protecciones anti-bot o disponibilidad del sitio."
-            ),
-            "compliance": "Control de calidad CyberAudits",
-            "snippet": "",
-            "category": "Diagnóstico",
-            "evidence": str(e),
-            "verified": False,
-            "is_vulnerability": False
-        })
+            )
+        )
 
     # =====================================
-    # REDIRECCIÓN HTTP -> HTTPS
+    # HTTP -> HTTPS REDIRECT
     # =====================================
 
     try:
@@ -959,7 +1245,7 @@ def scan_target(url):
         _, http_final = _safe_get(http_url)
 
         if http_final.lower().startswith("https://"):
-            stats["Seguras"] += 1
+            mark_safe("Transporte")
         else:
             add_finding(
                 "HTTP no fuerza redirección a HTTPS",
@@ -973,11 +1259,430 @@ def scan_target(url):
             )
 
     except Exception:
-        # Si HTTP está cerrado, no se considera una vulnerabilidad.
-        stats["Seguras"] += 1
+        # Puerto HTTP cerrado / no disponible no es por sí solo una vulnerabilidad.
+        mark_safe("Transporte")
 
     # =====================================
-    # CYBERSCORE V2
+    # DNS SECURITY OF THE WEB HOST
+    # =====================================
+
+    dnssec_ad = None
+
+    try:
+        a_result = _dns_query(hostname, "A")
+        dnssec_ad = a_result.get("ad", False)
+
+        # DNSSEC is useful, but absence is treated as information rather than
+        # a vulnerability because deployment requirements vary.
+        if dnssec_ad:
+            mark_safe("DNS")
+        else:
+            add_finding(
+                "DNSSEC no validado para el hostname",
+                "INFORMATIVO",
+                (
+                    "La consulta DNS no llegó con la bandera AD de validación "
+                    "DNSSEC activa."
+                ),
+                (
+                    "DNSSEC puede ayudar a proteger la autenticidad de las "
+                    "respuestas DNS, pero su ausencia no demuestra una "
+                    "vulnerabilidad explotable por sí sola."
+                ),
+                "Evaluar DNSSEC con el proveedor DNS si aplica al entorno.",
+                "Buenas prácticas DNS",
+                category="DNS",
+                evidence=f"AD={dnssec_ad}",
+                is_vulnerability=False
+            )
+
+    except Exception as e:
+        add_inconclusive(
+            "Validación DNSSEC no concluyente",
+            f"No se pudo consultar la señal DNSSEC: {e}",
+            "DNS",
+            evidence=str(e)
+        )
+
+    try:
+        caa = _find_effective_caa(hostname)
+
+        if caa.get("found"):
+            mark_safe("DNS")
+        else:
+            add_finding(
+                "Política CAA no detectada",
+                "BAJO",
+                (
+                    "No se encontró una política CAA efectiva para limitar "
+                    "qué autoridades certificadoras pueden emitir certificados."
+                ),
+                (
+                    "CAA reduce el riesgo operativo de emisión no deseada "
+                    "de certificados, aunque su ausencia no implica por sí sola "
+                    "que un certificado pueda emitirse fraudulentamente."
+                ),
+                "Evaluar la publicación de registros CAA apropiados.",
+                "RFC 8659 / buenas prácticas PKI",
+                category="DNS"
+            )
+
+    except Exception as e:
+        add_inconclusive(
+            "Evaluación CAA no concluyente",
+            f"No se pudo evaluar CAA: {e}",
+            "DNS",
+            evidence=str(e)
+        )
+
+    # =====================================
+    # EMAIL DOMAIN SECURITY (OPTIONAL)
+    # =====================================
+
+    normalized_email_domain = ""
+
+    if email_domain:
+        try:
+            normalized_email_domain = _clean_domain(email_domain)
+
+        except Exception as e:
+            add_inconclusive(
+                "Dominio de correo no válido",
+                f"No se pudo evaluar el dominio de correo ingresado: {e}",
+                "Email",
+                evidence=str(email_domain),
+                fix="Ingresar solamente el dominio, por ejemplo: empresa.com"
+            )
+
+    if normalized_email_domain:
+        # MX
+        mx_records = []
+
+        try:
+            mx_records, mx_result = _dns_mx_records(
+                normalized_email_domain
+            )
+
+            if mx_records:
+                mark_safe("Email")
+            else:
+                add_finding(
+                    "Registros MX no detectados",
+                    "INFORMATIVO",
+                    (
+                        f"No se encontraron registros MX para "
+                        f"{normalized_email_domain}."
+                    ),
+                    (
+                        "El dominio puede no recibir correo o utilizar una "
+                        "arquitectura no detectable mediante MX estándar."
+                    ),
+                    "Confirmar si el dominio debe recibir correo electrónico.",
+                    "Buenas prácticas de correo",
+                    category="Email",
+                    evidence="MX=none",
+                    is_vulnerability=False
+                )
+
+        except Exception as e:
+            add_inconclusive(
+                "Consulta MX no concluyente",
+                f"No se pudieron consultar los registros MX: {e}",
+                "Email",
+                evidence=str(e)
+            )
+
+        # SPF
+        try:
+            root_txt, _ = _dns_txt_records(
+                normalized_email_domain
+            )
+
+            spf_records = [
+                value
+                for value in root_txt
+                if value.lower().startswith("v=spf1")
+            ]
+
+            if len(spf_records) == 0:
+                add_finding(
+                    "SPF no detectado",
+                    "MEDIO",
+                    (
+                        f"No se encontró un registro SPF en "
+                        f"{normalized_email_domain}."
+                    ),
+                    (
+                        "La ausencia de SPF dificulta que los receptores "
+                        "distingan servidores autorizados para enviar correo "
+                        "en nombre del dominio."
+                    ),
+                    (
+                        "Publicar una política SPF acorde a los proveedores "
+                        "reales de correo. No copiar una política genérica."
+                    ),
+                    "RFC 7208 / Email Authentication",
+                    category="Email",
+                    evidence="SPF=none"
+                )
+
+            elif len(spf_records) > 1:
+                add_finding(
+                    "Múltiples registros SPF detectados",
+                    "MEDIO",
+                    "Se detectó más de un registro SPF en el dominio.",
+                    (
+                        "SPF espera una única política; múltiples registros "
+                        "pueden producir errores de validación."
+                    ),
+                    "Consolidar la política en un único registro SPF válido.",
+                    "RFC 7208",
+                    category="Email",
+                    evidence=" | ".join(spf_records[:3])
+                )
+
+            else:
+                spf = spf_records[0]
+                spf_lower = spf.lower()
+
+                if "+all" in spf_lower:
+                    add_finding(
+                        "SPF excesivamente permisivo (+all)",
+                        "CRÍTICO",
+                        f"Se detectó la política: {spf}",
+                        (
+                            "La directiva +all autoriza prácticamente a cualquier "
+                            "origen a superar SPF para el dominio."
+                        ),
+                        (
+                            "Revisar los remitentes legítimos y sustituir +all "
+                            "por una política restrictiva apropiada."
+                        ),
+                        "RFC 7208",
+                        category="Email",
+                        evidence=spf
+                    )
+
+                elif "?all" in spf_lower:
+                    add_finding(
+                        "SPF con política neutral (?all)",
+                        "MEDIO",
+                        f"Se detectó la política: {spf}",
+                        (
+                            "La política neutral aporta poca señal de autenticación "
+                            "a los receptores."
+                        ),
+                        "Revisar SPF y aplicar una política final acorde al entorno.",
+                        "RFC 7208",
+                        category="Email",
+                        evidence=spf
+                    )
+
+                else:
+                    mark_safe("Email")
+
+        except Exception as e:
+            add_inconclusive(
+                "Evaluación SPF no concluyente",
+                f"No se pudo evaluar SPF: {e}",
+                "Email",
+                evidence=str(e)
+            )
+
+        # DMARC
+        try:
+            dmarc_name = f"_dmarc.{normalized_email_domain}"
+            dmarc_txt, _ = _dns_txt_records(dmarc_name)
+
+            dmarc_records = [
+                value
+                for value in dmarc_txt
+                if value.lower().startswith("v=dmarc1")
+            ]
+
+            if not dmarc_records:
+                add_finding(
+                    "DMARC no detectado",
+                    "MEDIO",
+                    (
+                        f"No se encontró una política DMARC en "
+                        f"{dmarc_name}."
+                    ),
+                    (
+                        "Sin DMARC, el dominio tiene menos capacidad para "
+                        "indicar a los receptores cómo tratar mensajes que "
+                        "fallen autenticación y alineación."
+                    ),
+                    (
+                        "Implementar DMARC de forma gradual, comenzando con "
+                        "monitorización y avanzando a enforcement cuando la "
+                        "legitimidad del correo esté validada."
+                    ),
+                    "RFC 7489 / Email Authentication",
+                    category="Email",
+                    evidence="DMARC=none"
+                )
+
+            else:
+                dmarc = dmarc_records[0]
+                dmarc_lower = dmarc.lower().replace(" ", "")
+
+                if "p=reject" in dmarc_lower:
+                    mark_safe("Email")
+                elif "p=quarantine" in dmarc_lower:
+                    mark_safe("Email")
+                elif "p=none" in dmarc_lower:
+                    add_finding(
+                        "DMARC en modo monitorización (p=none)",
+                        "BAJO",
+                        f"Se detectó la política: {dmarc}",
+                        (
+                            "La política recopila señal pero no solicita cuarentena "
+                            "ni rechazo de mensajes que fallen DMARC."
+                        ),
+                        (
+                            "Cuando SPF/DKIM y los flujos legítimos estén validados, "
+                            "evaluar una transición gradual a quarantine o reject."
+                        ),
+                        "RFC 7489",
+                        category="Email",
+                        evidence=dmarc
+                    )
+                else:
+                    add_inconclusive(
+                        "Política DMARC no interpretada",
+                        "Se encontró DMARC, pero CyberAudits no pudo identificar "
+                        "una política p=none/quarantine/reject.",
+                        "Email",
+                        evidence=dmarc,
+                        fix="Revisar la sintaxis del registro DMARC."
+                    )
+
+        except Exception as e:
+            add_inconclusive(
+                "Evaluación DMARC no concluyente",
+                f"No se pudo evaluar DMARC: {e}",
+                "Email",
+                evidence=str(e)
+            )
+
+        # CAA at email/corporate domain
+        try:
+            email_caa = _find_effective_caa(
+                normalized_email_domain
+            )
+
+            if email_caa.get("found"):
+                mark_safe("DNS")
+            else:
+                add_finding(
+                    "CAA no detectado para el dominio corporativo",
+                    "BAJO",
+                    (
+                        "No se detectó una política CAA efectiva en el "
+                        "dominio corporativo."
+                    ),
+                    (
+                        "CAA permite limitar qué autoridades certificadoras "
+                        "pueden emitir certificados para el dominio."
+                    ),
+                    "Evaluar registros CAA apropiados para el dominio.",
+                    "RFC 8659",
+                    category="DNS"
+                )
+
+        except Exception as e:
+            add_inconclusive(
+                "CAA corporativo no concluyente",
+                f"No se pudo evaluar CAA del dominio corporativo: {e}",
+                "DNS",
+                evidence=str(e)
+            )
+
+        # MTA-STS - informational/hardening signal only
+        if mx_records:
+            try:
+                mta_txt, _ = _dns_txt_records(
+                    f"_mta-sts.{normalized_email_domain}"
+                )
+
+                has_mta_sts = any(
+                    value.lower().startswith("v=stsv1")
+                    for value in mta_txt
+                )
+
+                if has_mta_sts:
+                    mark_safe("Email")
+                else:
+                    add_finding(
+                        "MTA-STS no detectado",
+                        "INFORMATIVO",
+                        (
+                            "No se detectó el registro DNS de MTA-STS "
+                            "para el dominio de correo."
+                        ),
+                        (
+                            "MTA-STS puede reforzar el transporte TLS entre "
+                            "servidores de correo compatibles."
+                        ),
+                        (
+                            "Evaluar MTA-STS si el proveedor de correo y la "
+                            "operación del dominio lo permiten."
+                        ),
+                        "RFC 8461",
+                        category="Email",
+                        is_vulnerability=False
+                    )
+
+            except Exception as e:
+                add_inconclusive(
+                    "Evaluación MTA-STS no concluyente",
+                    f"No se pudo evaluar MTA-STS: {e}",
+                    "Email",
+                    evidence=str(e)
+                )
+
+            # TLS Reporting - informational
+            try:
+                tlsrpt_txt, _ = _dns_txt_records(
+                    f"_smtp._tls.{normalized_email_domain}"
+                )
+
+                has_tlsrpt = any(
+                    value.lower().startswith("v=tlsrptv1")
+                    for value in tlsrpt_txt
+                )
+
+                if has_tlsrpt:
+                    mark_safe("Email")
+                else:
+                    add_finding(
+                        "SMTP TLS Reporting no detectado",
+                        "INFORMATIVO",
+                        (
+                            "No se detectó una política TLS-RPT para "
+                            "el dominio de correo."
+                        ),
+                        (
+                            "TLS-RPT aporta visibilidad sobre fallos de "
+                            "entrega relacionados con TLS."
+                        ),
+                        "Evaluar TLS-RPT junto con la estrategia MTA-STS.",
+                        "RFC 8460",
+                        category="Email",
+                        is_vulnerability=False
+                    )
+
+            except Exception as e:
+                add_inconclusive(
+                    "Evaluación TLS-RPT no concluyente",
+                    f"No se pudo evaluar TLS-RPT: {e}",
+                    "Email",
+                    evidence=str(e)
+                )
+
+    # =====================================
+    # CYBERSCORE V2.4
     # =====================================
 
     penalty = (
@@ -986,9 +1691,27 @@ def scan_target(url):
         + stats["Bajas"] * 3
     )
 
-    risk_score = max(0, 100 - min(100, penalty))
+    risk_score = max(
+        0,
+        100 - min(100, penalty)
+    )
 
-    return findings, stats, hostname, geo, risk_score
+    scan_details = {
+        "passed_by_category": passed_by_category,
+        "evaluated_by_category": evaluated_by_category,
+        "inconclusive_by_category": inconclusive_by_category,
+        "email_domain": normalized_email_domain,
+        "dnssec_ad": dnssec_ad
+    }
+
+    return (
+        findings,
+        stats,
+        hostname,
+        geo,
+        risk_score,
+        scan_details
+    )
 
 
 # ==========================================
@@ -1030,7 +1753,7 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
     elif "Narrativo" in report_type:
         doc.add_heading("Informe Ejecutivo y Situación Actual", level=2)
         doc.add_paragraph(f"Estimado/a {recipient_name},\n\nPor medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo {hostname}. Tras la evaluación, se ha determinado un CyberScore global de {risk_score} sobre 100, donde una puntuación mayor representa una mejor postura de seguridad.")
-        doc.add_heading("Análisis de Riesgos y Consecuencias", level=3)
+        doc.add_heading("Análisis de Hallazgos y Consecuencias", level=3)
         doc.add_paragraph("A continuación se detallan las situaciones detectadas y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:")
         for idx, f in enumerate(findings, 1):
             h = doc.add_paragraph().add_run(f"• {f['vector']} ({f['severity']})")
@@ -1115,7 +1838,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <h2 class="title">1. Resumen Técnico de Postura</h2>
             <p>CyberScore Técnico: <strong>{risk_score}/100</strong>.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 250px;"></div>
-            <h2 class="title">2. Evidencia de Vulnerabilidades y Bloques de Configuración</h2>
+            <h2 class="title">2. Evidencia de Hallazgos y Bloques de Configuración</h2>
         """
         for i, f in enumerate(findings, 1):
             bg = "bg-crit" if f["severity"] == "CRÍTICO" else ("bg-med" if f["severity"] == "MEDIO" else "bg-low")
@@ -1138,7 +1861,7 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
             <h2 class="title">Informe Ejecutivo y Situación Actual</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
             <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un CyberScore global de <strong>{risk_score} sobre 100</strong>, donde una puntuación mayor representa una mejor postura de seguridad.</p>
-            <h2 class="title">Análisis de Riesgos y Consecuencias</h2>
+            <h2 class="title">Análisis de Hallazgos y Consecuencias</h2>
             <p>A continuación se detallan las situaciones detectadas, lo que está pasando y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:</p>
         """
         for i, f in enumerate(findings, 1):
@@ -1266,6 +1989,16 @@ def finding_type(finding):
             return "Hardening recomendado"
         return "Configuración de seguridad"
 
+    if category == "DNS":
+        if severity == "INFORMATIVO":
+            return "Señal DNS"
+        return "Configuración DNS"
+
+    if category == "Email":
+        if severity == "INFORMATIVO":
+            return "Señal de correo"
+        return "Autenticación de correo"
+
     if category == "Disponibilidad":
         return "Disponibilidad"
 
@@ -1293,45 +2026,84 @@ def score_status(score):
     return "CRÍTICA", "Se detectaron riesgos que requieren revisión inmediata."
 
 
-def category_scores(findings):
+def category_scores(findings, scan_details=None):
     groups = {
         "TLS & Certificado": {"TLS"},
         "Seguridad Web": {"Headers", "Cookies"},
         "Transporte": {"Transporte"},
-        "Exposición": {"Exposición"}
+        "Exposición": {"Exposición"},
+        "DNS Security": {"DNS"},
+        "Email Security": {"Email"}
     }
+
+    evaluated = (
+        (scan_details or {}).get("evaluated_by_category", {})
+    )
 
     result = {}
 
     for label, categories in groups.items():
+        evaluated_count = sum(
+            int(evaluated.get(category, 0) or 0)
+            for category in categories
+        )
+
+        if scan_details is not None and evaluated_count <= 0:
+            result[label] = None
+            continue
+
         penalty = sum(
             finding_weight(f)
             for f in findings
-            if f.get("category") in categories and is_actionable(f)
+            if (
+                f.get("category") in categories
+                and is_actionable(f)
+            )
         )
-        result[label] = max(0, 100 - min(100, penalty))
+
+        result[label] = max(
+            0,
+            100 - min(100, penalty)
+        )
 
     return result
 
 
-def build_scan_meta(stats, findings):
-    informational = sum(
-        1
-        for f in findings
-        if f.get("severity") == "INFORMATIVO"
+def build_scan_meta(stats, findings, scan_details=None):
+    scan_details = scan_details or {}
+
+    inconclusive = sum(
+        int(v or 0)
+        for v in scan_details.get(
+            "inconclusive_by_category",
+            {}
+        ).values()
     )
 
+    # Backward-compatible fallback for older scan engine behavior.
+    if not scan_details:
+        inconclusive = sum(
+            1
+            for f in findings
+            if (
+                f.get("severity") == "INFORMATIVO"
+                and not f.get("verified", True)
+            )
+        )
+
     verified_checks = int(sum(stats.values()))
-    total_checks = verified_checks + informational
+    total_checks = verified_checks + inconclusive
 
     if total_checks <= 0:
         coverage = 0
     else:
-        coverage = round((verified_checks / total_checks) * 100)
+        coverage = round(
+            (verified_checks / total_checks) * 100
+        )
 
-    if coverage >= 90:
+    if coverage >= 90 and verified_checks >= 8:
         confidence = "ALTA"
-    elif coverage >= 70:
+    elif coverage >= 70 and verified_checks >= 4:
         confidence = "MEDIA"
     else:
         confidence = "BAJA"
@@ -1341,7 +2113,25 @@ def build_scan_meta(stats, findings):
         "total_checks": total_checks,
         "coverage": coverage,
         "confidence": confidence,
-        "category_scores": category_scores(findings)
+        "category_scores": category_scores(
+            findings,
+            scan_details
+        ),
+        "email_domain": scan_details.get(
+            "email_domain",
+            ""
+        ),
+        "evaluated_by_category": scan_details.get(
+            "evaluated_by_category",
+            {}
+        ),
+        "inconclusive_by_category": scan_details.get(
+            "inconclusive_by_category",
+            {}
+        ),
+        "dnssec_ad": scan_details.get(
+            "dnssec_ad"
+        )
     }
 
 
@@ -1359,7 +2149,7 @@ def fallback_scan_meta(findings):
         "total_checks": None,
         "coverage": coverage,
         "confidence": "ALTA" if coverage >= 90 else "MEDIA",
-        "category_scores": category_scores(findings)
+        "category_scores": category_scores(findings, None)
     }
 
 
@@ -1562,7 +2352,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.3 · SECURITY POSTURE</div>
+        <div class="ca-kicker">CYBERAUDITS 2.4 · SECURITY POSTURE</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -1722,21 +2512,32 @@ with tab_dashboard:
             category_scores(latest_findings)
         )
 
-        cat_cols = st.columns(4)
-
         ordered_categories = [
             "TLS & Certificado",
             "Seguridad Web",
             "Transporte",
-            "Exposición"
+            "Exposición",
+            "DNS Security",
+            "Email Security"
         ]
 
-        for col, label in zip(cat_cols, ordered_categories):
-            with col:
-                st.metric(
-                    label,
-                    f"{int(cats.get(label, 100))}/100"
-                )
+        for row_start in (0, 3):
+            cat_cols = st.columns(3)
+
+            for col, label in zip(
+                cat_cols,
+                ordered_categories[row_start:row_start + 3]
+            ):
+                value = cats.get(label)
+
+                with col:
+                    if value is None:
+                        st.metric(label, "N/D")
+                    else:
+                        st.metric(
+                            label,
+                            f"{int(value)}/100"
+                        )
 
         st.markdown("### Qué corregir primero")
 
@@ -1790,17 +2591,26 @@ with tab_dashboard:
                 with st.spinner(
                     "Reevaluando los controles verificados..."
                 ):
+                    email_domain_for_verify = (
+                        latest_meta.get("email_domain", "")
+                    )
+
                     (
                         new_findings,
                         new_stats,
                         new_hostname,
                         new_geo,
-                        new_score
-                    ) = scan_target(verify_url)
+                        new_score,
+                        new_scan_details
+                    ) = scan_target(
+                        verify_url,
+                        email_domain_for_verify
+                    )
 
                     new_meta = build_scan_meta(
                         new_stats,
-                        new_findings
+                        new_findings,
+                        new_scan_details
                     )
 
                     new_count = count_actionable(
@@ -1863,7 +2673,13 @@ with tab_dashboard:
                         {status_label} · Cobertura {latest_meta.get('coverage', 0)}%
                         · Confianza {latest_meta.get('confidence', 'N/D')}
                     </div>
-                    <div style="margin-top:24px;font-size:12px;color:#9fb4d9;">
+                    <div style="margin-top:18px;font-size:12px;color:#d7e4fb;">
+                        DNS Security:
+                        {'evaluado' if latest_meta.get('category_scores', {}).get('DNS Security') is not None else 'N/D'}
+                        · Email Security:
+                        {'evaluado' if latest_meta.get('category_scores', {}).get('Email Security') is not None else 'N/D'}
+                    </div>
+                    <div style="margin-top:12px;font-size:12px;color:#9fb4d9;">
                         Última verificación: {html.escape(str(latest['timestamp']))}
                     </div>
                 </div>
@@ -1920,9 +2736,21 @@ with tab_scan:
 
     with st.form("security_scan_form"):
         target_url = st.text_input(
-            "URL o dominio",
+            "URL o dominio web",
             value="https://",
             placeholder="https://empresa.com"
+        )
+
+        email_domain = st.text_input(
+            "Dominio corporativo de correo · opcional",
+            value="",
+            placeholder="empresa.com"
+        )
+
+        st.caption(
+            "Si completás el dominio corporativo, CyberAudits también "
+            "revisará SPF, DMARC, MX y señales de seguridad de correo. "
+            "No ingreses una dirección de email: solo el dominio."
         )
 
         run_scan = st.form_submit_button(
@@ -1934,19 +2762,24 @@ with tab_scan:
     if run_scan:
         if target_url and target_url.strip() not in {"http://", "https://"}:
             with st.spinner(
-                "Analizando TLS, HTTPS, headers y exposición observable..."
+                "Analizando TLS, HTTPS, headers, DNS y seguridad de correo..."
             ):
                 (
                     findings,
                     stats,
                     hostname,
                     geo,
-                    risk_score
-                ) = scan_target(target_url)
+                    risk_score,
+                    scan_details
+                ) = scan_target(
+                    target_url,
+                    email_domain
+                )
 
                 scan_meta = build_scan_meta(
                     stats,
-                    findings
+                    findings,
+                    scan_details
                 )
 
                 findings_count = count_actionable(
@@ -2012,6 +2845,46 @@ with tab_scan:
             "Confianza",
             scan_meta.get("confidence", "N/D")
         )
+
+        st.markdown("#### Postura por categoría")
+
+        scan_categories = scan_meta.get(
+            "category_scores",
+            {}
+        )
+
+        scan_category_labels = [
+            "TLS & Certificado",
+            "Seguridad Web",
+            "Transporte",
+            "Exposición",
+            "DNS Security",
+            "Email Security"
+        ]
+
+        for row_start in (0, 3):
+            result_cols = st.columns(3)
+
+            for col, label in zip(
+                result_cols,
+                scan_category_labels[row_start:row_start + 3]
+            ):
+                value = scan_categories.get(label)
+
+                with col:
+                    if value is None:
+                        st.metric(label, "N/D")
+                    else:
+                        st.metric(
+                            label,
+                            f"{int(value)}/100"
+                        )
+
+        if scan_meta.get("email_domain"):
+            st.caption(
+                f"Dominio de correo evaluado: "
+                f"{scan_meta.get('email_domain')}"
+            )
 
         st.markdown("#### Resultados")
 
