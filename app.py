@@ -285,6 +285,36 @@ st.markdown("""
         color: #ffffff !important;
     }
 
+
+    .lead-status {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .25px;
+    }
+
+    .status-pending {
+        background: #fff7ed;
+        color: #b45309;
+    }
+
+    .status-invited {
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .status-confirmed {
+        background: #ecfeff;
+        color: #0f766e;
+    }
+
+    .status-active {
+        background: #ecfdf5;
+        color: #047857;
+    }
+
     .public-footer {
         margin-top: 40px;
         padding: 20px 0;
@@ -444,6 +474,21 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS public_leads (id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, domain TEXT, cyber_score INTEGER, source TEXT DEFAULT 'free_cybercheck', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("ALTER TABLE public_leads ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Pendiente';")
+        c.execute("ALTER TABLE public_leads ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
+        c.execute("ALTER TABLE public_leads ADD COLUMN IF NOT EXISTS auth_user_id TEXT;")
+        c.execute("ALTER TABLE public_leads ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP;")
+        c.execute("ALTER TABLE public_leads ADD COLUMN IF NOT EXISTS last_error TEXT;")
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_members (
+            id SERIAL PRIMARY KEY,
+            organization_id INTEGER NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            auth_user_id TEXT,
+            role TEXT DEFAULT 'CLIENT',
+            status TEXT DEFAULT 'Invitado',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
@@ -463,7 +508,38 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS public_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, domain TEXT, cyber_score INTEGER, source TEXT DEFAULT 'free_cybercheck', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        try: c.execute("ALTER TABLE public_leads ADD COLUMN status TEXT DEFAULT 'Pendiente';")
+        except: pass
+        try: c.execute("ALTER TABLE public_leads ADD COLUMN organization_id INTEGER;")
+        except: pass
+        try: c.execute("ALTER TABLE public_leads ADD COLUMN auth_user_id TEXT;")
+        except: pass
+        try: c.execute("ALTER TABLE public_leads ADD COLUMN invited_at TIMESTAMP;")
+        except: pass
+        try: c.execute("ALTER TABLE public_leads ADD COLUMN last_error TEXT;")
+        except: pass
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            auth_user_id TEXT,
+            role TEXT DEFAULT 'CLIENT',
+            status TEXT DEFAULT 'Invitado',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
         conn.commit()
+
+    try:
+        c.execute(
+            "UPDATE public_leads SET status = 'Pendiente' "
+            "WHERE status IS NULL OR status = ''"
+        )
+        if not is_pg:
+            conn.commit()
+    except Exception:
+        pass
+
     c.close()
     conn.close()
 
@@ -664,7 +740,8 @@ def save_public_lead(email, domain="", cyber_score=None):
                 ON CONFLICT (email)
                 DO UPDATE SET
                     domain = EXCLUDED.domain,
-                    cyber_score = EXCLUDED.cyber_score
+                    cyber_score = EXCLUDED.cyber_score,
+                    source = EXCLUDED.source
                 """,
                 (email, domain, cyber_score)
             )
@@ -677,7 +754,8 @@ def save_public_lead(email, domain="", cyber_score=None):
                 ON CONFLICT(email)
                 DO UPDATE SET
                     domain = excluded.domain,
-                    cyber_score = excluded.cyber_score
+                    cyber_score = excluded.cyber_score,
+                    source = excluded.source
                 """,
                 (email, domain, cyber_score)
             )
@@ -712,7 +790,18 @@ def load_public_leads():
     try:
         df = pd.read_sql_query(
             """
-            SELECT id, email, domain, cyber_score, source, created_at
+            SELECT
+                id,
+                email,
+                domain,
+                cyber_score,
+                source,
+                created_at,
+                status,
+                organization_id,
+                auth_user_id,
+                invited_at,
+                last_error
             FROM public_leads
             ORDER BY id DESC
             """,
@@ -722,6 +811,404 @@ def load_public_leads():
         conn.close()
 
     return df
+
+
+
+def _supabase_admin_config():
+    supabase_url = _secret_value(
+        "supabase",
+        "url",
+        ""
+    ).strip().rstrip("/")
+
+    secret_key = _secret_value(
+        "supabase",
+        "secret_key",
+        ""
+    ).strip()
+
+    if not supabase_url or not secret_key:
+        raise RuntimeError(
+            "Falta configurar [supabase] url y secret_key "
+            "en Streamlit Secrets."
+        )
+
+    if not secret_key.startswith("sb_secret_"):
+        raise RuntimeError(
+            "La clave configurada no parece ser una Supabase Secret key."
+        )
+
+    return supabase_url, secret_key
+
+
+def _supabase_admin_headers():
+    _, secret_key = _supabase_admin_config()
+
+    # Supabase opaque secret keys must be sent as apikey.
+    # The gateway translates the secret into the internal service role.
+    return {
+        "apikey": secret_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "CyberAudits-Backend/2.7"
+    }
+
+
+def supabase_invite_user(email, organization_id=None, role="CLIENT"):
+    email = (email or "").strip().lower()
+
+    if not _valid_email_address(email):
+        raise ValueError("Email inválido.")
+
+    supabase_url, _ = _supabase_admin_config()
+
+    payload = {
+        "email": email,
+        "data": {
+            "role": role,
+            "organization_id": organization_id,
+            "source": "cyberaudits"
+        }
+    }
+
+    response = requests.post(
+        f"{supabase_url}/auth/v1/invite",
+        headers=_supabase_admin_headers(),
+        json=payload,
+        timeout=12
+    )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if response.status_code not in (200, 201):
+        message = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or f"Supabase respondió HTTP {response.status_code}."
+        )
+
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def supabase_get_user(user_id):
+    if not user_id:
+        return None
+
+    supabase_url, _ = _supabase_admin_config()
+
+    response = requests.get(
+        f"{supabase_url}/auth/v1/admin/users/{user_id}",
+        headers=_supabase_admin_headers(),
+        timeout=12
+    )
+
+    if response.status_code == 404:
+        return None
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if response.status_code != 200:
+        message = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error")
+            or f"Supabase respondió HTTP {response.status_code}."
+        )
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def ensure_organization_for_lead(domain, email):
+    domain = (domain or "").strip().lower()
+    email = (email or "").strip().lower()
+
+    if domain:
+        org_name = domain
+    else:
+        org_name = email.split("@")[-1] if "@" in email else email
+
+    org_name = org_name[:180] or "Cliente CyberAudits"
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        c.execute(
+            f"SELECT id FROM organizations WHERE name = {ph}",
+            (org_name,)
+        )
+        row = c.fetchone()
+
+        if row:
+            org_id = int(row[0])
+        else:
+            if is_pg:
+                c.execute(
+                    f"""
+                    INSERT INTO organizations (name)
+                    VALUES ({ph})
+                    RETURNING id
+                    """,
+                    (org_name,)
+                )
+                org_id = int(c.fetchone()[0])
+            else:
+                c.execute(
+                    "INSERT INTO organizations (name) VALUES (?)",
+                    (org_name,)
+                )
+                org_id = int(c.lastrowid)
+                conn.commit()
+
+        return org_id
+
+    finally:
+        c.close()
+        conn.close()
+
+
+def upsert_organization_member(
+    organization_id,
+    email,
+    auth_user_id,
+    role="CLIENT",
+    status="Invitado"
+):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        if is_pg:
+            c.execute(
+                f"""
+                INSERT INTO organization_members
+                (
+                    organization_id,
+                    email,
+                    auth_user_id,
+                    role,
+                    status,
+                    updated_at
+                )
+                VALUES
+                ({ph}, {ph}, {ph}, {ph}, {ph}, CURRENT_TIMESTAMP)
+                ON CONFLICT (email)
+                DO UPDATE SET
+                    organization_id = EXCLUDED.organization_id,
+                    auth_user_id = EXCLUDED.auth_user_id,
+                    role = EXCLUDED.role,
+                    status = EXCLUDED.status,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    organization_id,
+                    email,
+                    auth_user_id,
+                    role,
+                    status
+                )
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO organization_members
+                (
+                    organization_id,
+                    email,
+                    auth_user_id,
+                    role,
+                    status,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(email)
+                DO UPDATE SET
+                    organization_id = excluded.organization_id,
+                    auth_user_id = excluded.auth_user_id,
+                    role = excluded.role,
+                    status = excluded.status,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    organization_id,
+                    email,
+                    auth_user_id,
+                    role,
+                    status
+                )
+            )
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def update_lead_invitation(
+    lead_id,
+    status,
+    organization_id=None,
+    auth_user_id=None,
+    invited=False,
+    last_error=None
+):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        invited_expr = "CURRENT_TIMESTAMP" if invited else "invited_at"
+
+        c.execute(
+            f"""
+            UPDATE public_leads
+            SET
+                status = {ph},
+                organization_id = {ph},
+                auth_user_id = {ph},
+                invited_at = {invited_expr},
+                last_error = {ph}
+            WHERE id = {ph}
+            """,
+            (
+                status,
+                organization_id,
+                auth_user_id,
+                last_error,
+                int(lead_id)
+            )
+        )
+
+        if not is_pg:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def refresh_lead_auth_status(lead_id, auth_user_id, organization_id, email):
+    user = supabase_get_user(auth_user_id)
+
+    if not user:
+        update_lead_invitation(
+            lead_id,
+            "Pendiente",
+            organization_id=organization_id,
+            auth_user_id=None,
+            invited=False,
+            last_error="El usuario ya no existe en Supabase Auth."
+        )
+        return "Pendiente"
+
+    confirmed_at = (
+        user.get("email_confirmed_at")
+        or user.get("confirmed_at")
+    )
+
+    last_sign_in_at = user.get("last_sign_in_at")
+
+    if last_sign_in_at:
+        new_status = "Activo"
+    elif confirmed_at:
+        new_status = "Confirmado"
+    else:
+        new_status = "Invitado"
+
+    update_lead_invitation(
+        lead_id,
+        new_status,
+        organization_id=organization_id,
+        auth_user_id=auth_user_id,
+        invited=False,
+        last_error=None
+    )
+
+    upsert_organization_member(
+        organization_id,
+        email,
+        auth_user_id,
+        role="CLIENT",
+        status=new_status
+    )
+
+    return new_status
+
+
+def approve_and_invite_lead(lead):
+    lead_id = int(lead["id"])
+    email = str(lead["email"]).strip().lower()
+    domain = str(lead.get("domain") or "").strip().lower()
+
+    organization_id = ensure_organization_for_lead(
+        domain,
+        email
+    )
+
+    try:
+        user_data = supabase_invite_user(
+            email,
+            organization_id=organization_id,
+            role="CLIENT"
+        )
+
+        auth_user_id = (
+            user_data.get("id")
+            or (user_data.get("user") or {}).get("id")
+        )
+
+        if not auth_user_id:
+            raise RuntimeError(
+                "Supabase envió una respuesta sin identificador de usuario."
+            )
+
+        update_lead_invitation(
+            lead_id,
+            "Invitado",
+            organization_id=organization_id,
+            auth_user_id=auth_user_id,
+            invited=True,
+            last_error=None
+        )
+
+        upsert_organization_member(
+            organization_id,
+            email,
+            auth_user_id,
+            role="CLIENT",
+            status="Invitado"
+        )
+
+        return {
+            "ok": True,
+            "organization_id": organization_id,
+            "auth_user_id": auth_user_id
+        }
+
+    except Exception as exc:
+        update_lead_invitation(
+            lead_id,
+            "Pendiente",
+            organization_id=organization_id,
+            auth_user_id=None,
+            invited=False,
+            last_error=str(exc)
+        )
+        raise
 
 
 def get_domain_verification(domain):
@@ -3219,7 +3706,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.6.1 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.7 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -3407,7 +3894,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.6.1 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.7 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -4795,14 +5282,15 @@ with tab_remediation:
 
 
 # ==========================================
-# PUBLIC BETA LEADS
+# PUBLIC BETA LEADS / ACCESS APPROVAL
 # ==========================================
 
 with tab_leads:
     st.subheader("Public Beta Leads")
 
     st.write(
-        "Contactos que llegaron desde el Free CyberCheck público."
+        "Convertí solicitudes del Free CyberCheck en usuarios invitados "
+        "de CyberAudits."
     )
 
     try:
@@ -4812,42 +5300,64 @@ with tab_leads:
         st.error(f"No se pudieron cargar los leads: {e}")
 
     if leads_df.empty:
-        st.info(
-            "Todavía no hay solicitudes de acceso beta."
-        )
+        st.info("Todavía no hay solicitudes de acceso beta.")
+
     else:
-        l1, l2, l3 = st.columns(3)
+        l1, l2, l3, l4 = st.columns(4)
 
         l1.metric("Leads", len(leads_df))
 
         l2.metric(
-            "Dominios únicos",
-            leads_df["domain"].nunique()
-            if "domain" in leads_df.columns
+            "Pendientes",
+            int((leads_df["status"] == "Pendiente").sum())
+            if "status" in leads_df.columns
             else 0
         )
 
-        avg_score = (
-            round(leads_df["cyber_score"].dropna().mean())
-            if (
-                "cyber_score" in leads_df.columns
-                and not leads_df["cyber_score"].dropna().empty
-            )
-            else None
-        )
-
         l3.metric(
-            "CyberScore promedio",
-            f"{avg_score}/100" if avg_score is not None else "N/D"
+            "Invitados",
+            int(
+                leads_df["status"].isin(
+                    ["Invitado", "Confirmado", "Activo"]
+                ).sum()
+            )
+            if "status" in leads_df.columns
+            else 0
         )
 
-        st.markdown("#### Contactos")
+        l4.metric(
+            "Activos",
+            int((leads_df["status"] == "Activo").sum())
+            if "status" in leads_df.columns
+            else 0
+        )
+
+        st.markdown("#### Solicitudes")
 
         for _, lead in leads_df.iterrows():
             lead_id = int(lead["id"])
+            email = str(lead["email"])
+            domain = str(lead.get("domain") or "N/D")
+            score = (
+                str(int(lead["cyber_score"]))
+                if pd.notna(lead.get("cyber_score"))
+                else "N/D"
+            )
 
-            info_col, delete_col = st.columns(
-                [12, 1],
+            status = str(
+                lead.get("status")
+                or "Pendiente"
+            )
+
+            status_class = {
+                "Pendiente": "status-pending",
+                "Invitado": "status-invited",
+                "Confirmado": "status-confirmed",
+                "Activo": "status-active"
+            }.get(status, "status-pending")
+
+            info_col, action_col, delete_col = st.columns(
+                [9, 2.6, 0.8],
                 vertical_alignment="center"
             )
 
@@ -4857,17 +5367,18 @@ with tab_leads:
                     <div class="history-row">
                         <div>
                             <div class="history-title">
-                                {html.escape(str(lead['email']))}
+                                {html.escape(email)}
                             </div>
                             <div class="history-meta">
-                                Dominio: {html.escape(str(lead.get('domain') or 'N/D'))}
+                                Dominio:
+                                {html.escape(domain)}
                                 &nbsp; · &nbsp;
                                 CyberScore:
-                                <strong>
-                                    {html.escape(str(lead.get('cyber_score') if pd.notna(lead.get('cyber_score')) else 'N/D'))}
-                                </strong>
+                                <strong>{html.escape(score)}</strong>
                                 &nbsp; · &nbsp;
-                                {html.escape(str(lead.get('created_at') or ''))}
+                                <span class="lead-status {status_class}">
+                                    {html.escape(status)}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -4875,17 +5386,105 @@ with tab_leads:
                     unsafe_allow_html=True
                 )
 
+            with action_col:
+                if status == "Pendiente":
+                    if st.button(
+                        "✅ Aprobar e invitar",
+                        key=f"approve_lead_{lead_id}",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        try:
+                            with st.spinner(
+                                f"Enviando invitación a {email}..."
+                            ):
+                                result = approve_and_invite_lead(
+                                    lead
+                                )
+
+                            st.success(
+                                "Invitación enviada y acceso registrado."
+                            )
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(
+                                f"No se pudo enviar la invitación: {e}"
+                            )
+
+                else:
+                    if st.button(
+                        "🔄 Actualizar estado",
+                        key=f"refresh_lead_{lead_id}",
+                        use_container_width=True
+                    ):
+                        try:
+                            auth_user_id = (
+                                str(lead.get("auth_user_id") or "")
+                            )
+
+                            organization_id = (
+                                int(lead["organization_id"])
+                                if pd.notna(
+                                    lead.get("organization_id")
+                                )
+                                else None
+                            )
+
+                            if not auth_user_id:
+                                raise RuntimeError(
+                                    "Este lead no tiene un usuario Auth asociado."
+                                )
+
+                            new_status = refresh_lead_auth_status(
+                                lead_id,
+                                auth_user_id,
+                                organization_id,
+                                email
+                            )
+
+                            st.success(
+                                f"Estado actualizado: {new_status}"
+                            )
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(
+                                f"No se pudo actualizar el estado: {e}"
+                            )
+
             with delete_col:
-                if st.button(
-                    "✕",
-                    key=f"delete_lead_{lead_id}",
-                    help="Eliminar este lead",
-                    type="secondary",
-                    use_container_width=True
-                ):
-                    delete_public_lead(lead_id)
-                    st.success("Lead eliminado.")
-                    st.rerun()
+                # Once invited, deleting the lead alone would NOT revoke Auth access.
+                # We therefore only allow quick deletion while it is still pending.
+                if status == "Pendiente":
+                    if st.button(
+                        "✕",
+                        key=f"delete_lead_{lead_id}",
+                        help="Eliminar este lead pendiente",
+                        type="secondary",
+                        use_container_width=True
+                    ):
+                        delete_public_lead(lead_id)
+                        st.success("Lead eliminado.")
+                        st.rerun()
+                else:
+                    st.caption("🔒")
+
+            if lead.get("invited_at") and pd.notna(
+                lead.get("invited_at")
+            ):
+                st.caption(
+                    f"Invitación enviada: {lead.get('invited_at')}"
+                )
+
+            if lead.get("last_error") and pd.notna(
+                lead.get("last_error")
+            ):
+                st.warning(
+                    f"Último error: {lead.get('last_error')}"
+                )
+
+            st.markdown("")
 
         st.markdown("---")
 
@@ -4901,8 +5500,15 @@ with tab_leads:
             use_container_width=True
         )
 
+        st.info(
+            "La invitación crea el usuario en Supabase Auth y registra "
+            "su relación con una organización. El acceso cliente aislado "
+            "por organización se habilitará en la siguiente fase."
+        )
+
         st.caption(
-            "Estos contactos aceptaron ser contactados sobre la beta. "
-            "Usalos únicamente con ese fin y eliminá los datos cuando ya no sean necesarios."
+            "Importante: borrar un lead invitado no equivale a revocar "
+            "su cuenta de autenticación. La revocación se implementará "
+            "como acción separada."
         )
 
