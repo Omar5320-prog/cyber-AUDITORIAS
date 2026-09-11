@@ -489,6 +489,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 1;")
+        c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
@@ -528,6 +530,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        try: c.execute("ALTER TABLE organization_members ADD COLUMN must_change_password INTEGER DEFAULT 1;")
+        except: pass
+        try: c.execute("ALTER TABLE organization_members ADD COLUMN last_login TIMESTAMP;")
+        except: pass
         conn.commit()
 
     try:
@@ -1209,6 +1215,340 @@ def approve_and_invite_lead(lead):
             last_error=str(exc)
         )
         raise
+
+
+
+def _generate_temporary_password(length=18):
+    """
+    Generates a strong temporary password.
+    It is returned to the admin once and is never persisted in our DB.
+    """
+    alphabet = (
+        string.ascii_letters
+        + string.digits
+        + "!@#$%_-"
+    )
+
+    while True:
+        value = "".join(
+            secrets.choice(alphabet)
+            for _ in range(length)
+        )
+
+        if (
+            any(c.islower() for c in value)
+            and any(c.isupper() for c in value)
+            and any(c.isdigit() for c in value)
+            and any(c in "!@#$%_-" for c in value)
+        ):
+            return value
+
+
+def supabase_admin_set_password(user_id, password):
+    if not user_id:
+        raise ValueError("Falta el identificador del usuario.")
+
+    if len(password or "") < 12:
+        raise ValueError("La contraseña temporal es demasiado corta.")
+
+    supabase_url, _ = _supabase_admin_config()
+
+    response = requests.put(
+        f"{supabase_url}/auth/v1/admin/users/{user_id}",
+        headers=_supabase_admin_headers(),
+        json={"password": password},
+        timeout=12
+    )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if response.status_code != 200:
+        message = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or f"Supabase respondió HTTP {response.status_code}."
+        )
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def set_member_password_change_required(email, required=True):
+    email = (email or "").strip().lower()
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    try:
+        c.execute(
+            f"""
+            UPDATE organization_members
+            SET must_change_password = {ph},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE LOWER(email) = LOWER({ph})
+            """,
+            (1 if required else 0, email)
+        )
+
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def mark_member_login(email):
+    email = (email or "").strip().lower()
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    try:
+        c.execute(
+            f"""
+            UPDATE organization_members
+            SET last_login = CURRENT_TIMESTAMP,
+                status = 'Activo',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE LOWER(email) = LOWER({ph})
+            """,
+            (email,)
+        )
+
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def get_member_for_identity(user_id=None, email=None):
+    conn = get_db_connection()
+    ph = _db_ph()
+
+    try:
+        if user_id:
+            df = pd.read_sql_query(
+                f"""
+                SELECT
+                    om.id,
+                    om.organization_id,
+                    om.email,
+                    om.auth_user_id,
+                    om.role,
+                    om.status,
+                    om.must_change_password,
+                    om.last_login,
+                    o.name AS organization_name
+                FROM organization_members om
+                LEFT JOIN organizations o
+                    ON o.id = om.organization_id
+                WHERE om.auth_user_id = {ph}
+                LIMIT 1
+                """,
+                conn,
+                params=(str(user_id),)
+            )
+        else:
+            df = pd.read_sql_query(
+                f"""
+                SELECT
+                    om.id,
+                    om.organization_id,
+                    om.email,
+                    om.auth_user_id,
+                    om.role,
+                    om.status,
+                    om.must_change_password,
+                    om.last_login,
+                    o.name AS organization_name
+                FROM organization_members om
+                LEFT JOIN organizations o
+                    ON o.id = om.organization_id
+                WHERE LOWER(om.email) = LOWER({ph})
+                LIMIT 1
+                """,
+                conn,
+                params=((email or "").strip().lower(),)
+            )
+    finally:
+        conn.close()
+
+    if df.empty:
+        return None
+
+    return df.iloc[0].to_dict()
+
+
+def supabase_password_login(email, password):
+    email = (email or "").strip().lower()
+
+    if not _valid_email_address(email):
+        raise ValueError("Email inválido.")
+
+    if not password:
+        raise ValueError("Ingresá tu contraseña.")
+
+    supabase_url, _ = _supabase_admin_config()
+
+    response = requests.post(
+        f"{supabase_url}/auth/v1/token",
+        params={"grant_type": "password"},
+        headers={
+            "apikey": _supabase_admin_config()[1],
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "CyberAudits-Backend/2.8"
+        },
+        json={
+            "email": email,
+            "password": password
+        },
+        timeout=12
+    )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if response.status_code != 200:
+        message = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or "Email o contraseña incorrectos."
+        )
+        raise RuntimeError(str(message))
+
+    user = data.get("user") or {}
+    access_token = data.get("access_token")
+    refresh_token = data.get("refresh_token")
+
+    if not user.get("id") or not access_token:
+        raise RuntimeError(
+            "Supabase autenticó la solicitud pero no devolvió una sesión válida."
+        )
+
+    return {
+        "user": user,
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }
+
+
+def supabase_user_change_password(access_token, new_password):
+    if not access_token:
+        raise RuntimeError("La sesión del cliente no es válida.")
+
+    if len(new_password or "") < 12:
+        raise ValueError(
+            "La nueva contraseña debe tener al menos 12 caracteres."
+        )
+
+    supabase_url, secret_key = _supabase_admin_config()
+
+    response = requests.put(
+        f"{supabase_url}/auth/v1/user",
+        headers={
+            "apikey": secret_key,
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "CyberAudits-Client/2.8"
+        },
+        json={"password": new_password},
+        timeout=12
+    )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {}
+
+    if response.status_code != 200:
+        message = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or f"No se pudo cambiar la contraseña (HTTP {response.status_code})."
+        )
+        raise RuntimeError(str(message))
+
+    return data
+
+
+def get_client_primary_domain(organization_id, email):
+    conn = get_db_connection()
+    ph = _db_ph()
+
+    try:
+        df = pd.read_sql_query(
+            f"""
+            SELECT domain
+            FROM public_leads
+            WHERE organization_id = {ph}
+               OR LOWER(email) = LOWER({ph})
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            conn,
+            params=(organization_id, email)
+        )
+    finally:
+        conn.close()
+
+    if not df.empty:
+        domain = str(df.iloc[0].get("domain") or "").strip().lower()
+        if domain:
+            return domain
+
+    member = get_member_for_identity(email=email)
+    if member:
+        return str(member.get("organization_name") or "").strip().lower()
+
+    return ""
+
+
+def get_client_latest_lead(organization_id, email):
+    conn = get_db_connection()
+    ph = _db_ph()
+
+    try:
+        df = pd.read_sql_query(
+            f"""
+            SELECT
+                id,
+                email,
+                domain,
+                cyber_score,
+                created_at,
+                status
+            FROM public_leads
+            WHERE organization_id = {ph}
+               OR LOWER(email) = LOWER({ph})
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            conn,
+            params=(organization_id, email)
+        )
+    finally:
+        conn.close()
+
+    if df.empty:
+        return None
+
+    return df.iloc[0].to_dict()
 
 
 def get_domain_verification(domain):
@@ -3648,19 +3988,37 @@ def render_public_home():
 
     st.markdown("---")
 
-    left, right = st.columns([2, 1])
+    st.markdown("### Accesos")
 
-    with left:
-        st.markdown("### ¿Ya sos administrador de CyberAudits?")
+    client_access_col, admin_access_col = st.columns(2)
+
+    with client_access_col:
+        st.markdown("#### 👤 Soy cliente")
         st.caption(
-            "El workspace privado contiene historial, reportes, "
-            "remediación y administración de CyberPass."
+            "Ingresá a tu organización, revisá tu CyberScore, "
+            "hallazgos e informes."
         )
 
-    with right:
+        if st.button(
+            "Entrar al portal cliente",
+            type="primary",
+            use_container_width=True,
+            key="public_client_login"
+        ):
+            st.query_params["client"] = "1"
+            st.rerun()
+
+    with admin_access_col:
+        st.markdown("#### 🛠️ Administración")
+        st.caption(
+            "Workspace privado para gestionar clientes, leads, "
+            "reportes y CyberPass."
+        )
+
         if st.button(
             "Entrar al workspace privado",
-            use_container_width=True
+            use_container_width=True,
+            key="public_admin_login"
         ):
             st.query_params["admin"] = "1"
             st.rerun()
@@ -3674,6 +4032,788 @@ def render_public_home():
         """,
         unsafe_allow_html=True
     )
+
+    st.stop()
+
+
+
+def _clear_client_session():
+    for key in [
+        "client_authenticated",
+        "client_email",
+        "client_user_id",
+        "client_access_token",
+        "client_refresh_token",
+        "client_organization_id",
+        "client_organization_name",
+        "client_role",
+        "client_must_change_password"
+    ]:
+        st.session_state.pop(key, None)
+
+
+def render_client_login():
+    st.markdown(
+        """
+        <div style="max-width:760px;margin:55px auto 20px auto;">
+            <div class="public-score-card">
+                <div class="ca-kicker">CYBERAUDITS CLIENT PORTAL</div>
+                <h1 style="margin:10px 0 6px 0;">Acceso de cliente</h1>
+                <p class="muted">
+                    Ingresá con el email aprobado y la contraseña de acceso
+                    entregada para tu organización.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("client_login_form"):
+        email = st.text_input(
+            "Email",
+            placeholder="vos@empresa.com"
+        )
+
+        password = st.text_input(
+            "Contraseña",
+            type="password"
+        )
+
+        login = st.form_submit_button(
+            "Entrar a mi organización",
+            type="primary",
+            use_container_width=True
+        )
+
+    if login:
+        try:
+            with st.spinner("Validando acceso..."):
+                session = supabase_password_login(
+                    email,
+                    password
+                )
+
+                user = session["user"]
+
+                member = get_member_for_identity(
+                    user_id=user.get("id"),
+                    email=email
+                )
+
+                if not member:
+                    raise RuntimeError(
+                        "Tu usuario existe, pero todavía no está asociado "
+                        "a una organización de CyberAudits."
+                    )
+
+                if str(member.get("status")) not in {
+                    "Activo",
+                    "Confirmado",
+                    "Invitado"
+                }:
+                    raise RuntimeError(
+                        "Tu acceso todavía no está habilitado."
+                    )
+
+                st.session_state.client_authenticated = True
+                st.session_state.client_email = (
+                    str(member.get("email") or email).strip().lower()
+                )
+                st.session_state.client_user_id = str(user.get("id"))
+                st.session_state.client_access_token = session["access_token"]
+                st.session_state.client_refresh_token = session.get("refresh_token")
+                st.session_state.client_organization_id = int(
+                    member["organization_id"]
+                )
+                st.session_state.client_organization_name = str(
+                    member.get("organization_name")
+                    or "Mi organización"
+                )
+                st.session_state.client_role = str(
+                    member.get("role")
+                    or "CLIENT"
+                )
+                st.session_state.client_must_change_password = bool(
+                    int(member.get("must_change_password") or 0)
+                )
+
+                mark_member_login(
+                    st.session_state.client_email
+                )
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(
+                f"No se pudo iniciar sesión: {e}"
+            )
+
+    st.markdown("---")
+
+    left, right = st.columns(2)
+
+    with left:
+        if st.button(
+            "← Volver al CyberCheck",
+            use_container_width=True
+        ):
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.rerun()
+
+    with right:
+        st.caption(
+            "¿Todavía no tenés acceso? Ejecutá el Free CyberCheck "
+            "y solicitá acceso a la beta."
+        )
+
+    st.stop()
+
+
+def render_client_password_change():
+    st.markdown(
+        """
+        <div style="max-width:760px;margin:45px auto 20px auto;">
+            <div class="public-score-card">
+                <div class="ca-kicker">PRIMER ACCESO</div>
+                <h1 style="margin:10px 0 6px 0;">Creá tu contraseña personal</h1>
+                <p class="muted">
+                    La contraseña temporal solo sirve para el primer ingreso.
+                    Elegí ahora una contraseña que solo vos conozcas.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("client_force_password_change"):
+        new_password = st.text_input(
+            "Nueva contraseña",
+            type="password",
+            help="Mínimo 12 caracteres."
+        )
+
+        repeat_password = st.text_input(
+            "Repetir nueva contraseña",
+            type="password"
+        )
+
+        save = st.form_submit_button(
+            "Guardar mi contraseña",
+            type="primary",
+            use_container_width=True
+        )
+
+    if save:
+        if new_password != repeat_password:
+            st.error("Las contraseñas no coinciden.")
+        elif len(new_password) < 12:
+            st.error(
+                "Usá una contraseña de al menos 12 caracteres."
+            )
+        else:
+            try:
+                supabase_user_change_password(
+                    st.session_state.client_access_token,
+                    new_password
+                )
+
+                set_member_password_change_required(
+                    st.session_state.client_email,
+                    False
+                )
+
+                st.session_state.client_must_change_password = False
+
+                st.success(
+                    "Contraseña actualizada. Tu portal ya está habilitado."
+                )
+                st.rerun()
+
+            except Exception as e:
+                st.error(
+                    f"No se pudo cambiar la contraseña: {e}"
+                )
+
+    if st.button(
+        "Cerrar sesión",
+        use_container_width=True
+    ):
+        _clear_client_session()
+
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+        st.rerun()
+
+    st.stop()
+
+
+def render_client_portal():
+    if not st.session_state.get("client_authenticated", False):
+        render_client_login()
+
+    if st.session_state.get("client_must_change_password", False):
+        render_client_password_change()
+
+    org_id = int(
+        st.session_state.client_organization_id
+    )
+
+    org_name = st.session_state.get(
+        "client_organization_name",
+        "Mi organización"
+    )
+
+    client_email = st.session_state.get(
+        "client_email",
+        ""
+    )
+
+    primary_domain = get_client_primary_domain(
+        org_id,
+        client_email
+    )
+
+    st.sidebar.markdown("## 🛡️ CyberAudits")
+    st.sidebar.caption("Client Portal")
+
+    st.sidebar.markdown(
+        f"**{org_name}**"
+    )
+    st.sidebar.caption(client_email)
+
+    if st.sidebar.button(
+        "Cerrar sesión",
+        use_container_width=True
+    ):
+        _clear_client_session()
+
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+        st.rerun()
+
+    st.markdown(
+        f"""
+        <div class="ca-brand">
+            <div class="ca-kicker">CYBERAUDITS · CLIENT PORTAL</div>
+            <h1>{html.escape(str(org_name))}</h1>
+            <p>
+                Tu postura de seguridad, hallazgos y evolución
+                en un único lugar.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    (
+        client_dashboard,
+        client_scan,
+        client_findings,
+        client_reports,
+        client_account
+    ) = st.tabs(
+        [
+            "🏠 Overview",
+            "🔎 Run Check",
+            "🧭 Findings",
+            "📄 Reports",
+            "👤 Account"
+        ]
+    )
+
+    # --------------------------------------------------------
+    # OVERVIEW
+    # --------------------------------------------------------
+    with client_dashboard:
+        history_df = load_history(org_id)
+        lead = get_client_latest_lead(
+            org_id,
+            client_email
+        )
+
+        if history_df.empty:
+            baseline_score = (
+                int(lead["cyber_score"])
+                if lead
+                and lead.get("cyber_score") is not None
+                and pd.notna(lead.get("cyber_score"))
+                else None
+            )
+
+            st.subheader("Bienvenido a CyberAudits")
+
+            if baseline_score is not None:
+                c1, c2, c3 = st.columns(3)
+
+                c1.metric(
+                    "CyberScore preliminar",
+                    f"{baseline_score}/100"
+                )
+
+                c2.metric(
+                    "Dominio",
+                    primary_domain or "N/D"
+                )
+
+                c3.metric(
+                    "Evaluación completa",
+                    "Pendiente"
+                )
+
+                st.info(
+                    "Tu CyberScore actual proviene del Free CyberCheck. "
+                    "Ejecutá un Run Check desde este portal para generar "
+                    "una evaluación completa con historial y reportes."
+                )
+            else:
+                st.info(
+                    "Todavía no hay una evaluación asociada a tu organización."
+                )
+
+        else:
+            latest = history_df.iloc[0]
+            findings = safe_findings(
+                latest["findings_json"]
+            )
+            meta = safe_meta(
+                latest.get("scan_meta_json")
+            )
+
+            if not meta:
+                meta = fallback_scan_meta(
+                    findings
+                )
+
+            score = int(latest["risk_score"])
+            label, description = score_status(score)
+
+            actionable = [
+                f for f in findings
+                if is_actionable(f)
+            ]
+
+            score_col, metric_col = st.columns(
+                [1.1, 2.1]
+            )
+
+            with score_col:
+                st.markdown(
+                    f"""
+                    <div class="score-shell">
+                        <div class="muted">CyberScore</div>
+                        <div style="margin-top:14px;">
+                            <span class="score-number">{score}</span>
+                            <span class="score-denom">/100</span>
+                        </div>
+                        <span class="score-label">{html.escape(label)}</span>
+                        <p class="muted" style="margin-top:16px;">
+                            {html.escape(description)}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with metric_col:
+                m1, m2, m3 = st.columns(3)
+
+                m1.metric(
+                    "Cobertura",
+                    f"{meta.get('coverage', 0)}%"
+                )
+
+                m2.metric(
+                    "Confianza",
+                    meta.get("confidence", "N/D")
+                )
+
+                m3.metric(
+                    "Hallazgos a atender",
+                    len(actionable)
+                )
+
+                st.caption(
+                    f"Última evaluación: {latest['timestamp']} · "
+                    f"{latest['hostname']}"
+                )
+
+            st.markdown("### Prioridades")
+
+            if actionable:
+                ordered = sorted(
+                    actionable,
+                    key=lambda f: {
+                        "CRÍTICO": 0,
+                        "MEDIO": 1,
+                        "BAJO": 2
+                    }.get(
+                        f.get("severity"),
+                        9
+                    )
+                )
+
+                for finding in ordered[:3]:
+                    render_finding_card(finding)
+            else:
+                st.success(
+                    "No hay hallazgos accionables en los controles verificados."
+                )
+
+            if len(history_df) >= 2:
+                trend = history_df.copy()
+                trend["timestamp_dt"] = pd.to_datetime(
+                    trend["timestamp"],
+                    errors="coerce"
+                )
+
+                trend = trend.sort_values(
+                    by="timestamp_dt",
+                    ascending=True
+                )
+
+                st.markdown("### Evolución")
+
+                chart_df = (
+                    trend[["timestamp_dt", "risk_score"]]
+                    .dropna()
+                    .set_index("timestamp_dt")
+                    .rename(
+                        columns={
+                            "risk_score": "CyberScore"
+                        }
+                    )
+                )
+
+                st.line_chart(chart_df)
+
+    # --------------------------------------------------------
+    # CLIENT SCAN
+    # --------------------------------------------------------
+    with client_scan:
+        st.subheader("Run Check")
+
+        if not primary_domain:
+            st.error(
+                "No hay un dominio asociado a tu organización. "
+                "Contactá al administrador."
+            )
+        else:
+            st.write(
+                f"Dominio autorizado para esta beta: **{primary_domain}**"
+            )
+
+            st.caption(
+                "El portal limita la evaluación al dominio asociado "
+                "a tu organización."
+            )
+
+            client_email_domain = st.text_input(
+                "Dominio corporativo de correo · opcional",
+                value=primary_domain,
+                key="client_email_domain"
+            )
+
+            if st.button(
+                "🚀 Ejecutar evaluación",
+                type="primary",
+                use_container_width=True,
+                key="client_run_scan"
+            ):
+                try:
+                    with st.spinner(
+                        "Analizando postura de seguridad..."
+                    ):
+                        (
+                            findings,
+                            stats,
+                            hostname,
+                            geo,
+                            risk_score,
+                            scan_details
+                        ) = scan_target(
+                            f"https://{primary_domain}",
+                            client_email_domain
+                        )
+
+                        scan_meta = build_scan_meta(
+                            stats,
+                            findings,
+                            scan_details
+                        )
+
+                        findings_count = count_actionable(
+                            findings
+                        )
+
+                        save_scan_to_db(
+                            hostname,
+                            geo.get("ip", "N/A"),
+                            risk_score,
+                            findings_count,
+                            "Client Security Assessment",
+                            org_id,
+                            findings,
+                            scan_meta
+                        )
+
+                    st.success(
+                        f"Evaluación completada. CyberScore: {risk_score}/100"
+                    )
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(
+                        f"No se pudo completar la evaluación: {e}"
+                    )
+
+    # --------------------------------------------------------
+    # FINDINGS
+    # --------------------------------------------------------
+    with client_findings:
+        st.subheader("Findings")
+
+        history_df = load_history(org_id)
+
+        if history_df.empty:
+            st.info(
+                "Ejecutá tu primera evaluación completa para ver hallazgos."
+            )
+        else:
+            latest = history_df.iloc[0]
+            findings = safe_findings(
+                latest["findings_json"]
+            )
+
+            actionable = [
+                f for f in findings
+                if is_actionable(f)
+            ]
+
+            if not actionable:
+                st.success(
+                    "No hay hallazgos accionables en la última evaluación."
+                )
+            else:
+                for finding in sorted(
+                    actionable,
+                    key=lambda f: {
+                        "CRÍTICO": 0,
+                        "MEDIO": 1,
+                        "BAJO": 2
+                    }.get(
+                        f.get("severity"),
+                        9
+                    )
+                ):
+                    render_finding_card(finding)
+
+                    with st.expander(
+                        f"Cómo corregir · {finding.get('vector', 'Hallazgo')}"
+                    ):
+                        st.write(
+                            f"**Qué detectamos:** "
+                            f"{finding.get('desc', 'N/A')}"
+                        )
+
+                        st.write(
+                            f"**Impacto:** "
+                            f"{finding.get('impact', 'N/A')}"
+                        )
+
+                        st.info(
+                            f"**Recomendación:** "
+                            f"{finding.get('fix', 'N/A')}"
+                        )
+
+                        if finding.get("snippet"):
+                            st.code(
+                                finding.get("snippet")
+                            )
+
+    # --------------------------------------------------------
+    # REPORTS
+    # --------------------------------------------------------
+    with client_reports:
+        st.subheader("Reports")
+
+        history_df = load_history(org_id)
+
+        if history_df.empty:
+            st.info(
+                "Todavía no hay una evaluación completa para generar informes."
+            )
+        else:
+            options = {
+                (
+                    f"{row['timestamp']} · "
+                    f"{row['hostname']} · "
+                    f"CyberScore {row['risk_score']}/100"
+                ): row
+                for _, row in history_df.iterrows()
+            }
+
+            selected_label = st.selectbox(
+                "Evaluación",
+                list(options.keys()),
+                key="client_report_select"
+            )
+
+            row = options[selected_label]
+            findings = safe_findings(
+                row["findings_json"]
+            )
+
+            stats_dummy = {
+                "Críticas": sum(
+                    1 for x in findings
+                    if x.get("severity") == "CRÍTICO"
+                ),
+                "Medias": sum(
+                    1 for x in findings
+                    if x.get("severity") == "MEDIO"
+                ),
+                "Bajas": sum(
+                    1 for x in findings
+                    if x.get("severity") == "BAJO"
+                ),
+                "Seguras": max(
+                    1,
+                    10 - count_actionable(findings)
+                )
+            }
+
+            chart_b64 = generate_chart(
+                stats_dummy
+            )
+
+            pdf_name = (
+                f"cyberaudits_client_"
+                f"{row['id']}.pdf"
+            )
+
+            generate_pdf(
+                findings,
+                chart_b64,
+                row["hostname"],
+                row["risk_score"],
+                "CyberAudits",
+                "Security Posture Platform",
+                "Informe Técnico Exhaustivo",
+                org_name,
+                "Evaluación de Postura de Ciberseguridad",
+                pdf_name
+            )
+
+            docx_data = generate_docx(
+                row["hostname"],
+                findings,
+                row["risk_score"],
+                "CyberAudits",
+                "Security Posture Platform",
+                "Informe Técnico Exhaustivo",
+                org_name,
+                "Evaluación de Postura de Ciberseguridad"
+            )
+
+            d1, d2 = st.columns(2)
+
+            with d1:
+                with open(pdf_name, "rb") as f:
+                    st.download_button(
+                        "⬇️ Descargar PDF",
+                        data=f,
+                        file_name=pdf_name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"client_pdf_{row['id']}"
+                    )
+
+            with d2:
+                st.download_button(
+                    "⬇️ Descargar Word",
+                    data=docx_data,
+                    file_name=(
+                        f"cyberaudits_"
+                        f"{row['hostname']}.docx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    use_container_width=True,
+                    key=f"client_docx_{row['id']}"
+                )
+
+    # --------------------------------------------------------
+    # ACCOUNT
+    # --------------------------------------------------------
+    with client_account:
+        st.subheader("Account")
+
+        st.write(
+            f"**Email:** {client_email}"
+        )
+        st.write(
+            f"**Organización:** {org_name}"
+        )
+        st.write(
+            f"**Rol:** {st.session_state.get('client_role', 'CLIENT')}"
+        )
+
+        st.markdown("### Cambiar contraseña")
+
+        with st.form("client_account_password"):
+            new_password = st.text_input(
+                "Nueva contraseña",
+                type="password",
+                key="client_account_new_password"
+            )
+
+            repeat_password = st.text_input(
+                "Repetir contraseña",
+                type="password",
+                key="client_account_repeat_password"
+            )
+
+            change = st.form_submit_button(
+                "Actualizar contraseña",
+                use_container_width=True
+            )
+
+        if change:
+            if new_password != repeat_password:
+                st.error(
+                    "Las contraseñas no coinciden."
+                )
+            elif len(new_password) < 12:
+                st.error(
+                    "La contraseña debe tener al menos 12 caracteres."
+                )
+            else:
+                try:
+                    supabase_user_change_password(
+                        st.session_state.client_access_token,
+                        new_password
+                    )
+
+                    st.success(
+                        "Contraseña actualizada."
+                    )
+                except Exception as e:
+                    st.error(
+                        f"No se pudo cambiar la contraseña: {e}"
+                    )
 
     st.stop()
 
@@ -3706,7 +4846,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.7 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.8 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -3734,9 +4874,11 @@ def require_private_beta_login():
 try:
     public_pass_slug = st.query_params.get("pass", "")
     admin_mode = st.query_params.get("admin", "")
+    client_mode = st.query_params.get("client", "")
 except Exception:
     public_pass_slug = ""
     admin_mode = ""
+    client_mode = ""
 
 if isinstance(public_pass_slug, list):
     public_pass_slug = public_pass_slug[0] if public_pass_slug else ""
@@ -3744,11 +4886,19 @@ if isinstance(public_pass_slug, list):
 if isinstance(admin_mode, list):
     admin_mode = admin_mode[0] if admin_mode else ""
 
+if isinstance(client_mode, list):
+    client_mode = client_mode[0] if client_mode else ""
+
 if public_pass_slug:
     render_public_cyberpass(public_pass_slug)
 
-# Root URL is now the public marketing/free-check surface.
-# Authenticated admins keep access without needing ?admin=1.
+if (
+    st.session_state.get("client_authenticated", False)
+    or str(client_mode) == "1"
+):
+    render_client_portal()
+
+# Root URL is the public marketing/free-check surface.
 if (
     not st.session_state.get("authenticated", False)
     and str(admin_mode) != "1"
@@ -3894,7 +5044,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.7 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.8 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -5316,11 +6466,7 @@ with tab_leads:
 
         l3.metric(
             "Invitados",
-            int(
-                leads_df["status"].isin(
-                    ["Invitado", "Confirmado", "Activo"]
-                ).sum()
-            )
+            int((leads_df["status"] == "Invitado").sum())
             if "status" in leads_df.columns
             else 0
         )
@@ -5356,8 +6502,8 @@ with tab_leads:
                 "Activo": "status-active"
             }.get(status, "status-pending")
 
-            info_col, action_col, delete_col = st.columns(
-                [9, 2.6, 0.8],
+            info_col, action_col, access_col, delete_col = st.columns(
+                [7.6, 2.2, 2.4, 0.8],
                 vertical_alignment="center"
             )
 
@@ -5453,6 +6599,69 @@ with tab_leads:
                                 f"No se pudo actualizar el estado: {e}"
                             )
 
+            with access_col:
+                if status in {"Activo", "Confirmado"}:
+                    if st.button(
+                        "🔑 Generar acceso temporal",
+                        key=f"temp_access_{lead_id}",
+                        use_container_width=True
+                    ):
+                        try:
+                            auth_user_id = str(
+                                lead.get("auth_user_id") or ""
+                            )
+
+                            if not auth_user_id:
+                                raise RuntimeError(
+                                    "El usuario no tiene un Auth ID asociado."
+                                )
+
+                            temporary_password = (
+                                _generate_temporary_password()
+                            )
+
+                            supabase_admin_set_password(
+                                auth_user_id,
+                                temporary_password
+                            )
+
+                            set_member_password_change_required(
+                                email,
+                                True
+                            )
+
+                            st.session_state[
+                                f"temp_password_{lead_id}"
+                            ] = temporary_password
+
+                        except Exception as e:
+                            st.error(
+                                f"No se pudo generar el acceso: {e}"
+                            )
+
+                elif status == "Invitado":
+                    st.caption(
+                        "Primero debe aceptar la invitación."
+                    )
+
+            temp_password = st.session_state.get(
+                f"temp_password_{lead_id}"
+            )
+
+            if temp_password:
+                st.success(
+                    "Acceso temporal generado. Copialo ahora: "
+                    "no se guarda en nuestra base."
+                )
+                st.code(
+                    f"Email: {email}\nContraseña temporal: {temp_password}",
+                    language="text"
+                )
+                st.warning(
+                    "Enviá esta contraseña por un canal privado. "
+                    "El cliente deberá cambiarla en su primer ingreso."
+                )
+
             with delete_col:
                 # Once invited, deleting the lead alone would NOT revoke Auth access.
                 # We therefore only allow quick deletion while it is still pending.
@@ -5501,9 +6710,9 @@ with tab_leads:
         )
 
         st.info(
-            "La invitación crea el usuario en Supabase Auth y registra "
-            "su relación con una organización. El acceso cliente aislado "
-            "por organización se habilitará en la siguiente fase."
+            "Los usuarios Activos pueden recibir un acceso temporal. "
+            "El portal cliente filtra toda la información por organization_id "
+            "y obliga a cambiar la contraseña en el primer ingreso."
         )
 
         st.caption(
