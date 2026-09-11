@@ -4764,15 +4764,21 @@ def render_client_portal():
         if logo_uri else ""
     )
 
+    # Build the header without Markdown-sensitive blank lines.
+    # When logo_html was empty, Markdown could interpret the following
+    # indented <h1>/<p> tags as a code block.
+    brand_html = (
+        '<div class="ca-brand">'
+        '<div class="ca-kicker">CYBERAUDITS · PORTAL CLIENTE PRO</div>'
+        f'{logo_html}'
+        f'<h1>{html.escape(display_org_name)}</h1>'
+        f'<p>{html.escape(primary_domain or "Dominio pendiente")} · '
+        'Seguridad, remediación e informes en un único lugar.</p>'
+        '</div>'
+    )
+
     st.markdown(
-        f"""
-        <div class="ca-brand">
-            <div class="ca-kicker">CYBERAUDITS · PORTAL CLIENTE PRO</div>
-            {logo_html}
-            <h1>{html.escape(display_org_name)}</h1>
-            <p>{html.escape(primary_domain or 'Dominio pendiente')} · Seguridad, remediación e informes en un único lugar.</p>
-        </div>
-        """,
+        brand_html,
         unsafe_allow_html=True
     )
 
@@ -5236,7 +5242,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.9 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.9.1 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5434,7 +5440,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.9 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.9.1 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
