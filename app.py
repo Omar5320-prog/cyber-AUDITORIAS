@@ -12,6 +12,7 @@ import base64
 import html
 import hmac
 import secrets
+import string
 import re
 from urllib.parse import urlparse, urljoin
 from docx import Document
@@ -850,16 +851,13 @@ def _supabase_admin_config():
 def _supabase_admin_headers():
     _, secret_key = _supabase_admin_config()
 
-    # Supabase Auth Admin is server-side only.
-    # The project gateway expects `apikey`, while the Auth admin client
-    # also carries the server credential in Authorization.
-    # This mirrors the behavior of the official Supabase server client.
+    # sb_secret_ is an API key, not a JWT. It remains server-side
+    # and is sent through Supabase's apikey header.
     return {
         "apikey": secret_key,
-        "Authorization": f"Bearer {secret_key}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "CyberAudits-Backend/2.8.1"
+        "User-Agent": "CyberAudits-Backend/2.8.2"
     }
 
 
@@ -1223,9 +1221,11 @@ def approve_and_invite_lead(lead):
 
 def _generate_temporary_password(length=18):
     """
-    Generates a strong temporary password.
-    It is returned to the admin once and is never persisted in our DB.
+    Genera una contraseña temporal fuerte.
+    Se muestra al administrador y nunca se persiste en nuestra base.
     """
+    length = max(int(length or 18), 14)
+
     alphabet = (
         string.ascii_letters
         + string.digits
@@ -4849,7 +4849,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.8.1 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.8.2 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5047,7 +5047,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.8.1 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.8.2 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
