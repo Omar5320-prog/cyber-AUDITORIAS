@@ -850,13 +850,16 @@ def _supabase_admin_config():
 def _supabase_admin_headers():
     _, secret_key = _supabase_admin_config()
 
-    # Supabase opaque secret keys must be sent as apikey.
-    # The gateway translates the secret into the internal service role.
+    # Supabase Auth Admin is server-side only.
+    # The project gateway expects `apikey`, while the Auth admin client
+    # also carries the server credential in Authorization.
+    # This mirrors the behavior of the official Supabase server client.
     return {
         "apikey": secret_key,
+        "Authorization": f"Bearer {secret_key}",
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "CyberAudits-Backend/2.7"
+        "User-Agent": "CyberAudits-Backend/2.8.1"
     }
 
 
@@ -1265,7 +1268,7 @@ def supabase_admin_set_password(user_id, password):
     except Exception:
         data = {}
 
-    if response.status_code != 200:
+    if response.status_code not in (200, 201, 204):
         message = (
             data.get("msg")
             or data.get("message")
@@ -4846,7 +4849,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.8 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.8.1 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5044,7 +5047,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.8 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.8.1 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -6443,6 +6446,40 @@ with tab_leads:
         "de CyberAudits."
     )
 
+    temp_access_payload = st.session_state.get(
+        "temp_access_payload"
+    )
+
+    if temp_access_payload:
+        st.success(
+            "🔑 Acceso temporal generado correctamente. "
+            "Copialo antes de ocultarlo."
+        )
+
+        st.code(
+            (
+                f"Email: {temp_access_payload['email']}\n"
+                f"Contraseña temporal: {temp_access_payload['password']}"
+            ),
+            language="text"
+        )
+
+        st.warning(
+            "Esta contraseña temporal no se guarda en la base de datos. "
+            "Compartila por un canal privado. El cliente deberá cambiarla "
+            "en su primer ingreso."
+        )
+
+        if st.button(
+            "Ocultar credencial temporal",
+            key="hide_temp_access_payload"
+        ):
+            st.session_state.pop(
+                "temp_access_payload",
+                None
+            )
+            st.rerun()
+
     try:
         leads_df = load_public_leads()
     except Exception as e:
@@ -6631,36 +6668,35 @@ with tab_leads:
                             )
 
                             st.session_state[
-                                f"temp_password_{lead_id}"
-                            ] = temporary_password
+                                "temp_access_payload"
+                            ] = {
+                                "lead_id": lead_id,
+                                "email": email,
+                                "password": temporary_password
+                            }
+
+                            st.rerun()
 
                         except Exception as e:
+                            error_text = str(e)
+
                             st.error(
-                                f"No se pudo generar el acceso: {e}"
+                                f"No se pudo generar el acceso: {error_text}"
                             )
+
+                            if "API key not found" in error_text:
+                                st.info(
+                                    "CyberAudits no pudo autenticar la operación "
+                                    "administrativa de Supabase. Esta versión ya "
+                                    "envía la Secret key con los headers requeridos; "
+                                    "si el error persiste, reiniciá la app para que "
+                                    "Streamlit vuelva a cargar los Secrets."
+                                )
 
                 elif status == "Invitado":
                     st.caption(
                         "Primero debe aceptar la invitación."
                     )
-
-            temp_password = st.session_state.get(
-                f"temp_password_{lead_id}"
-            )
-
-            if temp_password:
-                st.success(
-                    "Acceso temporal generado. Copialo ahora: "
-                    "no se guarda en nuestra base."
-                )
-                st.code(
-                    f"Email: {email}\nContraseña temporal: {temp_password}",
-                    language="text"
-                )
-                st.warning(
-                    "Enviá esta contraseña por un canal privado. "
-                    "El cliente deberá cambiarla en su primer ingreso."
-                )
 
             with delete_col:
                 # Once invited, deleting the lead alone would NOT revoke Auth access.
