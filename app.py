@@ -195,18 +195,20 @@ st.markdown("""
             radial-gradient(circle at 86% 15%, rgba(59,130,246,.28), transparent 24%),
             linear-gradient(120deg, #08111f 0%, #10244a 58%, #1f5de7 100%);
         border-radius: 24px;
-        padding: 48px 46px;
+        padding: 42px 42px 40px 42px;
         color: white;
-        margin: 8px 0 28px 0;
+        margin: 26px 0 28px 0;
         box-shadow: 0 20px 55px rgba(15, 23, 42, 0.18);
+        overflow: visible;
     }
 
     .public-hero h1 {
-        font-size: 48px;
-        line-height: 1.03;
-        letter-spacing: -1.8px;
-        max-width: 860px;
-        margin: 8px 0 14px 0;
+        font-size: 42px;
+        line-height: 1.08;
+        letter-spacing: -1.4px;
+        max-width: 900px;
+        margin: 12px 0 14px 0;
+        padding-top: 4px;
     }
 
     .public-hero p {
@@ -264,6 +266,23 @@ st.markdown("""
         font-weight: 850;
         letter-spacing: -4px;
         color: #111827;
+    }
+
+
+    div[data-testid="stFormSubmitButton"] button,
+    div[data-testid="stButton"] button[kind="primary"],
+    button[kind="primary"] {
+        background: #215ee9 !important;
+        border-color: #215ee9 !important;
+        color: #ffffff !important;
+    }
+
+    div[data-testid="stFormSubmitButton"] button:hover,
+    div[data-testid="stButton"] button[kind="primary"]:hover,
+    button[kind="primary"]:hover {
+        background: #174fcf !important;
+        border-color: #174fcf !important;
+        color: #ffffff !important;
     }
 
     .public-footer {
@@ -662,6 +681,25 @@ def save_public_lead(email, domain="", cyber_score=None):
                 """,
                 (email, domain, cyber_score)
             )
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+
+def delete_public_lead(lead_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    try:
+        c.execute(
+            f"DELETE FROM public_leads WHERE id = {ph}",
+            (int(lead_id),)
+        )
+
+        if "postgres" not in st.secrets:
             conn.commit()
     finally:
         c.close()
@@ -2887,11 +2925,11 @@ def render_public_home():
         """
         <div class="public-hero">
             <span class="public-pill">CYBERAUDITS · FREE CYBERCHECK</span>
-            <h1>Descubrí qué tan expuesta está tu empresa antes de que sea un problema.</h1>
+            <h1>Descubrí qué ve Internet de tu empresa antes de que se convierta en un problema.</h1>
             <p>
-                Revisamos señales públicas de HTTPS, TLS, cabeceras y DNS,
-                las convertimos en un CyberScore entendible y te mostramos
-                dónde conviene empezar a mejorar.
+                Analizamos señales públicas de HTTPS, TLS, cabeceras y DNS,
+                las convertimos en un CyberScore fácil de entender y te mostramos
+                qué conviene revisar primero.
             </p>
         </div>
         """,
@@ -3181,7 +3219,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.6 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.6.1 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -3369,7 +3407,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.6 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.6.1 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -4778,8 +4816,10 @@ with tab_leads:
             "Todavía no hay solicitudes de acceso beta."
         )
     else:
-        l1, l2 = st.columns(2)
+        l1, l2, l3 = st.columns(3)
+
         l1.metric("Leads", len(leads_df))
+
         l2.metric(
             "Dominios únicos",
             leads_df["domain"].nunique()
@@ -4787,38 +4827,82 @@ with tab_leads:
             else 0
         )
 
-        display_leads = leads_df.copy()
-
-        display_leads = display_leads.rename(
-            columns={
-                "email": "Email",
-                "domain": "Dominio",
-                "cyber_score": "CyberScore",
-                "created_at": "Fecha",
-                "source": "Origen"
-            }
+        avg_score = (
+            round(leads_df["cyber_score"].dropna().mean())
+            if (
+                "cyber_score" in leads_df.columns
+                and not leads_df["cyber_score"].dropna().empty
+            )
+            else None
         )
 
-        visible = [
-            col
-            for col in [
-                "Email",
-                "Dominio",
-                "CyberScore",
-                "Fecha",
-                "Origen"
-            ]
-            if col in display_leads.columns
-        ]
+        l3.metric(
+            "CyberScore promedio",
+            f"{avg_score}/100" if avg_score is not None else "N/D"
+        )
 
-        st.dataframe(
-            display_leads[visible],
-            hide_index=True,
+        st.markdown("#### Contactos")
+
+        for _, lead in leads_df.iterrows():
+            lead_id = int(lead["id"])
+
+            info_col, delete_col = st.columns(
+                [12, 1],
+                vertical_alignment="center"
+            )
+
+            with info_col:
+                st.markdown(
+                    f"""
+                    <div class="history-row">
+                        <div>
+                            <div class="history-title">
+                                {html.escape(str(lead['email']))}
+                            </div>
+                            <div class="history-meta">
+                                Dominio: {html.escape(str(lead.get('domain') or 'N/D'))}
+                                &nbsp; · &nbsp;
+                                CyberScore:
+                                <strong>
+                                    {html.escape(str(lead.get('cyber_score') if pd.notna(lead.get('cyber_score')) else 'N/D'))}
+                                </strong>
+                                &nbsp; · &nbsp;
+                                {html.escape(str(lead.get('created_at') or ''))}
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            with delete_col:
+                if st.button(
+                    "✕",
+                    key=f"delete_lead_{lead_id}",
+                    help="Eliminar este lead",
+                    type="secondary",
+                    use_container_width=True
+                ):
+                    delete_public_lead(lead_id)
+                    st.success("Lead eliminado.")
+                    st.rerun()
+
+        st.markdown("---")
+
+        csv_export = leads_df.to_csv(
+            index=False
+        ).encode("utf-8-sig")
+
+        st.download_button(
+            "⬇️ Exportar leads a CSV",
+            data=csv_export,
+            file_name="cyberaudits_beta_leads.csv",
+            mime="text/csv",
             use_container_width=True
         )
 
         st.caption(
             "Estos contactos aceptaron ser contactados sobre la beta. "
-            "No compartas ni publiques esta información."
+            "Usalos únicamente con ese fin y eliminá los datos cuando ya no sean necesarios."
         )
 
