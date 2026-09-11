@@ -495,6 +495,19 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_profiles (
+            id SERIAL PRIMARY KEY,
+            organization_id INTEGER UNIQUE NOT NULL,
+            display_name TEXT,
+            legal_name TEXT,
+            department TEXT,
+            report_recipient TEXT,
+            report_title TEXT,
+            confidentiality_footer TEXT,
+            logo_b64 TEXT,
+            logo_mime TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 1;")
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;")
     else:
@@ -534,6 +547,19 @@ def init_db():
             role TEXT DEFAULT 'CLIENT',
             status TEXT DEFAULT 'Invitado',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER UNIQUE NOT NULL,
+            display_name TEXT,
+            legal_name TEXT,
+            department TEXT,
+            report_recipient TEXT,
+            report_title TEXT,
+            confidentiality_footer TEXT,
+            logo_b64 TEXT,
+            logo_mime TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
         try: c.execute("ALTER TABLE organization_members ADD COLUMN must_change_password INTEGER DEFAULT 1;")
@@ -1538,6 +1564,377 @@ def supabase_user_change_password(access_token, new_password):
         raise RuntimeError(str(message))
 
     return data
+
+
+
+def get_organization_profile(organization_id, fallback_name=""):
+    conn = get_db_connection()
+    ph = _db_ph()
+    try:
+        df = pd.read_sql_query(
+            f"""
+            SELECT
+                organization_id,
+                display_name,
+                legal_name,
+                department,
+                report_recipient,
+                report_title,
+                confidentiality_footer,
+                logo_b64,
+                logo_mime,
+                updated_at
+            FROM organization_profiles
+            WHERE organization_id = {ph}
+            LIMIT 1
+            """,
+            conn,
+            params=(int(organization_id),)
+        )
+    finally:
+        conn.close()
+
+    defaults = {
+        "organization_id": int(organization_id),
+        "display_name": fallback_name or "",
+        "legal_name": "",
+        "department": "",
+        "report_recipient": "Dirección General",
+        "report_title": "Evaluación de Postura de Ciberseguridad",
+        "confidentiality_footer": (
+            "Documento confidencial. Uso exclusivo de la organización evaluada."
+        ),
+        "logo_b64": "",
+        "logo_mime": "image/png"
+    }
+
+    if df.empty:
+        return defaults
+
+    profile = df.iloc[0].to_dict()
+    for key, default in defaults.items():
+        if profile.get(key) is None:
+            profile[key] = default
+    return profile
+
+
+def save_organization_profile(
+    organization_id,
+    display_name,
+    legal_name,
+    department,
+    report_recipient,
+    report_title,
+    confidentiality_footer,
+    logo_b64,
+    logo_mime
+):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    values = (
+        int(organization_id),
+        (display_name or "").strip(),
+        (legal_name or "").strip(),
+        (department or "").strip(),
+        (report_recipient or "").strip(),
+        (report_title or "").strip(),
+        (confidentiality_footer or "").strip(),
+        logo_b64 or "",
+        logo_mime or "image/png"
+    )
+
+    try:
+        if is_pg:
+            c.execute(
+                f"""
+                INSERT INTO organization_profiles
+                (
+                    organization_id,
+                    display_name,
+                    legal_name,
+                    department,
+                    report_recipient,
+                    report_title,
+                    confidentiality_footer,
+                    logo_b64,
+                    logo_mime,
+                    updated_at
+                )
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, CURRENT_TIMESTAMP)
+                ON CONFLICT (organization_id)
+                DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    legal_name = EXCLUDED.legal_name,
+                    department = EXCLUDED.department,
+                    report_recipient = EXCLUDED.report_recipient,
+                    report_title = EXCLUDED.report_title,
+                    confidentiality_footer = EXCLUDED.confidentiality_footer,
+                    logo_b64 = EXCLUDED.logo_b64,
+                    logo_mime = EXCLUDED.logo_mime,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                values
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO organization_profiles
+                (
+                    organization_id,
+                    display_name,
+                    legal_name,
+                    department,
+                    report_recipient,
+                    report_title,
+                    confidentiality_footer,
+                    logo_b64,
+                    logo_mime,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(organization_id)
+                DO UPDATE SET
+                    display_name = excluded.display_name,
+                    legal_name = excluded.legal_name,
+                    department = excluded.department,
+                    report_recipient = excluded.report_recipient,
+                    report_title = excluded.report_title,
+                    confidentiality_footer = excluded.confidentiality_footer,
+                    logo_b64 = excluded.logo_b64,
+                    logo_mime = excluded.logo_mime,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                values
+            )
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def _logo_upload_to_b64(uploaded_file):
+    if uploaded_file is None:
+        return None, None
+
+    raw = uploaded_file.getvalue()
+    if len(raw) > 350_000:
+        raise ValueError("El logo supera 350 KB. Reducí el archivo antes de subirlo.")
+
+    mime = uploaded_file.type or ""
+    if mime not in {"image/png", "image/jpeg"}:
+        raise ValueError("Para informes usá un logo PNG o JPG.")
+
+    return base64.b64encode(raw).decode("utf-8"), mime
+
+
+def _profile_logo_uri(profile):
+    data = str(profile.get("logo_b64") or "").strip()
+    if not data:
+        return ""
+    mime = str(profile.get("logo_mime") or "image/png")
+    return f"data:{mime};base64,{data}"
+
+
+def get_client_remediation_tasks(organization_id, scan_id):
+    conn = get_db_connection()
+    ph = _db_ph()
+    try:
+        df = pd.read_sql_query(
+            f"""
+            SELECT id, organization_id, scan_id, hostname,
+                   finding_vector, severity, status, notes
+            FROM remediation_tasks
+            WHERE organization_id = {ph}
+              AND scan_id = {ph}
+            ORDER BY id ASC
+            """,
+            conn,
+            params=(int(organization_id), int(scan_id))
+        )
+    finally:
+        conn.close()
+    return df
+
+
+def update_client_remediation_task(organization_id, task_id, new_status, note):
+    if new_status not in {"Pendiente", "En Proceso", "Solucionado"}:
+        raise ValueError("Estado no permitido.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        c.execute(
+            f"""
+            UPDATE remediation_tasks
+            SET status = {ph}, notes = {ph}
+            WHERE id = {ph} AND organization_id = {ph}
+            """,
+            (new_status, (note or "").strip(), int(task_id), int(organization_id))
+        )
+
+        c.execute(
+            f"""
+            INSERT INTO remediation_logs (task_id, timestamp, status, notes)
+            SELECT id, {ph}, {ph}, {ph}
+            FROM remediation_tasks
+            WHERE id = {ph} AND organization_id = {ph}
+            """,
+            (timestamp, new_status, (note or "").strip(), int(task_id), int(organization_id))
+        )
+
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def generate_client_docx(hostname, findings, cyber_score, profile):
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Inches(0.7)
+        section.bottom_margin = Inches(0.7)
+        section.left_margin = Inches(0.8)
+        section.right_margin = Inches(0.8)
+
+    logo_b64 = str(profile.get("logo_b64") or "")
+    if logo_b64:
+        try:
+            logo_bytes = base64.b64decode(logo_b64)
+            doc.add_picture(io.BytesIO(logo_bytes), width=Inches(1.45))
+        except Exception:
+            pass
+
+    display_name = profile.get("display_name") or "Organización"
+    recipient = profile.get("report_recipient") or "Dirección General"
+    title = profile.get("report_title") or "Evaluación de Postura de Ciberseguridad"
+    legal_name = profile.get("legal_name") or ""
+    department = profile.get("department") or ""
+
+    p = doc.add_paragraph()
+    r = p.add_run(display_name)
+    r.bold = True
+    r.font.size = Pt(18)
+    r.font.color.rgb = RGBColor(15, 23, 42)
+
+    doc.add_paragraph(title)
+    meta = (
+        f"Dirigido a: {recipient}\n"
+        f"Objetivo analizado: {hostname}\n"
+        f"CyberScore: {cyber_score}/100\n"
+        f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    )
+    if legal_name:
+        meta += f"\nRazón social: {legal_name}"
+    if department:
+        meta += f"\nÁrea responsable: {department}"
+    doc.add_paragraph(meta)
+
+    doc.add_heading("Resumen de hallazgos", level=2)
+    if not findings:
+        doc.add_paragraph("No se registraron hallazgos en esta evaluación.")
+    else:
+        for idx, f in enumerate(findings, 1):
+            h = doc.add_paragraph().add_run(
+                f"#{idx} · {f.get('vector', 'Hallazgo')} [{f.get('severity', 'INFORMATIVO')}]"
+            )
+            h.bold = True
+            doc.add_paragraph(f"Descripción: {f.get('desc', 'N/A')}")
+            doc.add_paragraph(f"Impacto: {f.get('impact', 'N/A')}")
+            doc.add_paragraph(f"Recomendación: {f.get('fix', 'N/A')}")
+
+    doc.add_paragraph()
+    footer_text = profile.get("confidentiality_footer") or ""
+    for section in doc.sections:
+        footer = section.footer.paragraphs[0]
+        footer.text = f"{footer_text} | Powered by CyberAudits"
+        footer.alignment = 1
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def generate_client_pdf(findings, hostname, cyber_score, profile, output_filename):
+    display_name = html.escape(str(profile.get("display_name") or "Organización"))
+    recipient = html.escape(str(profile.get("report_recipient") or "Dirección General"))
+    title = html.escape(str(profile.get("report_title") or "Evaluación de Postura de Ciberseguridad"))
+    legal_name = html.escape(str(profile.get("legal_name") or ""))
+    department = html.escape(str(profile.get("department") or ""))
+    footer_text = html.escape(str(profile.get("confidentiality_footer") or ""))
+    logo_uri = _profile_logo_uri(profile)
+
+    logo_html = (
+        f'<img src="{logo_uri}" style="max-height:62px;max-width:190px;object-fit:contain;">'
+        if logo_uri else ""
+    )
+
+    cards = ""
+    if findings:
+        for i, f in enumerate(findings, 1):
+            severity = html.escape(str(f.get("severity", "INFORMATIVO")))
+            cards += f"""
+            <div class="card">
+                <div class="card-title">#{i} · {html.escape(str(f.get('vector', 'Hallazgo')))} <span>{severity}</span></div>
+                <p><strong>Descripción:</strong> {html.escape(str(f.get('desc', 'N/A')))}</p>
+                <p><strong>Impacto:</strong> {html.escape(str(f.get('impact', 'N/A')))}</p>
+                <p><strong>Recomendación:</strong> {html.escape(str(f.get('fix', 'N/A')))}</p>
+            </div>
+            """
+    else:
+        cards = "<p>No se registraron hallazgos en esta evaluación.</p>"
+
+    extra_meta = ""
+    if legal_name:
+        extra_meta += f"<div><strong>Razón social:</strong> {legal_name}</div>"
+    if department:
+        extra_meta += f"<div><strong>Área responsable:</strong> {department}</div>"
+
+    html_doc = f"""
+    <html>
+    <head>
+    <style>
+        @page {{ size: A4; margin: 14mm; @bottom-center {{ content: "Powered by CyberAudits"; color:#64748b; font-size:8pt; }} }}
+        body {{ font-family: Arial, sans-serif; color:#172033; font-size:10pt; line-height:1.5; }}
+        .header {{ background:#0b1220; color:white; padding:20px; border-radius:10px; }}
+        .header h1 {{ margin:8px 0 3px 0; font-size:20pt; }}
+        .header p {{ margin:0; color:#dbe7ff; }}
+        .meta {{ margin-top:16px; padding:12px; border:1px solid #dfe5ef; border-radius:8px; background:#f8fafc; }}
+        .score {{ font-size:25pt; font-weight:800; color:#174fcf; }}
+        .card {{ border:1px solid #e1e7f0; border-radius:8px; padding:11px 13px; margin-top:10px; page-break-inside:avoid; }}
+        .card-title {{ font-weight:700; margin-bottom:7px; }}
+        .card-title span {{ float:right; font-size:8pt; background:#eef4ff; padding:2px 7px; border-radius:12px; }}
+        .footer-note {{ margin-top:22px; color:#64748b; font-size:8.5pt; border-top:1px solid #e1e7f0; padding-top:9px; }}
+    </style>
+    </head>
+    <body>
+        <div class="header">
+            {logo_html}
+            <h1>{display_name}</h1>
+            <p>{title}</p>
+        </div>
+        <div class="meta">
+            <div><strong>Dirigido a:</strong> {recipient}</div>
+            <div><strong>Objetivo:</strong> {html.escape(str(hostname))}</div>
+            <div><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</div>
+            {extra_meta}
+            <div style="margin-top:8px;">CyberScore <span class="score">{int(cyber_score)}/100</span></div>
+        </div>
+        <h2>Hallazgos y recomendaciones</h2>
+        {cards}
+        <div class="footer-note">{footer_text}<br>Powered by CyberAudits</div>
+    </body>
+    </html>
+    """
+
+    HTML(string=html_doc).write_pdf(output_filename)
 
 
 def get_client_primary_domain(organization_id, email):
@@ -4312,8 +4709,6 @@ def render_client_portal():
     if not st.session_state.get("client_authenticated", False):
         render_client_login()
 
-    # Access is re-checked on every Streamlit rerun so an administrator
-    # can suspend an already logged-in client.
     current_member = get_member_for_identity(
         user_id=st.session_state.get("client_user_id"),
         email=st.session_state.get("client_email")
@@ -4324,351 +4719,202 @@ def render_client_portal():
         or str(current_member.get("status") or "") == "Suspendido"
     ):
         _clear_client_session()
-
-        st.error(
-            "Tu acceso a CyberAudits fue suspendido por un administrador."
-        )
-
+        st.error("Tu acceso a CyberAudits fue suspendido por un administrador.")
         st.caption(
             "Tus evaluaciones e informes no fueron eliminados. "
             "Contactá al administrador si necesitás recuperar el acceso."
         )
-
-        if st.button(
-            "Volver a la página pública",
-            use_container_width=True,
-            key="suspended_back_public"
-        ):
+        if st.button("Volver a la página pública", use_container_width=True):
             try:
                 st.query_params.clear()
             except Exception:
                 pass
             st.rerun()
-
         st.stop()
 
     if st.session_state.get("client_must_change_password", False):
         render_client_password_change()
 
-    org_id = int(
-        st.session_state.client_organization_id
-    )
+    org_id = int(st.session_state.client_organization_id)
+    org_name = st.session_state.get("client_organization_name", "Mi organización")
+    client_email = st.session_state.get("client_email", "")
+    primary_domain = get_client_primary_domain(org_id, client_email)
 
-    org_name = st.session_state.get(
-        "client_organization_name",
-        "Mi organización"
-    )
-
-    client_email = st.session_state.get(
-        "client_email",
-        ""
-    )
-
-    primary_domain = get_client_primary_domain(
-        org_id,
-        client_email
-    )
+    org_profile = get_organization_profile(org_id, fallback_name=org_name)
+    display_org_name = str(org_profile.get("display_name") or org_name).strip()
+    logo_uri = _profile_logo_uri(org_profile)
 
     st.sidebar.markdown("## 🛡️ CyberAudits")
-    st.sidebar.caption("Client Portal")
-
-    st.sidebar.markdown(
-        f"**{org_name}**"
-    )
+    st.sidebar.caption("Portal Cliente")
+    st.sidebar.markdown(f"**{display_org_name}**")
+    if primary_domain:
+        st.sidebar.caption(primary_domain)
     st.sidebar.caption(client_email)
 
-    if st.sidebar.button(
-        "Cerrar sesión",
-        use_container_width=True
-    ):
+    if st.sidebar.button("Cerrar sesión", use_container_width=True):
         _clear_client_session()
-
         try:
             st.query_params.clear()
         except Exception:
             pass
-
         st.rerun()
+
+    logo_html = (
+        f'<img src="{logo_uri}" style="max-height:58px;max-width:180px;object-fit:contain;background:white;border-radius:10px;padding:6px;margin-bottom:12px;">'
+        if logo_uri else ""
+    )
 
     st.markdown(
         f"""
         <div class="ca-brand">
-            <div class="ca-kicker">CYBERAUDITS · CLIENT PORTAL</div>
-            <h1>{html.escape(str(org_name))}</h1>
-            <p>
-                Tu postura de seguridad, hallazgos y evolución
-                en un único lugar.
-            </p>
+            <div class="ca-kicker">CYBERAUDITS · PORTAL CLIENTE PRO</div>
+            {logo_html}
+            <h1>{html.escape(display_org_name)}</h1>
+            <p>{html.escape(primary_domain or 'Dominio pendiente')} · Seguridad, remediación e informes en un único lugar.</p>
         </div>
         """,
         unsafe_allow_html=True
     )
 
     (
-        client_dashboard,
-        client_scan,
-        client_findings,
-        client_reports,
-        client_account
-    ) = st.tabs(
-        [
-            "🏠 Overview",
-            "🔎 Run Check",
-            "🧭 Findings",
-            "📄 Reports",
-            "👤 Account"
-        ]
-    )
+        tab_summary,
+        tab_scan,
+        tab_findings,
+        tab_remediation,
+        tab_reports,
+        tab_org,
+        tab_account
+    ) = st.tabs([
+        "🏠 Resumen",
+        "🔎 Evaluaciones",
+        "🧭 Hallazgos",
+        "🛠 Remediación",
+        "📄 Informes",
+        "🏢 Organización",
+        "👤 Cuenta"
+    ])
 
     # --------------------------------------------------------
-    # OVERVIEW
+    # RESUMEN
     # --------------------------------------------------------
-    with client_dashboard:
+    with tab_summary:
         history_df = load_history(org_id)
-        lead = get_client_latest_lead(
-            org_id,
-            client_email
-        )
+        lead = get_client_latest_lead(org_id, client_email)
 
         if history_df.empty:
-            baseline_score = (
-                int(lead["cyber_score"])
-                if lead
-                and lead.get("cyber_score") is not None
-                and pd.notna(lead.get("cyber_score"))
-                else None
-            )
+            baseline_score = None
+            if lead and lead.get("cyber_score") is not None and pd.notna(lead.get("cyber_score")):
+                baseline_score = int(lead["cyber_score"])
 
             st.subheader("Bienvenido a CyberAudits")
-
-            if baseline_score is not None:
-                c1, c2, c3 = st.columns(3)
-
-                c1.metric(
-                    "CyberScore preliminar",
-                    f"{baseline_score}/100"
-                )
-
-                c2.metric(
-                    "Dominio",
-                    primary_domain or "N/D"
-                )
-
-                c3.metric(
-                    "Evaluación completa",
-                    "Pendiente"
-                )
-
-                st.info(
-                    "Tu CyberScore actual proviene del Free CyberCheck. "
-                    "Ejecutá un Run Check desde este portal para generar "
-                    "una evaluación completa con historial y reportes."
-                )
-            else:
-                st.info(
-                    "Todavía no hay una evaluación asociada a tu organización."
-                )
-
+            c1, c2, c3 = st.columns(3)
+            c1.metric("CyberScore preliminar", f"{baseline_score}/100" if baseline_score is not None else "N/D")
+            c2.metric("Dominio", primary_domain or "N/D")
+            c3.metric("Evaluación completa", "Pendiente")
+            st.info(
+                "Tu resultado actual proviene del Free CyberCheck. Ejecutá una evaluación "
+                "desde la pestaña Evaluaciones para crear historial, hallazgos y reportes."
+            )
         else:
             latest = history_df.iloc[0]
-            findings = safe_findings(
-                latest["findings_json"]
-            )
-            meta = safe_meta(
-                latest.get("scan_meta_json")
-            )
-
-            if not meta:
-                meta = fallback_scan_meta(
-                    findings
-                )
-
+            findings = safe_findings(latest["findings_json"])
+            meta = safe_meta(latest.get("scan_meta_json")) or fallback_scan_meta(findings)
             score = int(latest["risk_score"])
             label, description = score_status(score)
+            actionable = [f for f in findings if is_actionable(f)]
 
-            actionable = [
-                f for f in findings
-                if is_actionable(f)
-            ]
-
-            score_col, metric_col = st.columns(
-                [1.1, 2.1]
-            )
-
+            score_col, info_col = st.columns([1.05, 2.2])
             with score_col:
                 st.markdown(
                     f"""
                     <div class="score-shell">
                         <div class="muted">CyberScore</div>
-                        <div style="margin-top:14px;">
-                            <span class="score-number">{score}</span>
-                            <span class="score-denom">/100</span>
-                        </div>
+                        <div style="margin-top:14px;"><span class="score-number">{score}</span><span class="score-denom">/100</span></div>
                         <span class="score-label">{html.escape(label)}</span>
-                        <p class="muted" style="margin-top:16px;">
-                            {html.escape(description)}
-                        </p>
+                        <p class="muted" style="margin-top:16px;">{html.escape(description)}</p>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
-            with metric_col:
+            with info_col:
                 m1, m2, m3 = st.columns(3)
+                m1.metric("Cobertura", f"{meta.get('coverage', 0)}%")
+                m2.metric("Confianza", meta.get("confidence", "N/D"))
+                m3.metric("Hallazgos a atender", len(actionable))
 
-                m1.metric(
-                    "Cobertura",
-                    f"{meta.get('coverage', 0)}%"
-                )
+                s1, s2, s3 = st.columns(3)
+                s1.metric("Críticos", sum(1 for f in actionable if f.get("severity") == "CRÍTICO"))
+                s2.metric("Medios", sum(1 for f in actionable if f.get("severity") == "MEDIO"))
+                s3.metric("Bajos", sum(1 for f in actionable if f.get("severity") == "BAJO"))
 
-                m2.metric(
-                    "Confianza",
-                    meta.get("confidence", "N/D")
-                )
+                st.caption(f"Última evaluación: {latest['timestamp']} · {latest['hostname']}")
 
-                m3.metric(
-                    "Hallazgos a atender",
-                    len(actionable)
-                )
-
-                st.caption(
-                    f"Última evaluación: {latest['timestamp']} · "
-                    f"{latest['hostname']}"
-                )
-
-            email_category = (
-                meta.get("category_scores", {}).get("Email Security")
-                if isinstance(meta.get("category_scores"), dict)
-                else None
-            )
-
-            if email_category is not None and meta.get("email_domain"):
-                st.caption(
-                    f"Email Security evaluado sobre: {meta.get('email_domain')}"
-                )
+            st.markdown("### Postura por categoría")
+            categories = meta.get("category_scores", {}) if isinstance(meta, dict) else {}
+            labels = [
+                "TLS & Certificado", "Seguridad Web", "Transporte",
+                "Exposición", "DNS Security", "Email Security"
+            ]
+            for start in (0, 3):
+                cols = st.columns(3)
+                for col, name in zip(cols, labels[start:start+3]):
+                    value = categories.get(name)
+                    with col:
+                        st.metric(name, "N/D" if value is None else f"{int(value)}/100")
 
             st.markdown("### Prioridades")
-
             if actionable:
                 ordered = sorted(
                     actionable,
-                    key=lambda f: {
-                        "CRÍTICO": 0,
-                        "MEDIO": 1,
-                        "BAJO": 2
-                    }.get(
-                        f.get("severity"),
-                        9
-                    )
+                    key=lambda f: {"CRÍTICO": 0, "MEDIO": 1, "BAJO": 2}.get(f.get("severity"), 9)
                 )
-
                 for finding in ordered[:3]:
                     render_finding_card(finding)
             else:
-                st.success(
-                    "No hay hallazgos accionables en los controles verificados."
-                )
+                st.success("No hay hallazgos accionables en los controles verificados.")
 
             if len(history_df) >= 2:
                 trend = history_df.copy()
-                trend["timestamp_dt"] = pd.to_datetime(
-                    trend["timestamp"],
-                    errors="coerce"
-                )
-
-                trend = trend.sort_values(
-                    by="timestamp_dt",
-                    ascending=True
-                )
-
-                st.markdown("### Evolución")
-
+                trend["timestamp_dt"] = pd.to_datetime(trend["timestamp"], errors="coerce")
+                trend = trend.sort_values("timestamp_dt")
                 chart_df = (
                     trend[["timestamp_dt", "risk_score"]]
                     .dropna()
                     .set_index("timestamp_dt")
-                    .rename(
-                        columns={
-                            "risk_score": "CyberScore"
-                        }
-                    )
+                    .rename(columns={"risk_score": "CyberScore"})
                 )
-
+                st.markdown("### Evolución")
                 st.line_chart(chart_df)
 
     # --------------------------------------------------------
-    # CLIENT SCAN
+    # EVALUACIONES
     # --------------------------------------------------------
-    with client_scan:
-        st.subheader("Run Check")
-
+    with tab_scan:
+        st.subheader("Evaluaciones")
         if not primary_domain:
-            st.error(
-                "No hay un dominio asociado a tu organización. "
-                "Contactá al administrador."
-            )
+            st.error("No hay un dominio asociado a tu organización. Contactá al administrador.")
         else:
-            st.write(
-                f"Dominio autorizado para esta beta: **{primary_domain}**"
-            )
-
+            st.write(f"Dominio web autorizado: **{primary_domain}**")
             st.caption(
-                "El portal limita la evaluación web al dominio asociado "
-                "a tu organización. La seguridad de correo se evalúa "
-                "por separado y solo si indicás un dominio de correo real."
+                "El portal limita la evaluación web al dominio asociado a tu organización. "
+                "La seguridad de correo se evalúa solo si ingresás un dominio de correo real."
             )
-
-            client_email_domain = st.text_input(
+            email_domain = st.text_input(
                 "Dominio corporativo de correo · opcional",
                 value="",
                 placeholder="empresa.com",
-                key="client_email_domain",
-                help=(
-                    "Completalo solo si este dominio realmente se usa "
-                    "para correo corporativo. Si lo dejás vacío, "
-                    "Email Security quedará como N/D."
-                )
+                key="client_email_domain_v29"
             )
 
-            st.caption(
-                "No uses automáticamente el dominio del sitio web como "
-                "dominio de correo. Por ejemplo, si tu web está alojada "
-                "en Streamlit pero tu correo usa otro dominio, dejá este "
-                "campo vacío o ingresá únicamente el dominio real del correo."
-            )
-
-            if st.button(
-                "🚀 Ejecutar evaluación",
-                type="primary",
-                use_container_width=True,
-                key="client_run_scan"
-            ):
+            if st.button("🚀 Ejecutar evaluación", type="primary", use_container_width=True, key="client_run_scan_v29"):
                 try:
-                    with st.spinner(
-                        "Analizando postura de seguridad..."
-                    ):
-                        (
-                            findings,
-                            stats,
-                            hostname,
-                            geo,
-                            risk_score,
-                            scan_details
-                        ) = scan_target(
-                            f"https://{primary_domain}",
-                            client_email_domain
+                    with st.spinner("Analizando postura de seguridad..."):
+                        findings, stats, hostname, geo, risk_score, scan_details = scan_target(
+                            f"https://{primary_domain}", email_domain
                         )
-
-                        scan_meta = build_scan_meta(
-                            stats,
-                            findings,
-                            scan_details
-                        )
-
-                        findings_count = count_actionable(
-                            findings
-                        )
-
+                        scan_meta = build_scan_meta(stats, findings, scan_details)
+                        findings_count = count_actionable(findings)
                         save_scan_to_db(
                             hostname,
                             geo.get("ip", "N/A"),
@@ -4679,168 +4925,169 @@ def render_client_portal():
                             findings,
                             scan_meta
                         )
-
-                    st.success(
-                        f"Evaluación completada. CyberScore: {risk_score}/100"
-                    )
+                    st.success(f"Evaluación completada. CyberScore: {risk_score}/100")
                     st.rerun()
-
                 except Exception as e:
-                    st.error(
-                        f"No se pudo completar la evaluación: {e}"
-                    )
+                    st.error(f"No se pudo completar la evaluación: {e}")
 
     # --------------------------------------------------------
-    # FINDINGS
+    # HALLAZGOS
     # --------------------------------------------------------
-    with client_findings:
-        st.subheader("Findings")
-
+    with tab_findings:
+        st.subheader("Hallazgos")
         history_df = load_history(org_id)
-
         if history_df.empty:
-            st.info(
-                "Ejecutá tu primera evaluación completa para ver hallazgos."
-            )
+            st.info("Ejecutá tu primera evaluación completa para ver hallazgos.")
         else:
             latest = history_df.iloc[0]
-            findings = safe_findings(
-                latest["findings_json"]
-            )
-
-            actionable = [
-                f for f in findings
-                if is_actionable(f)
-            ]
-
+            findings = safe_findings(latest["findings_json"])
+            actionable = [f for f in findings if is_actionable(f)]
             if not actionable:
-                st.success(
-                    "No hay hallazgos accionables en la última evaluación."
-                )
+                st.success("No hay hallazgos accionables en la última evaluación.")
             else:
                 for finding in sorted(
                     actionable,
-                    key=lambda f: {
-                        "CRÍTICO": 0,
-                        "MEDIO": 1,
-                        "BAJO": 2
-                    }.get(
-                        f.get("severity"),
-                        9
-                    )
+                    key=lambda f: {"CRÍTICO": 0, "MEDIO": 1, "BAJO": 2}.get(f.get("severity"), 9)
                 ):
                     render_finding_card(finding)
-
-                    with st.expander(
-                        f"Cómo corregir · {finding.get('vector', 'Hallazgo')}"
-                    ):
-                        st.write(
-                            f"**Qué detectamos:** "
-                            f"{finding.get('desc', 'N/A')}"
-                        )
-
-                        st.write(
-                            f"**Impacto:** "
-                            f"{finding.get('impact', 'N/A')}"
-                        )
-
-                        st.info(
-                            f"**Recomendación:** "
-                            f"{finding.get('fix', 'N/A')}"
-                        )
-
+                    with st.expander(f"Cómo corregir · {finding.get('vector', 'Hallazgo')}"):
+                        st.write(f"**Qué detectamos:** {finding.get('desc', 'N/A')}")
+                        st.write(f"**Impacto:** {finding.get('impact', 'N/A')}")
+                        st.info(f"**Recomendación:** {finding.get('fix', 'N/A')}")
                         if finding.get("snippet"):
-                            st.code(
-                                finding.get("snippet")
-                            )
+                            st.code(finding.get("snippet"))
 
     # --------------------------------------------------------
-    # REPORTS
+    # REMEDIACION
     # --------------------------------------------------------
-    with client_reports:
-        st.subheader("Reports")
-
+    with tab_remediation:
+        st.subheader("Remediación")
         history_df = load_history(org_id)
-
         if history_df.empty:
-            st.info(
-                "Todavía no hay una evaluación completa para generar informes."
-            )
+            st.info("Ejecutá una evaluación para generar tareas de remediación.")
         else:
             options = {
-                (
-                    f"{row['timestamp']} · "
-                    f"{row['hostname']} · "
-                    f"CyberScore {row['risk_score']}/100"
-                ): row
+                f"{row['timestamp']} · {row['hostname']} · CyberScore {row['risk_score']}/100": row
                 for _, row in history_df.iterrows()
             }
+            selected_label = st.selectbox("Evaluación", list(options.keys()), key="client_remediation_scan_v29")
+            selected_scan = options[selected_label]
+            scan_id = int(selected_scan["id"])
+            tasks_df = get_client_remediation_tasks(org_id, scan_id)
 
-            selected_label = st.selectbox(
-                "Evaluación",
-                list(options.keys()),
-                key="client_report_select"
+            if tasks_df.empty:
+                st.success("No hay tareas de remediación asociadas a esta evaluación.")
+            else:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Pendientes", int((tasks_df["status"] == "Pendiente").sum()))
+                c2.metric("En proceso", int((tasks_df["status"] == "En Proceso").sum()))
+                c3.metric("Solucionados", int((tasks_df["status"] == "Solucionado").sum()))
+
+                for _, task in tasks_df.iterrows():
+                    task_id = int(task["id"])
+                    current_status = str(task["status"] or "Pendiente")
+                    severity = str(task["severity"] or "MEDIO")
+                    st.markdown(
+                        f"""
+                        <div class="ticket-card {severity_class(severity)}">
+                            <div class="finding-title">{html.escape(str(task['finding_vector']))}</div>
+                            <div class="finding-meta">Severidad {html.escape(severity)} · Estado {html.escape(current_status)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                    with st.form(f"client_task_{task_id}"):
+                        statuses = ["Pendiente", "En Proceso", "Solucionado"]
+                        new_status = st.selectbox(
+                            "Estado",
+                            statuses,
+                            index=statuses.index(current_status) if current_status in statuses else 0,
+                            key=f"client_task_status_{task_id}"
+                        )
+                        note = st.text_input(
+                            "Nota / evidencia",
+                            value=str(task.get("notes") or ""),
+                            placeholder="Ej.: configuración aplicada en producción",
+                            key=f"client_task_note_{task_id}"
+                        )
+                        save_task = st.form_submit_button("Guardar actualización", use_container_width=True)
+                    if save_task:
+                        try:
+                            update_client_remediation_task(org_id, task_id, new_status, note)
+                            st.success("Tarea actualizada.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"No se pudo actualizar: {e}")
+
+            st.markdown("---")
+            st.markdown("### Verificar correcciones")
+            st.caption(
+                "Después de aplicar cambios, CyberAudits vuelve a analizar el dominio y crea una nueva evaluación para comprobar la mejora."
             )
+            if st.button("🔄 Verificar correcciones ahora", type="primary", use_container_width=True, key="client_verify_fix_v29"):
+                try:
+                    previous_score = int(selected_scan["risk_score"])
+                    previous_meta = safe_meta(selected_scan.get("scan_meta_json"))
+                    verify_email_domain = previous_meta.get("email_domain", "") if isinstance(previous_meta, dict) else ""
+                    with st.spinner("Reevaluando controles..."):
+                        new_findings, new_stats, new_hostname, new_geo, new_score, new_details = scan_target(
+                            f"https://{primary_domain}", verify_email_domain
+                        )
+                        new_meta = build_scan_meta(new_stats, new_findings, new_details)
+                        save_scan_to_db(
+                            new_hostname,
+                            new_geo.get("ip", "N/A"),
+                            new_score,
+                            count_actionable(new_findings),
+                            "Client Verification Assessment",
+                            org_id,
+                            new_findings,
+                            new_meta
+                        )
+                    delta = int(new_score) - previous_score
+                    if delta > 0:
+                        st.success(f"Verificación completada: {previous_score} → {new_score} (+{delta}).")
+                    elif delta < 0:
+                        st.warning(f"Verificación completada: {previous_score} → {new_score} ({delta}).")
+                    else:
+                        st.info(f"Verificación completada: CyberScore sin cambios ({new_score}/100).")
+                except Exception as e:
+                    st.error(f"No se pudo verificar: {e}")
 
-            row = options[selected_label]
-            findings = safe_findings(
-                row["findings_json"]
-            )
-
-            stats_dummy = {
-                "Críticas": sum(
-                    1 for x in findings
-                    if x.get("severity") == "CRÍTICO"
-                ),
-                "Medias": sum(
-                    1 for x in findings
-                    if x.get("severity") == "MEDIO"
-                ),
-                "Bajas": sum(
-                    1 for x in findings
-                    if x.get("severity") == "BAJO"
-                ),
-                "Seguras": max(
-                    1,
-                    10 - count_actionable(findings)
-                )
+    # --------------------------------------------------------
+    # INFORMES
+    # --------------------------------------------------------
+    with tab_reports:
+        st.subheader("Informes")
+        history_df = load_history(org_id)
+        if history_df.empty:
+            st.info("Todavía no hay una evaluación completa para generar informes.")
+        else:
+            options = {
+                f"{row['timestamp']} · {row['hostname']} · CyberScore {row['risk_score']}/100": row
+                for _, row in history_df.iterrows()
             }
+            label = st.selectbox("Evaluación", list(options.keys()), key="client_report_select_v29")
+            row = options[label]
+            findings = safe_findings(row["findings_json"])
+            org_profile = get_organization_profile(org_id, fallback_name=org_name)
 
-            chart_b64 = generate_chart(
-                stats_dummy
+            st.markdown("#### Cabecera del informe")
+            st.caption(
+                f"Empresa: {org_profile.get('display_name') or org_name} · "
+                f"Destinatario: {org_profile.get('report_recipient') or 'Dirección General'} · "
+                f"Título: {org_profile.get('report_title') or 'Evaluación de Postura de Ciberseguridad'}"
+            )
+            st.info(
+                "Podés personalizar estos datos desde Organización. CyberScore, hallazgos, severidades, evidencia y fecha permanecen bloqueados."
             )
 
-            pdf_name = (
-                f"cyberaudits_client_"
-                f"{row['id']}.pdf"
-            )
-
-            generate_pdf(
-                findings,
-                chart_b64,
-                row["hostname"],
-                row["risk_score"],
-                "CyberAudits",
-                "Security Posture Platform",
-                "Informe Técnico Exhaustivo",
-                org_name,
-                "Evaluación de Postura de Ciberseguridad",
-                pdf_name
-            )
-
-            docx_data = generate_docx(
-                row["hostname"],
-                findings,
-                row["risk_score"],
-                "CyberAudits",
-                "Security Posture Platform",
-                "Informe Técnico Exhaustivo",
-                org_name,
-                "Evaluación de Postura de Ciberseguridad"
-            )
+            pdf_name = f"cyberaudits_client_{row['id']}.pdf"
+            generate_client_pdf(findings, row["hostname"], row["risk_score"], org_profile, pdf_name)
+            docx_data = generate_client_docx(row["hostname"], findings, row["risk_score"], org_profile)
 
             d1, d2 = st.columns(2)
-
             with d1:
                 with open(pdf_name, "rb") as f:
                     st.download_button(
@@ -4849,87 +5096,117 @@ def render_client_portal():
                         file_name=pdf_name,
                         mime="application/pdf",
                         use_container_width=True,
-                        key=f"client_pdf_{row['id']}"
+                        key=f"client_pdf_v29_{row['id']}"
                     )
-
             with d2:
                 st.download_button(
                     "⬇️ Descargar Word",
                     data=docx_data,
-                    file_name=(
-                        f"cyberaudits_"
-                        f"{row['hostname']}.docx"
-                    ),
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    ),
+                    file_name=f"cyberaudits_{row['hostname']}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True,
-                    key=f"client_docx_{row['id']}"
+                    key=f"client_docx_v29_{row['id']}"
                 )
 
     # --------------------------------------------------------
-    # ACCOUNT
+    # ORGANIZACION
     # --------------------------------------------------------
-    with client_account:
-        st.subheader("Account")
+    with tab_org:
+        st.subheader("Organización")
+        st.write(
+            "Personalizá la identidad de tu empresa y la cabecera de los informes. "
+            "Los resultados técnicos no se pueden editar."
+        )
 
-        st.write(
-            f"**Email:** {client_email}"
+        current_profile = get_organization_profile(org_id, fallback_name=org_name)
+        with st.form("client_org_profile_v29"):
+            display_name = st.text_input("Nombre comercial", value=str(current_profile.get("display_name") or org_name))
+            legal_name = st.text_input("Razón social · opcional", value=str(current_profile.get("legal_name") or ""))
+            department = st.text_input(
+                "Área responsable · opcional",
+                value=str(current_profile.get("department") or ""),
+                placeholder="Tecnología / Seguridad"
+            )
+            report_recipient = st.text_input(
+                "Destinatario de los informes",
+                value=str(current_profile.get("report_recipient") or "Dirección General")
+            )
+            report_title = st.text_input(
+                "Título de los informes",
+                value=str(current_profile.get("report_title") or "Evaluación de Postura de Ciberseguridad")
+            )
+            confidentiality_footer = st.text_area(
+                "Texto de confidencialidad",
+                value=str(current_profile.get("confidentiality_footer") or "Documento confidencial. Uso exclusivo de la organización evaluada."),
+                max_chars=500
+            )
+            logo_upload = st.file_uploader("Logo · PNG/JPG, máximo 350 KB", type=["png", "jpg", "jpeg"])
+            remove_logo = st.checkbox("Quitar logo actual")
+            save_profile = st.form_submit_button("Guardar perfil", type="primary", use_container_width=True)
+
+        if current_profile.get("logo_b64"):
+            st.caption("Logo actual")
+            try:
+                st.image(base64.b64decode(current_profile.get("logo_b64")), width=180)
+            except Exception:
+                st.caption("No se pudo previsualizar el logo guardado.")
+
+        if save_profile:
+            try:
+                next_logo = str(current_profile.get("logo_b64") or "")
+                next_mime = str(current_profile.get("logo_mime") or "image/png")
+                if remove_logo:
+                    next_logo = ""
+                    next_mime = "image/png"
+                if logo_upload is not None:
+                    next_logo, next_mime = _logo_upload_to_b64(logo_upload)
+                save_organization_profile(
+                    org_id,
+                    display_name,
+                    legal_name,
+                    department,
+                    report_recipient,
+                    report_title,
+                    confidentiality_footer,
+                    next_logo,
+                    next_mime
+                )
+                st.success("Perfil actualizado.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo guardar el perfil: {e}")
+
+        st.info(
+            "Integridad protegida: CyberScore, fecha, hallazgos, severidades, evidencia y metodología no son editables por el cliente."
         )
-        st.write(
-            f"**Organización:** {org_name}"
-        )
-        st.write(
-            f"**Rol:** {st.session_state.get('client_role', 'CLIENT')}"
-        )
+
+    # --------------------------------------------------------
+    # CUENTA
+    # --------------------------------------------------------
+    with tab_account:
+        st.subheader("Cuenta")
+        st.write(f"**Email:** {client_email}")
+        st.write(f"**Organización:** {display_org_name}")
+        st.write(f"**Rol:** {st.session_state.get('client_role', 'CLIENT')}")
 
         st.markdown("### Cambiar contraseña")
-
-        with st.form("client_account_password"):
-            new_password = st.text_input(
-                "Nueva contraseña",
-                type="password",
-                key="client_account_new_password"
-            )
-
-            repeat_password = st.text_input(
-                "Repetir contraseña",
-                type="password",
-                key="client_account_repeat_password"
-            )
-
-            change = st.form_submit_button(
-                "Actualizar contraseña",
-                use_container_width=True
-            )
-
+        with st.form("client_account_password_v29"):
+            new_password = st.text_input("Nueva contraseña", type="password")
+            repeat_password = st.text_input("Repetir contraseña", type="password")
+            change = st.form_submit_button("Actualizar contraseña", use_container_width=True)
         if change:
             if new_password != repeat_password:
-                st.error(
-                    "Las contraseñas no coinciden."
-                )
+                st.error("Las contraseñas no coinciden.")
             elif len(new_password) < 12:
-                st.error(
-                    "La contraseña debe tener al menos 12 caracteres."
-                )
+                st.error("La contraseña debe tener al menos 12 caracteres.")
             else:
                 try:
-                    supabase_user_change_password(
-                        st.session_state.client_access_token,
-                        new_password
-                    )
-
-                    st.success(
-                        "Contraseña actualizada."
-                    )
+                    supabase_user_change_password(st.session_state.client_access_token, new_password)
+                    st.success("Contraseña actualizada.")
                 except Exception as e:
-                    st.error(
-                        f"No se pudo cambiar la contraseña: {e}"
-                    )
+                    st.error(f"No se pudo cambiar la contraseña: {e}")
 
     st.stop()
-
 
 def require_private_beta_login():
     configured_password = _secret_value("auth", "admin_password", "")
@@ -4959,7 +5236,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.8.4 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.9 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5157,7 +5434,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.8.4 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.9 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
