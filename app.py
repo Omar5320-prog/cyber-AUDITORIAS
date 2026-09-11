@@ -472,6 +472,7 @@ def init_db():
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS findings_json TEXT;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS scan_meta_json TEXT;")
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS target_url TEXT;")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id SERIAL PRIMARY KEY, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
@@ -518,6 +519,8 @@ def init_db():
         try: c.execute("ALTER TABLE history ADD COLUMN findings_json TEXT;")
         except: pass
         try: c.execute("ALTER TABLE history ADD COLUMN scan_meta_json TEXT;")
+        except: pass
+        try: c.execute("ALTER TABLE history ADD COLUMN target_url TEXT;")
         except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         try:
@@ -591,7 +594,8 @@ def save_scan_to_db(
     report_type_val,
     organization_id=None,
     findings=None,
-    scan_meta=None
+    scan_meta=None,
+    target_url=None
 ):
     conn = get_db_connection()
     c = conn.cursor()
@@ -602,6 +606,10 @@ def save_scan_to_db(
 
     is_pg = "postgres" in st.secrets
     ph = "%s" if is_pg else "?"
+
+    stored_target_url = (target_url or "").strip()
+    if not stored_target_url and hostname:
+        stored_target_url = f"https://{hostname}"
 
     if is_pg:
         c.execute(
@@ -616,10 +624,11 @@ def save_scan_to_db(
                 report_type,
                 organization_id,
                 findings_json,
-                scan_meta_json
+                scan_meta_json,
+                target_url
             )
             VALUES
-            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
             RETURNING id
             """,
             (
@@ -631,7 +640,8 @@ def save_scan_to_db(
                 report_type_val,
                 organization_id,
                 findings_str,
-                meta_str
+                meta_str,
+                stored_target_url
             )
         )
         scan_id = c.fetchone()[0]
@@ -648,10 +658,11 @@ def save_scan_to_db(
                 report_type,
                 organization_id,
                 findings_json,
-                scan_meta_json
+                scan_meta_json,
+                target_url
             )
             VALUES
-            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
             """,
             (
                 timestamp,
@@ -662,7 +673,8 @@ def save_scan_to_db(
                 report_type_val,
                 organization_id,
                 findings_str,
-                meta_str
+                meta_str,
+                stored_target_url
             )
         )
         scan_id = c.lastrowid
@@ -702,7 +714,6 @@ def save_scan_to_db(
     conn.close()
     return scan_id
 
-
 def delete_scan(scan_id):
     conn = get_db_connection()
     conn.autocommit = True
@@ -713,6 +724,56 @@ def delete_scan(scan_id):
     c.execute(f"DELETE FROM history WHERE id = {ph}", (scan_id,))
     c.close()
     conn.close()
+
+
+def delete_client_scan(organization_id, scan_id):
+    """
+    Elimina una evaluación y sus tickets solamente si pertenecen
+    a la organización autenticada del cliente.
+    """
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        c.execute(
+            f"""
+            DELETE FROM remediation_logs
+            WHERE task_id IN (
+                SELECT id
+                FROM remediation_tasks
+                WHERE scan_id = {ph}
+                  AND organization_id = {ph}
+            )
+            """,
+            (int(scan_id), int(organization_id))
+        )
+
+        c.execute(
+            f"""
+            DELETE FROM remediation_tasks
+            WHERE scan_id = {ph}
+              AND organization_id = {ph}
+            """,
+            (int(scan_id), int(organization_id))
+        )
+
+        c.execute(
+            f"""
+            DELETE FROM history
+            WHERE id = {ph}
+              AND organization_id = {ph}
+            """,
+            (int(scan_id), int(organization_id))
+        )
+
+        if not is_pg:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
 
 def delete_organization(org_id):
     conn = get_db_connection()
@@ -4014,7 +4075,8 @@ def load_history(organization_id):
         findings_count,
         report_type,
         findings_json,
-        scan_meta_json
+        scan_meta_json,
+        target_url
     """
 
     if organization_id is not None:
@@ -4041,6 +4103,97 @@ def load_history(organization_id):
 
     conn.close()
     return df
+
+
+def evaluation_target(row):
+    try:
+        target = row.get("target_url")
+    except Exception:
+        target = None
+
+    if target is not None:
+        try:
+            if not pd.isna(target) and str(target).strip():
+                return str(target).strip()
+        except Exception:
+            if str(target).strip():
+                return str(target).strip()
+
+    try:
+        hostname = str(row.get("hostname") or "").strip()
+    except Exception:
+        hostname = ""
+
+    return f"https://{hostname}" if hostname else "Objetivo sin identificar"
+
+
+def evaluation_label(row):
+    return (
+        f"#{int(row['id'])} · {row['timestamp']} · "
+        f"{evaluation_target(row)} · CyberScore {int(row['risk_score'])}/100"
+    )
+
+
+def history_row_by_id(history_df, scan_id):
+    if history_df is None or history_df.empty:
+        return None
+
+    match = history_df[
+        history_df["id"].astype(int) == int(scan_id)
+    ]
+
+    if match.empty:
+        return None
+
+    return match.iloc[0]
+
+
+def normalize_client_target_url(raw_url, authorized_domain):
+    normalized, hostname = _normalize_target(raw_url)
+
+    authorized = (authorized_domain or "").strip().lower()
+    if not authorized:
+        raise ValueError("La organización no tiene un dominio autorizado.")
+
+    allowed_hosts = {authorized}
+    if authorized.startswith("www."):
+        allowed_hosts.add(authorized[4:])
+    else:
+        allowed_hosts.add("www." + authorized)
+
+    if hostname not in allowed_hosts:
+        raise ValueError(
+            "Solo podés evaluar páginas del dominio autorizado "
+            f"({authorized})."
+        )
+
+    parsed = urlparse(normalized)
+
+    # Fragmentos (#...) son solo del navegador y no forman parte
+    # del recurso HTTP que CyberAudits evalúa.
+    clean_url = parsed._replace(fragment="").geturl()
+
+    return clean_url, hostname
+
+
+def prepare_scan_selector_state(key, scan_ids):
+    """
+    Mantiene los selectores consistentes después de crear o borrar escaneos.
+    """
+    if not scan_ids:
+        st.session_state.pop(key, None)
+        return
+
+    current = st.session_state.get(key)
+
+    try:
+        current = int(current)
+    except Exception:
+        current = None
+
+    if current not in scan_ids:
+        st.session_state[key] = int(scan_ids[0])
+
 
 
 def count_actionable(findings):
@@ -4898,30 +5051,79 @@ def render_client_portal():
     # --------------------------------------------------------
     with tab_scan:
         st.subheader("Evaluaciones")
+
+        scan_notice = st.session_state.pop("client_scan_notice_v210", None)
+        if scan_notice:
+            st.success(scan_notice)
+
         if not primary_domain:
-            st.error("No hay un dominio asociado a tu organización. Contactá al administrador.")
-        else:
-            st.write(f"Dominio web autorizado: **{primary_domain}**")
-            st.caption(
-                "El portal limita la evaluación web al dominio asociado a tu organización. "
-                "La seguridad de correo se evalúa solo si ingresás un dominio de correo real."
+            st.error(
+                "No hay un dominio asociado a tu organización. "
+                "Contactá al administrador."
             )
+        else:
+            st.write(f"Dominio autorizado: **{primary_domain}**")
+            st.caption(
+                "Podés evaluar distintas páginas/URLs dentro de este dominio. "
+                "Cada ejecución queda guardada como una evaluación independiente."
+            )
+
+            target_url_input = st.text_input(
+                "Página o URL a evaluar",
+                value=f"https://{primary_domain}/",
+                placeholder=f"https://{primary_domain}/ruta",
+                key="client_target_url_v210",
+                help=(
+                    "Podés cambiar la ruta (/login, /contacto, /app, etc.). "
+                    "Por seguridad no se permiten otros dominios desde este portal."
+                )
+            )
+
             email_domain = st.text_input(
                 "Dominio corporativo de correo · opcional",
                 value="",
                 placeholder="empresa.com",
-                key="client_email_domain_v29"
+                key="client_email_domain_v210",
+                help=(
+                    "Completalo únicamente si ese dominio realmente se usa "
+                    "para el correo de la empresa."
+                )
             )
 
-            if st.button("🚀 Ejecutar evaluación", type="primary", use_container_width=True, key="client_run_scan_v29"):
+            if st.button(
+                "🚀 Ejecutar evaluación",
+                type="primary",
+                use_container_width=True,
+                key="client_run_scan_v210"
+            ):
                 try:
+                    normalized_target, _ = normalize_client_target_url(
+                        target_url_input,
+                        primary_domain
+                    )
+
                     with st.spinner("Analizando postura de seguridad..."):
-                        findings, stats, hostname, geo, risk_score, scan_details = scan_target(
-                            f"https://{primary_domain}", email_domain
+                        (
+                            findings,
+                            stats,
+                            hostname,
+                            geo,
+                            risk_score,
+                            scan_details
+                        ) = scan_target(
+                            normalized_target,
+                            email_domain
                         )
-                        scan_meta = build_scan_meta(stats, findings, scan_details)
+
+                        scan_meta = build_scan_meta(
+                            stats,
+                            findings,
+                            scan_details
+                        )
+
                         findings_count = count_actionable(findings)
-                        save_scan_to_db(
+
+                        scan_id = save_scan_to_db(
                             hostname,
                             geo.get("ip", "N/A"),
                             risk_score,
@@ -4929,37 +5131,279 @@ def render_client_portal():
                             "Client Security Assessment",
                             org_id,
                             findings,
-                            scan_meta
+                            scan_meta,
+                            target_url=normalized_target
                         )
-                    st.success(f"Evaluación completada. CyberScore: {risk_score}/100")
+
+                    # La evaluación recién creada queda seleccionada
+                    # automáticamente en Hallazgos, Remediación e Informes.
+                    st.session_state[
+                        "client_findings_scan_v210"
+                    ] = int(scan_id)
+                    st.session_state[
+                        "client_remediation_scan_v210"
+                    ] = int(scan_id)
+                    st.session_state[
+                        "client_report_scan_v210"
+                    ] = int(scan_id)
+
+                    st.session_state[
+                        "client_scan_notice_v210"
+                    ] = (
+                        f"Evaluación #{scan_id} completada · "
+                        f"{normalized_target} · CyberScore {risk_score}/100"
+                    )
+
                     st.rerun()
+
                 except Exception as e:
-                    st.error(f"No se pudo completar la evaluación: {e}")
+                    st.error(
+                        f"No se pudo completar la evaluación: {e}"
+                    )
+
+        history_df = load_history(org_id)
+
+        st.markdown("---")
+        st.markdown("### Evaluaciones guardadas")
+
+        if history_df.empty:
+            st.info(
+                "Todavía no hay evaluaciones guardadas para esta organización."
+            )
+        else:
+            st.caption(
+                f"{len(history_df)} evaluación(es), ordenadas de la más nueva "
+                "a la más antigua."
+            )
+
+            pending_delete = st.session_state.get(
+                "client_pending_delete_scan_v210"
+            )
+
+            if pending_delete is not None:
+                pending_row = history_row_by_id(
+                    history_df,
+                    pending_delete
+                )
+
+                if pending_row is None:
+                    st.session_state.pop(
+                        "client_pending_delete_scan_v210",
+                        None
+                    )
+                else:
+                    st.warning(
+                        "Vas a eliminar únicamente esta evaluación y sus "
+                        "tickets de remediación asociados:\n\n"
+                        f"**{evaluation_label(pending_row)}**"
+                    )
+
+                    confirm_col, cancel_col = st.columns(2)
+
+                    with confirm_col:
+                        if st.button(
+                            "🗑️ Sí, eliminar evaluación",
+                            type="primary",
+                            use_container_width=True,
+                            key="client_confirm_delete_scan_v210"
+                        ):
+                            delete_client_scan(
+                                org_id,
+                                int(pending_row["id"])
+                            )
+
+                            deleted_id = int(pending_row["id"])
+
+                            for selector_key in (
+                                "client_findings_scan_v210",
+                                "client_remediation_scan_v210",
+                                "client_report_scan_v210"
+                            ):
+                                try:
+                                    if int(
+                                        st.session_state.get(
+                                            selector_key,
+                                            -1
+                                        )
+                                    ) == deleted_id:
+                                        st.session_state.pop(
+                                            selector_key,
+                                            None
+                                        )
+                                except Exception:
+                                    st.session_state.pop(
+                                        selector_key,
+                                        None
+                                    )
+
+                            st.session_state.pop(
+                                "client_pending_delete_scan_v210",
+                                None
+                            )
+
+                            st.session_state[
+                                "client_scan_notice_v210"
+                            ] = (
+                                f"Evaluación #{deleted_id} eliminada "
+                                "junto con sus tickets asociados."
+                            )
+
+                            st.rerun()
+
+                    with cancel_col:
+                        if st.button(
+                            "Cancelar",
+                            use_container_width=True,
+                            key="client_cancel_delete_scan_v210"
+                        ):
+                            st.session_state.pop(
+                                "client_pending_delete_scan_v210",
+                                None
+                            )
+                            st.rerun()
+
+            with st.expander(
+                "🗂️ Gestionar historial de evaluaciones",
+                expanded=True
+            ):
+                for _, scan_row in history_df.iterrows():
+                    scan_id = int(scan_row["id"])
+                    info_col, delete_col = st.columns(
+                        [8.6, 1.4],
+                        vertical_alignment="center"
+                    )
+
+                    with info_col:
+                        st.markdown(
+                            f"**#{scan_id} · "
+                            f"{html.escape(evaluation_target(scan_row))}**"
+                        )
+                        st.caption(
+                            f"{scan_row['timestamp']} · "
+                            f"CyberScore {int(scan_row['risk_score'])}/100 · "
+                            f"{int(scan_row['findings_count'] or 0)} hallazgo(s) · "
+                            f"{scan_row['report_type']}"
+                        )
+
+                    with delete_col:
+                        if st.button(
+                            "🗑️ Eliminar",
+                            key=f"client_delete_scan_{scan_id}_v210",
+                            use_container_width=True
+                        ):
+                            st.session_state[
+                                "client_pending_delete_scan_v210"
+                            ] = scan_id
+                            st.rerun()
 
     # --------------------------------------------------------
     # HALLAZGOS
     # --------------------------------------------------------
     with tab_findings:
         st.subheader("Hallazgos")
+
         history_df = load_history(org_id)
+
         if history_df.empty:
-            st.info("Ejecutá tu primera evaluación completa para ver hallazgos.")
+            st.info(
+                "Ejecutá tu primera evaluación para ver sus hallazgos."
+            )
         else:
-            latest = history_df.iloc[0]
-            findings = safe_findings(latest["findings_json"])
-            actionable = [f for f in findings if is_actionable(f)]
+            scan_ids = [
+                int(value)
+                for value in history_df["id"].tolist()
+            ]
+
+            prepare_scan_selector_state(
+                "client_findings_scan_v210",
+                scan_ids
+            )
+
+            selected_scan_id = st.selectbox(
+                "Seleccioná la evaluación",
+                options=scan_ids,
+                format_func=lambda scan_id: evaluation_label(
+                    history_row_by_id(history_df, scan_id)
+                ),
+                key="client_findings_scan_v210"
+            )
+
+            selected_scan = history_row_by_id(
+                history_df,
+                selected_scan_id
+            )
+
+            st.info(
+                f"Mostrando solamente la evaluación "
+                f"**#{int(selected_scan['id'])}** · "
+                f"**{evaluation_target(selected_scan)}** · "
+                f"{selected_scan['timestamp']} · "
+                f"CyberScore {int(selected_scan['risk_score'])}/100"
+            )
+
+            findings = safe_findings(
+                selected_scan["findings_json"]
+            )
+
+            actionable = [
+                f for f in findings
+                if is_actionable(f)
+            ]
+
             if not actionable:
-                st.success("No hay hallazgos accionables en la última evaluación.")
+                st.success(
+                    "No hay hallazgos accionables en esta evaluación."
+                )
             else:
+                c1, c2, c3 = st.columns(3)
+                c1.metric(
+                    "Críticos",
+                    sum(
+                        1 for f in actionable
+                        if f.get("severity") == "CRÍTICO"
+                    )
+                )
+                c2.metric(
+                    "Medios",
+                    sum(
+                        1 for f in actionable
+                        if f.get("severity") == "MEDIO"
+                    )
+                )
+                c3.metric(
+                    "Bajos",
+                    sum(
+                        1 for f in actionable
+                        if f.get("severity") == "BAJO"
+                    )
+                )
+
                 for finding in sorted(
                     actionable,
-                    key=lambda f: {"CRÍTICO": 0, "MEDIO": 1, "BAJO": 2}.get(f.get("severity"), 9)
+                    key=lambda f: {
+                        "CRÍTICO": 0,
+                        "MEDIO": 1,
+                        "BAJO": 2
+                    }.get(f.get("severity"), 9)
                 ):
                     render_finding_card(finding)
-                    with st.expander(f"Cómo corregir · {finding.get('vector', 'Hallazgo')}"):
-                        st.write(f"**Qué detectamos:** {finding.get('desc', 'N/A')}")
-                        st.write(f"**Impacto:** {finding.get('impact', 'N/A')}")
-                        st.info(f"**Recomendación:** {finding.get('fix', 'N/A')}")
+
+                    with st.expander(
+                        f"Cómo corregir · "
+                        f"{finding.get('vector', 'Hallazgo')}"
+                    ):
+                        st.write(
+                            f"**Qué detectamos:** "
+                            f"{finding.get('desc', 'N/A')}"
+                        )
+                        st.write(
+                            f"**Impacto:** "
+                            f"{finding.get('impact', 'N/A')}"
+                        )
+                        st.info(
+                            f"**Recomendación:** "
+                            f"{finding.get('fix', 'N/A')}"
+                        )
                         if finding.get("snippet"):
                             st.code(finding.get("snippet"))
 
@@ -4968,80 +5412,233 @@ def render_client_portal():
     # --------------------------------------------------------
     with tab_remediation:
         st.subheader("Remediación")
+
+        verify_notice = st.session_state.pop(
+            "client_verify_notice_v210",
+            None
+        )
+        if verify_notice:
+            notice_type = verify_notice.get("type")
+            notice_text = verify_notice.get("text", "")
+            if notice_type == "success":
+                st.success(notice_text)
+            elif notice_type == "warning":
+                st.warning(notice_text)
+            else:
+                st.info(notice_text)
+
         history_df = load_history(org_id)
+
         if history_df.empty:
-            st.info("Ejecutá una evaluación para generar tareas de remediación.")
+            st.info(
+                "Ejecutá una evaluación para generar tareas de remediación."
+            )
         else:
-            options = {
-                f"{row['timestamp']} · {row['hostname']} · CyberScore {row['risk_score']}/100": row
-                for _, row in history_df.iterrows()
-            }
-            selected_label = st.selectbox("Evaluación", list(options.keys()), key="client_remediation_scan_v29")
-            selected_scan = options[selected_label]
+            scan_ids = [
+                int(value)
+                for value in history_df["id"].tolist()
+            ]
+
+            prepare_scan_selector_state(
+                "client_remediation_scan_v210",
+                scan_ids
+            )
+
+            selected_scan_id = st.selectbox(
+                "Seleccioná la evaluación",
+                options=scan_ids,
+                format_func=lambda scan_id: evaluation_label(
+                    history_row_by_id(history_df, scan_id)
+                ),
+                key="client_remediation_scan_v210"
+            )
+
+            selected_scan = history_row_by_id(
+                history_df,
+                selected_scan_id
+            )
+
             scan_id = int(selected_scan["id"])
-            tasks_df = get_client_remediation_tasks(org_id, scan_id)
+            selected_target = evaluation_target(selected_scan)
+
+            st.info(
+                f"Gestionando solamente la evaluación **#{scan_id}** · "
+                f"**{selected_target}** · "
+                f"{selected_scan['timestamp']}"
+            )
+
+            tasks_df = get_client_remediation_tasks(
+                org_id,
+                scan_id
+            )
 
             if tasks_df.empty:
-                st.success("No hay tareas de remediación asociadas a esta evaluación.")
+                st.success(
+                    "No hay tickets de remediación asociados "
+                    "a esta evaluación."
+                )
             else:
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Pendientes", int((tasks_df["status"] == "Pendiente").sum()))
-                c2.metric("En proceso", int((tasks_df["status"] == "En Proceso").sum()))
-                c3.metric("Solucionados", int((tasks_df["status"] == "Solucionado").sum()))
+                c1.metric(
+                    "Pendientes",
+                    int(
+                        (
+                            tasks_df["status"] == "Pendiente"
+                        ).sum()
+                    )
+                )
+                c2.metric(
+                    "En proceso",
+                    int(
+                        (
+                            tasks_df["status"] == "En Proceso"
+                        ).sum()
+                    )
+                )
+                c3.metric(
+                    "Solucionados",
+                    int(
+                        (
+                            tasks_df["status"] == "Solucionado"
+                        ).sum()
+                    )
+                )
 
                 for _, task in tasks_df.iterrows():
                     task_id = int(task["id"])
-                    current_status = str(task["status"] or "Pendiente")
-                    severity = str(task["severity"] or "MEDIO")
+                    current_status = str(
+                        task["status"] or "Pendiente"
+                    )
+                    severity = str(
+                        task["severity"] or "MEDIO"
+                    )
+
                     st.markdown(
                         f"""
                         <div class="ticket-card {severity_class(severity)}">
-                            <div class="finding-title">{html.escape(str(task['finding_vector']))}</div>
-                            <div class="finding-meta">Severidad {html.escape(severity)} · Estado {html.escape(current_status)}</div>
+                            <div class="finding-title">
+                                {html.escape(str(task['finding_vector']))}
+                            </div>
+                            <div class="finding-meta">
+                                Severidad {html.escape(severity)}
+                                · Estado {html.escape(current_status)}
+                            </div>
                         </div>
                         """,
                         unsafe_allow_html=True
                     )
 
-                    with st.form(f"client_task_{task_id}"):
-                        statuses = ["Pendiente", "En Proceso", "Solucionado"]
+                    with st.form(
+                        f"client_task_{task_id}_v210"
+                    ):
+                        statuses = [
+                            "Pendiente",
+                            "En Proceso",
+                            "Solucionado"
+                        ]
+
                         new_status = st.selectbox(
                             "Estado",
                             statuses,
-                            index=statuses.index(current_status) if current_status in statuses else 0,
-                            key=f"client_task_status_{task_id}"
+                            index=(
+                                statuses.index(current_status)
+                                if current_status in statuses
+                                else 0
+                            ),
+                            key=f"client_task_status_{task_id}_v210"
                         )
+
                         note = st.text_input(
                             "Nota / evidencia",
-                            value=str(task.get("notes") or ""),
-                            placeholder="Ej.: configuración aplicada en producción",
-                            key=f"client_task_note_{task_id}"
+                            value=str(
+                                task.get("notes") or ""
+                            ),
+                            placeholder=(
+                                "Ej.: configuración aplicada "
+                                "en producción"
+                            ),
+                            key=f"client_task_note_{task_id}_v210"
                         )
-                        save_task = st.form_submit_button("Guardar actualización", use_container_width=True)
+
+                        save_task = st.form_submit_button(
+                            "Guardar actualización",
+                            use_container_width=True
+                        )
+
                     if save_task:
                         try:
-                            update_client_remediation_task(org_id, task_id, new_status, note)
-                            st.success("Tarea actualizada.")
+                            update_client_remediation_task(
+                                org_id,
+                                task_id,
+                                new_status,
+                                note
+                            )
+                            st.success(
+                                "Tarea actualizada."
+                            )
                             st.rerun()
                         except Exception as e:
-                            st.error(f"No se pudo actualizar: {e}")
+                            st.error(
+                                f"No se pudo actualizar: {e}"
+                            )
 
             st.markdown("---")
-            st.markdown("### Verificar correcciones")
+            st.markdown("### Verificar esta evaluación")
+
             st.caption(
-                "Después de aplicar cambios, CyberAudits vuelve a analizar el dominio y crea una nueva evaluación para comprobar la mejora."
+                "CyberAudits volverá a analizar exactamente la misma "
+                "URL seleccionada y guardará la verificación como una "
+                "nueva evaluación."
             )
-            if st.button("🔄 Verificar correcciones ahora", type="primary", use_container_width=True, key="client_verify_fix_v29"):
+
+            if st.button(
+                "🔄 Verificar correcciones de esta evaluación",
+                type="primary",
+                use_container_width=True,
+                key="client_verify_fix_v210"
+            ):
                 try:
-                    previous_score = int(selected_scan["risk_score"])
-                    previous_meta = safe_meta(selected_scan.get("scan_meta_json"))
-                    verify_email_domain = previous_meta.get("email_domain", "") if isinstance(previous_meta, dict) else ""
-                    with st.spinner("Reevaluando controles..."):
-                        new_findings, new_stats, new_hostname, new_geo, new_score, new_details = scan_target(
-                            f"https://{primary_domain}", verify_email_domain
+                    previous_score = int(
+                        selected_scan["risk_score"]
+                    )
+
+                    previous_meta = safe_meta(
+                        selected_scan.get("scan_meta_json")
+                    )
+
+                    verify_email_domain = (
+                        previous_meta.get("email_domain", "")
+                        if isinstance(previous_meta, dict)
+                        else ""
+                    )
+
+                    normalized_target, _ = normalize_client_target_url(
+                        selected_target,
+                        primary_domain
+                    )
+
+                    with st.spinner(
+                        "Reevaluando exactamente la URL seleccionada..."
+                    ):
+                        (
+                            new_findings,
+                            new_stats,
+                            new_hostname,
+                            new_geo,
+                            new_score,
+                            new_details
+                        ) = scan_target(
+                            normalized_target,
+                            verify_email_domain
                         )
-                        new_meta = build_scan_meta(new_stats, new_findings, new_details)
-                        save_scan_to_db(
+
+                        new_meta = build_scan_meta(
+                            new_stats,
+                            new_findings,
+                            new_details
+                        )
+
+                        new_scan_id = save_scan_to_db(
                             new_hostname,
                             new_geo.get("ip", "N/A"),
                             new_score,
@@ -5049,51 +5646,149 @@ def render_client_portal():
                             "Client Verification Assessment",
                             org_id,
                             new_findings,
-                            new_meta
+                            new_meta,
+                            target_url=normalized_target
                         )
+
+                    st.session_state[
+                        "client_findings_scan_v210"
+                    ] = int(new_scan_id)
+                    st.session_state[
+                        "client_remediation_scan_v210"
+                    ] = int(new_scan_id)
+                    st.session_state[
+                        "client_report_scan_v210"
+                    ] = int(new_scan_id)
+
                     delta = int(new_score) - previous_score
+
                     if delta > 0:
-                        st.success(f"Verificación completada: {previous_score} → {new_score} (+{delta}).")
+                        notice_type = "success"
+                        notice_text = (
+                            f"Verificación #{new_scan_id}: "
+                            f"{previous_score} → {new_score} "
+                            f"(+{delta} puntos)."
+                        )
                     elif delta < 0:
-                        st.warning(f"Verificación completada: {previous_score} → {new_score} ({delta}).")
+                        notice_type = "warning"
+                        notice_text = (
+                            f"Verificación #{new_scan_id}: "
+                            f"{previous_score} → {new_score} "
+                            f"({delta} puntos)."
+                        )
                     else:
-                        st.info(f"Verificación completada: CyberScore sin cambios ({new_score}/100).")
+                        notice_type = "info"
+                        notice_text = (
+                            f"Verificación #{new_scan_id}: "
+                            f"CyberScore sin cambios "
+                            f"({new_score}/100)."
+                        )
+
+                    st.session_state[
+                        "client_verify_notice_v210"
+                    ] = {
+                        "type": notice_type,
+                        "text": notice_text
+                    }
+
+                    st.rerun()
+
                 except Exception as e:
-                    st.error(f"No se pudo verificar: {e}")
+                    st.error(
+                        f"No se pudo verificar: {e}"
+                    )
 
     # --------------------------------------------------------
     # INFORMES
     # --------------------------------------------------------
     with tab_reports:
         st.subheader("Informes")
+
         history_df = load_history(org_id)
+
         if history_df.empty:
-            st.info("Todavía no hay una evaluación completa para generar informes.")
+            st.info(
+                "Todavía no hay evaluaciones para generar informes."
+            )
         else:
-            options = {
-                f"{row['timestamp']} · {row['hostname']} · CyberScore {row['risk_score']}/100": row
-                for _, row in history_df.iterrows()
-            }
-            label = st.selectbox("Evaluación", list(options.keys()), key="client_report_select_v29")
-            row = options[label]
-            findings = safe_findings(row["findings_json"])
-            org_profile = get_organization_profile(org_id, fallback_name=org_name)
+            scan_ids = [
+                int(value)
+                for value in history_df["id"].tolist()
+            ]
+
+            prepare_scan_selector_state(
+                "client_report_scan_v210",
+                scan_ids
+            )
+
+            selected_scan_id = st.selectbox(
+                "Seleccioná la evaluación",
+                options=scan_ids,
+                format_func=lambda scan_id: evaluation_label(
+                    history_row_by_id(history_df, scan_id)
+                ),
+                key="client_report_scan_v210"
+            )
+
+            row = history_row_by_id(
+                history_df,
+                selected_scan_id
+            )
+
+            selected_target = evaluation_target(row)
+            findings = safe_findings(
+                row["findings_json"]
+            )
+
+            org_profile = get_organization_profile(
+                org_id,
+                fallback_name=org_name
+            )
+
+            st.info(
+                f"El informe se generará únicamente para "
+                f"**#{int(row['id'])} · {selected_target}** · "
+                f"{row['timestamp']} · "
+                f"CyberScore {int(row['risk_score'])}/100"
+            )
 
             st.markdown("#### Cabecera del informe")
             st.caption(
-                f"Empresa: {org_profile.get('display_name') or org_name} · "
-                f"Destinatario: {org_profile.get('report_recipient') or 'Dirección General'} · "
-                f"Título: {org_profile.get('report_title') or 'Evaluación de Postura de Ciberseguridad'}"
-            )
-            st.info(
-                "Podés personalizar estos datos desde Organización. CyberScore, hallazgos, severidades, evidencia y fecha permanecen bloqueados."
+                f"Empresa: "
+                f"{org_profile.get('display_name') or org_name} · "
+                f"Destinatario: "
+                f"{org_profile.get('report_recipient') or 'Dirección General'} · "
+                f"Título: "
+                f"{org_profile.get('report_title') or 'Evaluación de Postura de Ciberseguridad'}"
             )
 
-            pdf_name = f"cyberaudits_client_{row['id']}.pdf"
-            generate_client_pdf(findings, row["hostname"], row["risk_score"], org_profile, pdf_name)
-            docx_data = generate_client_docx(row["hostname"], findings, row["risk_score"], org_profile)
+            st.info(
+                "Podés personalizar los datos corporativos desde Organización. "
+                "CyberScore, hallazgos, severidades, evidencia y fecha "
+                "permanecen protegidos."
+            )
+
+            pdf_name = (
+                f"cyberaudits_evaluacion_{int(row['id'])}.pdf"
+            )
+
+            generate_client_pdf(
+                findings,
+                selected_target,
+                row["risk_score"],
+                org_profile,
+                pdf_name
+            )
+
+            docx_data = generate_client_docx(
+                selected_target,
+                findings,
+                row["risk_score"],
+                org_profile
+            )
 
             d1, d2 = st.columns(2)
+
             with d1:
                 with open(pdf_name, "rb") as f:
                     st.download_button(
@@ -5102,16 +5797,23 @@ def render_client_portal():
                         file_name=pdf_name,
                         mime="application/pdf",
                         use_container_width=True,
-                        key=f"client_pdf_v29_{row['id']}"
+                        key=f"client_pdf_v210_{row['id']}"
                     )
+
             with d2:
                 st.download_button(
                     "⬇️ Descargar Word",
                     data=docx_data,
-                    file_name=f"cyberaudits_{row['hostname']}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    file_name=(
+                        f"cyberaudits_evaluacion_"
+                        f"{int(row['id'])}.docx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
                     use_container_width=True,
-                    key=f"client_docx_v29_{row['id']}"
+                    key=f"client_docx_v210_{row['id']}"
                 )
 
     # --------------------------------------------------------
@@ -5242,7 +5944,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.9.1 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.10 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5440,7 +6142,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.9.1 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.10 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
