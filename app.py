@@ -190,6 +190,90 @@ st.markdown("""
         color: #657087;
     }
 
+    .public-hero {
+        background:
+            radial-gradient(circle at 86% 15%, rgba(59,130,246,.28), transparent 24%),
+            linear-gradient(120deg, #08111f 0%, #10244a 58%, #1f5de7 100%);
+        border-radius: 24px;
+        padding: 48px 46px;
+        color: white;
+        margin: 8px 0 28px 0;
+        box-shadow: 0 20px 55px rgba(15, 23, 42, 0.18);
+    }
+
+    .public-hero h1 {
+        font-size: 48px;
+        line-height: 1.03;
+        letter-spacing: -1.8px;
+        max-width: 860px;
+        margin: 8px 0 14px 0;
+    }
+
+    .public-hero p {
+        max-width: 780px;
+        color: #d8e5ff;
+        font-size: 17px;
+        line-height: 1.6;
+        margin-bottom: 0;
+    }
+
+    .public-pill {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.12);
+        border: 1px solid rgba(255,255,255,.12);
+        color: #e7efff;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .8px;
+    }
+
+    .public-card {
+        background: white;
+        border: 1px solid #e4e9f2;
+        border-radius: 18px;
+        padding: 22px;
+        min-height: 165px;
+        box-shadow: 0 8px 24px rgba(15,23,42,.05);
+    }
+
+    .public-card h3 {
+        margin: 0 0 8px 0;
+        font-size: 17px;
+    }
+
+    .public-card p {
+        margin: 0;
+        color: #6c778c;
+        font-size: 13px;
+        line-height: 1.55;
+    }
+
+    .public-score-card {
+        background: white;
+        border: 1px solid #e1e7f0;
+        border-radius: 20px;
+        padding: 24px;
+        box-shadow: 0 12px 32px rgba(15,23,42,.06);
+    }
+
+    .public-score {
+        font-size: 68px;
+        line-height: .95;
+        font-weight: 850;
+        letter-spacing: -4px;
+        color: #111827;
+    }
+
+    .public-footer {
+        margin-top: 40px;
+        padding: 20px 0;
+        border-top: 1px solid #e4e9f2;
+        color: #7a8496;
+        font-size: 12px;
+    }
+
     .trust-shell {
         max-width: 920px;
         margin: 30px auto 0 auto;
@@ -340,6 +424,7 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id SERIAL PRIMARY KEY, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS public_leads (id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, domain TEXT, cyber_score INTEGER, source TEXT DEFAULT 'free_cybercheck', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
@@ -358,6 +443,7 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
         c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS public_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, domain TEXT, cyber_score INTEGER, source TEXT DEFAULT 'free_cybercheck', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         conn.commit()
     c.close()
     conn.close()
@@ -524,6 +610,80 @@ def _db_ph():
 def _safe_domain_slug(domain):
     base = re.sub(r"[^a-z0-9]+", "-", domain.lower()).strip("-")
     return base[:70] or "company"
+
+
+
+def _valid_email_address(value):
+    value = (value or "").strip().lower()
+
+    if len(value) > 254:
+        return False
+
+    pattern = r"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$"
+    return bool(re.match(pattern, value, flags=re.IGNORECASE))
+
+
+def save_public_lead(email, domain="", cyber_score=None):
+    email = (email or "").strip().lower()
+
+    if not _valid_email_address(email):
+        raise ValueError("Ingresá un email válido.")
+
+    domain = (domain or "").strip().lower()
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    try:
+        if "postgres" in st.secrets:
+            c.execute(
+                f"""
+                INSERT INTO public_leads
+                (email, domain, cyber_score, source)
+                VALUES ({ph}, {ph}, {ph}, 'free_cybercheck')
+                ON CONFLICT (email)
+                DO UPDATE SET
+                    domain = EXCLUDED.domain,
+                    cyber_score = EXCLUDED.cyber_score
+                """,
+                (email, domain, cyber_score)
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO public_leads
+                (email, domain, cyber_score, source)
+                VALUES (?, ?, ?, 'free_cybercheck')
+                ON CONFLICT(email)
+                DO UPDATE SET
+                    domain = excluded.domain,
+                    cyber_score = excluded.cyber_score
+                """,
+                (email, domain, cyber_score)
+            )
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def load_public_leads():
+    conn = get_db_connection()
+
+    try:
+        df = pd.read_sql_query(
+            """
+            SELECT id, email, domain, cyber_score, source, created_at
+            FROM public_leads
+            ORDER BY id DESC
+            """,
+            conn
+        )
+    finally:
+        conn.close()
+
+    return df
 
 
 def get_domain_verification(domain):
@@ -2720,6 +2880,279 @@ def render_public_cyberpass(slug):
     st.stop()
 
 
+
+def render_public_home():
+    # Public landing intentionally contains only low-impact checks.
+    st.markdown(
+        """
+        <div class="public-hero">
+            <span class="public-pill">CYBERAUDITS · FREE CYBERCHECK</span>
+            <h1>Descubrí qué tan expuesta está tu empresa antes de que sea un problema.</h1>
+            <p>
+                Revisamos señales públicas de HTTPS, TLS, cabeceras y DNS,
+                las convertimos en un CyberScore entendible y te mostramos
+                dónde conviene empezar a mejorar.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown(
+            """
+            <div class="public-card">
+                <h3>⚡ Resultado rápido</h3>
+                <p>
+                    Un diagnóstico inicial de bajo impacto sin instalar agentes
+                    ni dar acceso a infraestructura interna.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c2:
+        st.markdown(
+            """
+            <div class="public-card">
+                <h3>🧭 Priorización</h3>
+                <p>
+                    CyberAudits separa configuraciones, hardening y señales
+                    técnicas para evitar alarmas exageradas.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with c3:
+        st.markdown(
+            """
+            <div class="public-card">
+                <h3>🛡️ De detectar a demostrar</h3>
+                <p>
+                    El objetivo final es corregir, volver a verificar y
+                    publicar un CyberPass solo para dominios controlados.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("## Probá el Free CyberCheck")
+    st.write(
+        "Ingresá un sitio que administrás o para el cual tenés autorización de evaluación."
+    )
+
+    if "public_scan_result" not in st.session_state:
+        st.session_state.public_scan_result = None
+
+    with st.form("public_free_scan"):
+        public_target = st.text_input(
+            "Sitio web",
+            placeholder="https://empresa.com"
+        )
+
+        authorized = st.checkbox(
+            "Confirmo que administro este sitio o tengo autorización para evaluarlo."
+        )
+
+        launch_public_scan = st.form_submit_button(
+            "Obtener CyberScore gratis",
+            type="primary",
+            use_container_width=True
+        )
+
+    if launch_public_scan:
+        if not authorized:
+            st.error("Necesitás confirmar que tenés autorización para evaluar el sitio.")
+
+        elif not public_target.strip():
+            st.error("Ingresá un dominio o URL.")
+
+        else:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_scan = st.session_state.get("public_last_scan_at")
+
+            if last_scan and (now - last_scan).total_seconds() < 30:
+                st.warning("Esperá unos segundos antes de ejecutar otro análisis.")
+            else:
+                with st.spinner(
+                    "Revisando HTTPS, TLS, cabeceras y DNS público..."
+                ):
+                    (
+                        findings,
+                        stats,
+                        hostname,
+                        geo,
+                        score,
+                        scan_details
+                    ) = scan_target(
+                        public_target,
+                        ""
+                    )
+
+                    meta = build_scan_meta(
+                        stats,
+                        findings,
+                        scan_details
+                    )
+
+                    st.session_state.public_scan_result = {
+                        "hostname": hostname,
+                        "score": score,
+                        "findings": findings,
+                        "meta": meta
+                    }
+
+                    st.session_state.public_last_scan_at = now
+
+    public_result = st.session_state.get("public_scan_result")
+
+    if public_result:
+        score = int(public_result["score"])
+        findings = public_result["findings"]
+        meta = public_result["meta"]
+        hostname = public_result["hostname"]
+
+        actionable = [
+            f for f in findings
+            if is_actionable(f)
+        ]
+
+        status_label, status_description = score_status(score)
+
+        st.markdown("---")
+        st.markdown("## Resultado preliminar")
+
+        score_col, info_col = st.columns([1, 2])
+
+        with score_col:
+            st.markdown(
+                f"""
+                <div class="public-score-card">
+                    <div class="muted">CyberScore preliminar</div>
+                    <div style="margin-top:14px;">
+                        <span class="public-score">{score}</span>
+                        <span class="score-denom">/100</span>
+                    </div>
+                    <span class="score-label">{html.escape(status_label)}</span>
+                    <p class="muted" style="margin-top:14px;">
+                        {html.escape(status_description)}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with info_col:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Cobertura", f"{meta.get('coverage', 0)}%")
+            m2.metric("Confianza", meta.get("confidence", "N/D"))
+            m3.metric("Señales a revisar", len(actionable))
+
+            st.caption(
+                f"Objetivo evaluado: {hostname}. "
+                "Este resultado es una evaluación externa preliminar, "
+                "no una certificación ni una garantía de seguridad."
+            )
+
+        st.markdown("### Postura observable")
+
+        categories = meta.get("category_scores", {})
+
+        visible_categories = [
+            "TLS & Certificado",
+            "Seguridad Web",
+            "Transporte",
+            "Exposición",
+            "DNS Security"
+        ]
+
+        cols = st.columns(5)
+
+        for col, label in zip(cols, visible_categories):
+            value = categories.get(label)
+
+            with col:
+                if value is None:
+                    st.metric(label, "N/D")
+                else:
+                    st.metric(label, f"{int(value)}/100")
+
+        st.info(
+            "La versión pública no muestra hallazgos técnicos detallados, "
+            "IPs, evidencias ni configuraciones sensibles."
+        )
+
+        st.markdown("### ¿Querés acceso al informe completo cuando abramos la beta?")
+
+        with st.form("public_beta_lead"):
+            lead_email = st.text_input(
+                "Email de contacto",
+                placeholder="vos@empresa.com"
+            )
+
+            consent = st.checkbox(
+                "Acepto que CyberAudits use este email para contactarme sobre la beta."
+            )
+
+            send_lead = st.form_submit_button(
+                "Solicitar acceso beta",
+                use_container_width=True
+            )
+
+        if send_lead:
+            if not consent:
+                st.error("Necesitamos tu consentimiento para guardar el contacto.")
+            else:
+                try:
+                    save_public_lead(
+                        lead_email,
+                        hostname,
+                        score
+                    )
+                    st.success(
+                        "Listo. Guardamos tu solicitud de acceso a la beta."
+                    )
+                except Exception as e:
+                    st.error(str(e))
+
+    st.markdown("---")
+
+    left, right = st.columns([2, 1])
+
+    with left:
+        st.markdown("### ¿Ya sos administrador de CyberAudits?")
+        st.caption(
+            "El workspace privado contiene historial, reportes, "
+            "remediación y administración de CyberPass."
+        )
+
+    with right:
+        if st.button(
+            "Entrar al workspace privado",
+            use_container_width=True
+        ):
+            st.query_params["admin"] = "1"
+            st.rerun()
+
+    st.markdown(
+        """
+        <div class="public-footer">
+            CyberAudits Free CyberCheck realiza verificaciones externas y de bajo impacto.
+            Los análisis avanzados requerirán verificación de propiedad o autorización adicional.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.stop()
+
+
 def require_private_beta_login():
     configured_password = _secret_value("auth", "admin_password", "")
 
@@ -2748,7 +3181,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.5 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.6 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -2775,14 +3208,27 @@ def require_private_beta_login():
 # Public CyberPass routes are intentionally available without admin login.
 try:
     public_pass_slug = st.query_params.get("pass", "")
+    admin_mode = st.query_params.get("admin", "")
 except Exception:
     public_pass_slug = ""
+    admin_mode = ""
 
 if isinstance(public_pass_slug, list):
     public_pass_slug = public_pass_slug[0] if public_pass_slug else ""
 
+if isinstance(admin_mode, list):
+    admin_mode = admin_mode[0] if admin_mode else ""
+
 if public_pass_slug:
     render_public_cyberpass(public_pass_slug)
+
+# Root URL is now the public marketing/free-check surface.
+# Authenticated admins keep access without needing ?admin=1.
+if (
+    not st.session_state.get("authenticated", False)
+    and str(admin_mode) != "1"
+):
+    render_public_home()
 
 # Everything below this point is administrative/private-beta functionality.
 require_private_beta_login()
@@ -2796,6 +3242,12 @@ st.sidebar.caption("Security Posture Workspace · Private Beta")
 
 if st.sidebar.button("Cerrar sesión", use_container_width=True):
     st.session_state.authenticated = False
+
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -2917,7 +3369,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.5 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.6 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -2929,13 +3381,14 @@ st.markdown(
 )
 
 
-tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation = st.tabs(
+tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_leads = st.tabs(
     [
         "🏠 Dashboard",
         "🔎 Security Scan",
         "📄 Reports",
         "📈 History",
-        "🛠 Remediation"
+        "🛠 Remediation",
+        "👥 Leads"
     ]
 )
 
@@ -4300,5 +4753,72 @@ with tab_remediation:
             "Cuando termines una remediación, volvé al Dashboard y usá "
             "“Verificar ahora”. CyberAudits generará una nueva evaluación "
             "para comprobar si el CyberScore mejoró."
+        )
+
+
+# ==========================================
+# PUBLIC BETA LEADS
+# ==========================================
+
+with tab_leads:
+    st.subheader("Public Beta Leads")
+
+    st.write(
+        "Contactos que llegaron desde el Free CyberCheck público."
+    )
+
+    try:
+        leads_df = load_public_leads()
+    except Exception as e:
+        leads_df = pd.DataFrame()
+        st.error(f"No se pudieron cargar los leads: {e}")
+
+    if leads_df.empty:
+        st.info(
+            "Todavía no hay solicitudes de acceso beta."
+        )
+    else:
+        l1, l2 = st.columns(2)
+        l1.metric("Leads", len(leads_df))
+        l2.metric(
+            "Dominios únicos",
+            leads_df["domain"].nunique()
+            if "domain" in leads_df.columns
+            else 0
+        )
+
+        display_leads = leads_df.copy()
+
+        display_leads = display_leads.rename(
+            columns={
+                "email": "Email",
+                "domain": "Dominio",
+                "cyber_score": "CyberScore",
+                "created_at": "Fecha",
+                "source": "Origen"
+            }
+        )
+
+        visible = [
+            col
+            for col in [
+                "Email",
+                "Dominio",
+                "CyberScore",
+                "Fecha",
+                "Origen"
+            ]
+            if col in display_leads.columns
+        ]
+
+        st.dataframe(
+            display_leads[visible],
+            hide_index=True,
+            use_container_width=True
+        )
+
+        st.caption(
+            "Estos contactos aceptaron ser contactados sobre la beta. "
+            "No compartas ni publiques esta información."
         )
 
