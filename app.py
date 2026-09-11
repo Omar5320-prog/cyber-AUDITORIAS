@@ -10,6 +10,9 @@ import json
 import io
 import base64
 import html
+import hmac
+import secrets
+import re
 from urllib.parse import urlparse, urljoin
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
@@ -187,6 +190,46 @@ st.markdown("""
         color: #657087;
     }
 
+    .trust-shell {
+        max-width: 920px;
+        margin: 30px auto 0 auto;
+    }
+
+    .trust-hero {
+        background: linear-gradient(145deg, #0b1220, #17366f);
+        color: #ffffff;
+        border-radius: 24px;
+        padding: 34px;
+        box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16);
+    }
+
+    .trust-domain {
+        font-size: 27px;
+        font-weight: 850;
+        margin-top: 10px;
+        letter-spacing: -0.4px;
+    }
+
+    .verified-pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: rgba(34,197,94,0.16);
+        color: #bbf7d0;
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .auth-shell {
+        max-width: 520px;
+        margin: 9vh auto 0 auto;
+        background: #ffffff;
+        border: 1px solid #e4e9f2;
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    }
+
     div[data-testid="stMetric"] {
         background: #ffffff;
         border: 1px solid #e4e9f2;
@@ -295,6 +338,8 @@ def init_db():
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS severity TEXT;")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id SERIAL PRIMARY KEY, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id SERIAL PRIMARY KEY, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
@@ -311,6 +356,8 @@ def init_db():
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN severity TEXT;")
         except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, timestamp TEXT, status TEXT, notes TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS domain_verifications (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, token TEXT NOT NULL, status TEXT DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, verified_at TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS cyberpasses (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, domain TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL, is_public INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         conn.commit()
     c.close()
     conn.close()
@@ -463,6 +510,303 @@ def delete_organization(org_id):
 # ==========================================
 # MOTOR DE ESCANEO
 # ==========================================
+def _secret_value(section, key, default=""):
+    try:
+        return str(st.secrets[section][key])
+    except Exception:
+        return default
+
+
+def _db_ph():
+    return "%s" if "postgres" in st.secrets else "?"
+
+
+def _safe_domain_slug(domain):
+    base = re.sub(r"[^a-z0-9]+", "-", domain.lower()).strip("-")
+    return base[:70] or "company"
+
+
+def get_domain_verification(domain):
+    domain = _clean_domain(domain)
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    c.execute(
+        f"SELECT id, organization_id, domain, token, status, created_at, verified_at FROM domain_verifications WHERE domain = {ph}",
+        (domain,)
+    )
+    row = c.fetchone()
+    c.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "organization_id": row[1],
+        "domain": row[2],
+        "token": row[3],
+        "status": row[4],
+        "created_at": row[5],
+        "verified_at": row[6]
+    }
+
+
+def get_or_create_domain_verification(domain, organization_id=None):
+    domain = _clean_domain(domain)
+    existing = get_domain_verification(domain)
+
+    if existing:
+        # A verified domain remains verified. For a pending record we keep the
+        # same token so the user does not have to keep changing DNS.
+        return existing
+
+    token = "CA-" + secrets.token_hex(8).upper()
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    c.execute(
+        f"INSERT INTO domain_verifications (organization_id, domain, token, status) VALUES ({ph}, {ph}, {ph}, 'pending')",
+        (organization_id, domain, token)
+    )
+
+    if "postgres" not in st.secrets:
+        conn.commit()
+
+    c.close()
+    conn.close()
+    return get_domain_verification(domain)
+
+
+def verify_domain_ownership(domain):
+    domain = _clean_domain(domain)
+    record = get_domain_verification(domain)
+
+    if not record:
+        return False, [], "Primero generá el código de verificación."
+
+    lookup_name = f"_cyberaudits.{domain}"
+
+    try:
+        txt_values, _ = _dns_txt_records(lookup_name)
+    except Exception as e:
+        return False, [], f"No se pudo consultar el DNS: {e}"
+
+    expected = f"cyberaudits-verification={record['token']}"
+    normalized = [value.strip() for value in txt_values]
+    matched = any(
+        hmac.compare_digest(value, expected)
+        for value in normalized
+    )
+
+    if not matched:
+        return False, normalized, (
+            "El registro TXT todavía no coincide. Los cambios DNS pueden "
+            "tardar unos minutos en propagarse."
+        )
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    verified_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    c.execute(
+        f"UPDATE domain_verifications SET status = 'verified', verified_at = {ph} WHERE domain = {ph}",
+        (verified_at, domain)
+    )
+
+    if "postgres" not in st.secrets:
+        conn.commit()
+
+    c.close()
+    conn.close()
+    return True, normalized, "Dominio verificado correctamente."
+
+
+def get_cyberpass_by_domain(domain):
+    domain = _clean_domain(domain)
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    c.execute(
+        f"SELECT id, organization_id, domain, slug, is_public, created_at, updated_at FROM cyberpasses WHERE domain = {ph}",
+        (domain,)
+    )
+    row = c.fetchone()
+    c.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "organization_id": row[1],
+        "domain": row[2],
+        "slug": row[3],
+        "is_public": bool(row[4]),
+        "created_at": row[5],
+        "updated_at": row[6]
+    }
+
+
+def get_cyberpass_by_slug(slug):
+    slug = (slug or "").strip()
+    if not slug:
+        return None
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    c.execute(
+        f"SELECT id, organization_id, domain, slug, is_public, created_at, updated_at FROM cyberpasses WHERE slug = {ph}",
+        (slug,)
+    )
+    row = c.fetchone()
+    c.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "id": row[0],
+        "organization_id": row[1],
+        "domain": row[2],
+        "slug": row[3],
+        "is_public": bool(row[4]),
+        "created_at": row[5],
+        "updated_at": row[6]
+    }
+
+
+def ensure_cyberpass(domain, organization_id=None):
+    domain = _clean_domain(domain)
+    existing = get_cyberpass_by_domain(domain)
+
+    if existing:
+        return existing
+
+    slug = f"{_safe_domain_slug(domain)}-{secrets.token_hex(3)}"
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    c.execute(
+        f"INSERT INTO cyberpasses (organization_id, domain, slug, is_public, updated_at) VALUES ({ph}, {ph}, {ph}, 0, CURRENT_TIMESTAMP)",
+        (organization_id, domain, slug)
+    )
+
+    if "postgres" not in st.secrets:
+        conn.commit()
+
+    c.close()
+    conn.close()
+    return get_cyberpass_by_domain(domain)
+
+
+def set_cyberpass_visibility(domain, make_public):
+    domain = _clean_domain(domain)
+    verification = get_domain_verification(domain)
+
+    if make_public and (
+        not verification
+        or verification.get("status") != "verified"
+    ):
+        raise ValueError("El dominio debe estar verificado antes de publicar el CyberPass.")
+
+    pass_record = ensure_cyberpass(domain)
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    value = 1 if make_public else 0
+
+    c.execute(
+        f"UPDATE cyberpasses SET is_public = {ph}, updated_at = CURRENT_TIMESTAMP WHERE domain = {ph}",
+        (value, domain)
+    )
+
+    if "postgres" not in st.secrets:
+        conn.commit()
+
+    c.close()
+    conn.close()
+    return get_cyberpass_by_domain(domain)
+
+
+def _hostname_matches_domain(hostname, domain):
+    try:
+        hostname = _clean_domain(hostname)
+        domain = _clean_domain(domain)
+    except Exception:
+        return False
+
+    return hostname == domain or hostname.endswith("." + domain)
+
+
+def get_latest_scan_for_verified_domain(domain, organization_id=None):
+    domain = _clean_domain(domain)
+    conn = get_db_connection()
+    ph = _db_ph()
+
+    columns = """
+        id, timestamp, hostname, ip, risk_score, findings_count,
+        report_type, organization_id, findings_json, scan_meta_json
+    """
+
+    params = []
+    clauses = []
+
+    if organization_id is not None:
+        clauses.append(f"organization_id = {ph}")
+        params.append(organization_id)
+
+    clauses.append(
+        f"(hostname = {ph} OR hostname LIKE {ph})"
+    )
+    params.extend([domain, f"%.{domain}"])
+
+    where_sql = " AND ".join(clauses)
+
+    df = pd.read_sql_query(
+        f"SELECT {columns} FROM history WHERE {where_sql} ORDER BY id DESC LIMIT 1",
+        conn,
+        params=tuple(params)
+    )
+    conn.close()
+
+    if df.empty:
+        return None
+
+    return df.iloc[0]
+
+
+def get_public_base_url():
+    configured = _secret_value("app", "public_url", "").strip().rstrip("/")
+    if configured:
+        return configured
+
+    try:
+        current_url = str(st.context.url).strip().rstrip("/")
+        if current_url.startswith("http://") or current_url.startswith("https://"):
+            return current_url.split("?")[0].rstrip("/")
+    except Exception:
+        pass
+
+    try:
+        headers = st.context.headers
+        host = headers.get("Host")
+        proto = (headers.get("X-Forwarded-Proto") or "https").split(",")[0].strip()
+        if host:
+            return f"{proto}://{host}"
+    except Exception:
+        pass
+
+    return ""
+
+
 def get_geolocation(hostname):
     geo_data = {"ip": "N/A", "country": "Desconocido", "city": "Desconocido", "org": "Desconocido"}
     try:
@@ -2256,12 +2600,204 @@ def render_finding_card(finding):
     )
 
 
+def _cyberpass_public_url(slug):
+    base = get_public_base_url()
+    if base:
+        return f"{base}/?pass={slug}"
+    return f"/?pass={slug}"
+
+
+def render_public_cyberpass(slug):
+    pass_record = get_cyberpass_by_slug(slug)
+
+    if not pass_record or not pass_record.get("is_public"):
+        st.error("Este CyberPass no existe o actualmente es privado.")
+        st.caption("El propietario puede haberlo despublicado.")
+        st.stop()
+
+    domain = pass_record["domain"]
+    verification = get_domain_verification(domain)
+
+    if not verification or verification.get("status") != "verified":
+        st.error("Este CyberPass no tiene una verificación de dominio válida.")
+        st.stop()
+
+    latest = get_latest_scan_for_verified_domain(
+        domain,
+        pass_record.get("organization_id")
+    )
+
+    if latest is None:
+        st.error("Este CyberPass todavía no tiene una evaluación compatible publicada.")
+        st.stop()
+
+    findings = safe_findings(latest["findings_json"])
+    meta = safe_meta(latest.get("scan_meta_json"))
+
+    if not meta:
+        meta = fallback_scan_meta(findings)
+
+    score = int(latest["risk_score"] or 0)
+    status_label, status_description = score_status(score)
+    categories = meta.get("category_scores", {})
+
+    # Public mode must not expose internal workspace navigation or findings.
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"] { display: none !important; }
+            .block-container { max-width: 980px; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown('<div class="trust-shell">', unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="trust-hero">
+            <span class="verified-pill">✓ DOMAIN OWNERSHIP VERIFIED</span>
+            <div style="margin-top:20px;color:#9fb7df;font-size:12px;font-weight:800;letter-spacing:1px;">
+                CYBERPASS BY CYBERAUDITS
+            </div>
+            <div class="trust-domain">{html.escape(domain)}</div>
+            <div style="display:flex;align-items:flex-end;gap:12px;margin-top:24px;">
+                <div style="font-size:64px;font-weight:900;line-height:.95;letter-spacing:-3px;">{score}</div>
+                <div style="font-size:20px;color:#b7c8e6;margin-bottom:7px;">/100</div>
+            </div>
+            <div style="margin-top:12px;font-weight:800;">{html.escape(status_label)}</div>
+            <div style="margin-top:6px;color:#d8e4f8;font-size:13px;">{html.escape(status_description)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Cobertura", f"{meta.get('coverage', 0)}%")
+    m2.metric("Confianza", meta.get("confidence", "N/D"))
+    m3.metric("Última evaluación", str(latest["timestamp"])[:10])
+
+    st.markdown("### Controles evaluados")
+    public_categories = [
+        "TLS & Certificado",
+        "Seguridad Web",
+        "Transporte",
+        "Exposición",
+        "DNS Security",
+        "Email Security"
+    ]
+
+    for start in (0, 3):
+        cols = st.columns(3)
+        for col, label in zip(cols, public_categories[start:start + 3]):
+            value = categories.get(label)
+            with col:
+                if value is None:
+                    st.metric(label, "N/D")
+                else:
+                    st.metric(label, f"{int(value)}/100")
+
+    st.markdown(
+        """
+        <div class="small-note" style="margin-top:18px;">
+            <strong>Qué significa:</strong> este CyberPass muestra una fotografía de controles
+            técnicos que CyberAudits pudo verificar en la fecha indicada. No es una certificación,
+            no garantiza ausencia de vulnerabilidades y no publica IPs, hallazgos concretos,
+            puertos ni evidencia técnica sensible.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if st.button("Analizar mi empresa con CyberAudits", type="primary", use_container_width=True):
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+        st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+
+def require_private_beta_login():
+    configured_password = _secret_value("auth", "admin_password", "")
+
+    if not configured_password:
+        st.markdown(
+            """
+            <div class="auth-shell">
+                <div class="ca-kicker">CYBERAUDITS PRIVATE BETA</div>
+                <h2 style="margin-top:6px;">Configuración de acceso requerida</h2>
+                <p class="muted">
+                    La aplicación administrativa está bloqueada hasta configurar
+                    una contraseña en Streamlit Secrets.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        st.error(
+            'Agregá en Streamlit Secrets: [auth] admin_password = "TU_CLAVE_SEGURA"'
+        )
+        st.stop()
+
+    if st.session_state.get("authenticated", False):
+        return
+
+    st.markdown(
+        """
+        <div class="auth-shell">
+            <div class="ca-kicker">CYBERAUDITS 2.5 · PRIVATE BETA</div>
+            <h2 style="margin-top:6px;">Acceso al workspace</h2>
+            <p class="muted">
+                Esta instancia contiene historial, reportes y controles administrativos.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    with st.form("private_beta_login"):
+        candidate = st.text_input("Contraseña", type="password")
+        submit = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+
+    if submit:
+        if hmac.compare_digest(candidate, configured_password):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta.")
+
+    st.stop()
+
+
+# Public CyberPass routes are intentionally available without admin login.
+try:
+    public_pass_slug = st.query_params.get("pass", "")
+except Exception:
+    public_pass_slug = ""
+
+if isinstance(public_pass_slug, list):
+    public_pass_slug = public_pass_slug[0] if public_pass_slug else ""
+
+if public_pass_slug:
+    render_public_cyberpass(public_pass_slug)
+
+# Everything below this point is administrative/private-beta functionality.
+require_private_beta_login()
+
 # ==========================================
 # SIDEBAR / WORKSPACE
 # ==========================================
 
 st.sidebar.markdown("## 🛡️ CyberAudits")
-st.sidebar.caption("Security Posture Workspace")
+st.sidebar.caption("Security Posture Workspace · Private Beta")
+
+if st.sidebar.button("Cerrar sesión", use_container_width=True):
+    st.session_state.authenticated = False
+    st.rerun()
+
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("### Organización")
@@ -2381,7 +2917,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.4.2 · SECURITY POSTURE</div>
+        <div class="ca-kicker">CYBERAUDITS 2.5 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -2676,74 +3212,175 @@ with tab_dashboard:
             )
 
         st.markdown("---")
-        st.markdown("### CyberPass · vista privada")
+        st.markdown("### CyberPass · Trust Profile")
 
-        pass_left, pass_right = st.columns([1.35, 1])
+        st.write(
+            "El CyberPass puede hacerse público **solo después de demostrar control del dominio**. "
+            "La vista pública nunca muestra IPs, hallazgos concretos, puertos ni evidencia sensible."
+        )
 
-        with pass_left:
-            pass_org = (
-                selected_org_name
-                if selected_org_name != "General / Sin asignar"
-                else latest["hostname"]
+        suggested_domain = latest_meta.get("email_domain") or latest["hostname"]
+
+        pass_domain = st.text_input(
+            "Dominio que querés verificar",
+            value=str(suggested_domain),
+            key="cyberpass_domain_input",
+            help=(
+                "Debe ser el dominio que controlás. Si verificás empresa.com, "
+                "el CyberPass puede usar evaluaciones de empresa.com o de sus subdominios."
+            )
+        )
+
+        try:
+            clean_pass_domain = _clean_domain(pass_domain)
+        except Exception:
+            clean_pass_domain = ""
+
+        verification = None
+        pass_record = None
+        matching_scan = None
+
+        if clean_pass_domain:
+            verification = get_domain_verification(clean_pass_domain)
+            pass_record = get_cyberpass_by_domain(clean_pass_domain)
+            matching_scan = get_latest_scan_for_verified_domain(
+                clean_pass_domain,
+                selected_org_id
             )
 
-            st.markdown(
-                f"""
-                <div class="pass-card">
-                    <span class="pass-pill">PRIVATE PREVIEW</span>
-                    <div style="margin-top:20px;font-size:13px;color:#b9c9e8;">
-                        CYBERPASS BY CYBERAUDITS
-                    </div>
-                    <div style="font-size:22px;font-weight:800;margin-top:5px;">
-                        {html.escape(str(pass_org))}
-                    </div>
-                    <div class="pass-score">{score}/100</div>
-                    <div style="margin-top:8px;color:#d8e4fb;">
-                        {status_label} · Cobertura {latest_meta.get('coverage', 0)}%
-                        · Confianza {latest_meta.get('confidence', 'N/D')}
-                    </div>
-                    <div style="margin-top:18px;font-size:12px;color:#d7e4fb;">
-                        DNS Security:
-                        {'evaluado' if latest_meta.get('category_scores', {}).get('DNS Security') is not None else 'N/D'}
-                        · Email Security:
-                        {'evaluado' if latest_meta.get('category_scores', {}).get('Email Security') is not None else 'N/D'}
-                    </div>
-                    <div style="margin-top:12px;font-size:12px;color:#9fb4d9;">
-                        Última verificación: {html.escape(str(latest['timestamp']))}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+        verify_left, verify_right = st.columns([1.15, 1])
 
-        with pass_right:
-            st.write(
-                "**¿Qué será el CyberPass?** Una vista compartible que "
-                "permita demostrar qué controles fueron verificados, sin "
-                "exponer detalles técnicos sensibles."
-            )
+        with verify_left:
+            if not verification:
+                if st.button(
+                    "Generar verificación DNS",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not bool(clean_pass_domain)
+                ):
+                    verification = get_or_create_domain_verification(
+                        clean_pass_domain,
+                        selected_org_id
+                    )
+                    st.rerun()
 
-            st.write(
-                "En esta fase permanece **privado**. La publicación con URL, "
-                "verificación de propiedad y controles de privacidad se "
-                "implementará después de validar este dashboard."
-            )
+            else:
+                is_verified = verification.get("status") == "verified"
 
-            if st.button(
-                "Preparar CyberPass",
-                use_container_width=True
-            ):
-                st.session_state.cyberpass_ready = True
+                if is_verified:
+                    st.success(
+                        f"✅ Dominio verificado: {clean_pass_domain}"
+                    )
+                    st.caption(
+                        f"Verificado: {verification.get('verified_at') or 'fecha no disponible'}"
+                    )
+                else:
+                    st.info("Agregá este registro en el DNS del dominio:")
+                    st.code(
+                        f"Tipo: TXT\n"
+                        f"Nombre/Host: _cyberaudits\n"
+                        f"Nombre completo: _cyberaudits.{clean_pass_domain}\n"
+                        f"Valor: cyberaudits-verification={verification['token']}",
+                        language="text"
+                    )
 
-            if st.session_state.cyberpass_ready:
+                    if st.button(
+                        "Comprobar DNS ahora",
+                        use_container_width=True
+                    ):
+                        ok, found_records, message = verify_domain_ownership(
+                            clean_pass_domain
+                        )
+
+                        if ok:
+                            ensure_cyberpass(
+                                clean_pass_domain,
+                                selected_org_id
+                            )
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.warning(message)
+                            if found_records:
+                                st.caption(
+                                    "TXT encontrados: " + " | ".join(found_records[:5])
+                                )
+
+        with verify_right:
+            if clean_pass_domain and matching_scan is None:
+                st.warning(
+                    "Todavía no existe un Security Scan compatible con este dominio. "
+                    "Escaneá el dominio o uno de sus subdominios antes de publicar el CyberPass."
+                )
+            elif matching_scan is not None:
                 st.success(
-                    "Vista preparada. Todavía no se creó ningún enlace público."
+                    f"Evaluación compatible encontrada · CyberScore "
+                    f"{int(matching_scan['risk_score'])}/100"
                 )
 
-            st.caption(
-                "CyberPass no será una certificación ni una garantía de "
-                "seguridad; mostrará evidencia verificable y fecha de revisión."
-            )
+            if verification and verification.get("status") == "verified":
+                pass_record = ensure_cyberpass(
+                    clean_pass_domain,
+                    selected_org_id
+                )
+
+                if pass_record.get("is_public"):
+                    st.success("🌎 CyberPass público")
+
+                    public_url = _cyberpass_public_url(
+                        pass_record["slug"]
+                    )
+                    st.text_input(
+                        "Enlace público",
+                        value=public_url,
+                        disabled=True,
+                        key=f"pass_url_{pass_record['id']}"
+                    )
+
+                    badge_html = (
+                        f'<a href="{public_url}" target="_blank" '
+                        f'rel="noopener noreferrer">'
+                        f'🛡 Security posture verified by CyberAudits</a>'
+                    )
+
+                    with st.expander("Código del badge para tu web"):
+                        st.code(badge_html, language="html")
+
+                    if st.button(
+                        "🔒 Hacer privado",
+                        use_container_width=True
+                    ):
+                        set_cyberpass_visibility(
+                            clean_pass_domain,
+                            False
+                        )
+                        st.rerun()
+
+                else:
+                    st.info("🔒 CyberPass privado")
+
+                    if matching_scan is not None:
+                        if st.button(
+                            "🌎 Publicar CyberPass",
+                            type="primary",
+                            use_container_width=True
+                        ):
+                            set_cyberpass_visibility(
+                                clean_pass_domain,
+                                True
+                            )
+                            st.rerun()
+                    else:
+                        st.button(
+                            "🌎 Publicar CyberPass",
+                            disabled=True,
+                            use_container_width=True
+                        )
+
+        st.caption(
+            "Importante: verificar el dominio demuestra control técnico del DNS; "
+            "no convierte el CyberPass en una certificación de seguridad ni identidad legal."
+        )
 
 
 # ==========================================
