@@ -316,6 +316,11 @@ st.markdown("""
         color: #047857;
     }
 
+    .status-suspended {
+        background: #fef2f2;
+        color: #b91c1c;
+    }
+
     .public-footer {
         margin-top: 40px;
         padding: 20px 0;
@@ -1301,6 +1306,51 @@ def set_member_password_change_required(email, required=True):
 
         if "postgres" not in st.secrets:
             conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+
+def set_client_access_status(lead_id, email, status):
+    """
+    Cambia el estado de acceso tanto en el lead como en la membresía.
+    No elimina datos históricos del cliente.
+    """
+    email = (email or "").strip().lower()
+    status = (status or "").strip()
+
+    if status not in {"Activo", "Suspendido"}:
+        raise ValueError("Estado de acceso no permitido.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+
+    try:
+        c.execute(
+            f"""
+            UPDATE public_leads
+            SET status = {ph},
+                last_error = NULL
+            WHERE id = {ph}
+            """,
+            (status, int(lead_id))
+        )
+
+        c.execute(
+            f"""
+            UPDATE organization_members
+            SET status = {ph},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE LOWER(email) = LOWER({ph})
+            """,
+            (status, email)
+        )
+
+        if "postgres" not in st.secrets:
+            conn.commit()
+
     finally:
         c.close()
         conn.close()
@@ -4262,6 +4312,41 @@ def render_client_portal():
     if not st.session_state.get("client_authenticated", False):
         render_client_login()
 
+    # Access is re-checked on every Streamlit rerun so an administrator
+    # can suspend an already logged-in client.
+    current_member = get_member_for_identity(
+        user_id=st.session_state.get("client_user_id"),
+        email=st.session_state.get("client_email")
+    )
+
+    if (
+        not current_member
+        or str(current_member.get("status") or "") == "Suspendido"
+    ):
+        _clear_client_session()
+
+        st.error(
+            "Tu acceso a CyberAudits fue suspendido por un administrador."
+        )
+
+        st.caption(
+            "Tus evaluaciones e informes no fueron eliminados. "
+            "Contactá al administrador si necesitás recuperar el acceso."
+        )
+
+        if st.button(
+            "Volver a la página pública",
+            use_container_width=True,
+            key="suspended_back_public"
+        ):
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.rerun()
+
+        st.stop()
+
     if st.session_state.get("client_must_change_password", False):
         render_client_password_change()
 
@@ -4451,6 +4536,17 @@ def render_client_portal():
                     f"{latest['hostname']}"
                 )
 
+            email_category = (
+                meta.get("category_scores", {}).get("Email Security")
+                if isinstance(meta.get("category_scores"), dict)
+                else None
+            )
+
+            if email_category is not None and meta.get("email_domain"):
+                st.caption(
+                    f"Email Security evaluado sobre: {meta.get('email_domain')}"
+                )
+
             st.markdown("### Prioridades")
 
             if actionable:
@@ -4517,14 +4613,28 @@ def render_client_portal():
             )
 
             st.caption(
-                "El portal limita la evaluación al dominio asociado "
-                "a tu organización."
+                "El portal limita la evaluación web al dominio asociado "
+                "a tu organización. La seguridad de correo se evalúa "
+                "por separado y solo si indicás un dominio de correo real."
             )
 
             client_email_domain = st.text_input(
                 "Dominio corporativo de correo · opcional",
-                value=primary_domain,
-                key="client_email_domain"
+                value="",
+                placeholder="empresa.com",
+                key="client_email_domain",
+                help=(
+                    "Completalo solo si este dominio realmente se usa "
+                    "para correo corporativo. Si lo dejás vacío, "
+                    "Email Security quedará como N/D."
+                )
+            )
+
+            st.caption(
+                "No uses automáticamente el dominio del sitio web como "
+                "dominio de correo. Por ejemplo, si tu web está alojada "
+                "en Streamlit pero tu correo usa otro dominio, dejá este "
+                "campo vacío o ingresá únicamente el dominio real del correo."
             )
 
             if st.button(
@@ -4849,7 +4959,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.8.2 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.8.4 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -5047,7 +5157,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.8.2 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.8.4 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -6490,7 +6600,7 @@ with tab_leads:
         st.info("Todavía no hay solicitudes de acceso beta.")
 
     else:
-        l1, l2, l3, l4 = st.columns(4)
+        l1, l2, l3, l4, l5 = st.columns(5)
 
         l1.metric("Leads", len(leads_df))
 
@@ -6511,6 +6621,13 @@ with tab_leads:
         l4.metric(
             "Activos",
             int((leads_df["status"] == "Activo").sum())
+            if "status" in leads_df.columns
+            else 0
+        )
+
+        l5.metric(
+            "Suspendidos",
+            int((leads_df["status"] == "Suspendido").sum())
             if "status" in leads_df.columns
             else 0
         )
@@ -6536,11 +6653,18 @@ with tab_leads:
                 "Pendiente": "status-pending",
                 "Invitado": "status-invited",
                 "Confirmado": "status-confirmed",
-                "Activo": "status-active"
+                "Activo": "status-active",
+                "Suspendido": "status-suspended"
             }.get(status, "status-pending")
 
-            info_col, action_col, access_col, delete_col = st.columns(
-                [7.6, 2.2, 2.4, 0.8],
+            (
+                info_col,
+                action_col,
+                access_col,
+                revoke_col,
+                delete_col
+            ) = st.columns(
+                [6.8, 2.0, 2.2, 2.1, 0.7],
                 vertical_alignment="center"
             )
 
@@ -6595,7 +6719,7 @@ with tab_leads:
                                 f"No se pudo enviar la invitación: {e}"
                             )
 
-                else:
+                elif status != "Suspendido":
                     if st.button(
                         "🔄 Actualizar estado",
                         key=f"refresh_lead_{lead_id}",
@@ -6698,6 +6822,75 @@ with tab_leads:
                         "Primero debe aceptar la invitación."
                     )
 
+            with revoke_col:
+                if status in {"Activo", "Confirmado"}:
+                    if st.button(
+                        "⛔ Suspender acceso",
+                        key=f"suspend_access_{lead_id}",
+                        help=(
+                            "Bloquea el Portal Cliente sin eliminar "
+                            "la organización ni su historial."
+                        ),
+                        use_container_width=True
+                    ):
+                        try:
+                            set_client_access_status(
+                                lead_id,
+                                email,
+                                "Suspendido"
+                            )
+
+                            payload = st.session_state.get(
+                                "temp_access_payload"
+                            )
+
+                            if (
+                                payload
+                                and int(payload.get("lead_id", -1)) == lead_id
+                            ):
+                                st.session_state.pop(
+                                    "temp_access_payload",
+                                    None
+                                )
+
+                            st.success(
+                                f"Acceso suspendido para {email}."
+                            )
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(
+                                f"No se pudo suspender el acceso: {e}"
+                            )
+
+                elif status == "Suspendido":
+                    if st.button(
+                        "✅ Restaurar acceso",
+                        key=f"restore_access_{lead_id}",
+                        type="primary",
+                        help="Vuelve a habilitar el Portal Cliente.",
+                        use_container_width=True
+                    ):
+                        try:
+                            set_client_access_status(
+                                lead_id,
+                                email,
+                                "Activo"
+                            )
+
+                            st.success(
+                                f"Acceso restaurado para {email}."
+                            )
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(
+                                f"No se pudo restaurar el acceso: {e}"
+                            )
+
+                elif status == "Invitado":
+                    st.caption("Esperando activación")
+
             with delete_col:
                 # Once invited, deleting the lead alone would NOT revoke Auth access.
                 # We therefore only allow quick deletion while it is still pending.
@@ -6747,8 +6940,8 @@ with tab_leads:
 
         st.info(
             "Los usuarios Activos pueden recibir un acceso temporal. "
-            "El portal cliente filtra toda la información por organization_id "
-            "y obliga a cambiar la contraseña en el primer ingreso."
+            "También podés suspender y restaurar el acceso sin borrar "
+            "la organización, los escaneos ni los reportes del cliente."
         )
 
         st.caption(
