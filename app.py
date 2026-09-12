@@ -1856,7 +1856,77 @@ def update_client_remediation_task(organization_id, task_id, new_status, note):
         conn.close()
 
 
-def generate_client_docx(hostname, findings, cyber_score, profile):
+def verify_solved_tasks_after_rescan(
+    organization_id,
+    source_scan_id,
+    new_findings
+):
+    """Solo CyberAudits puede asignar Verificado."""
+    remaining_vectors = {
+        str(f.get("vector") or "").strip()
+        for f in (new_findings or [])
+        if is_actionable(f)
+    }
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        c.execute(
+            f"""
+            SELECT id, finding_vector
+            FROM remediation_tasks
+            WHERE organization_id = {ph}
+              AND scan_id = {ph}
+              AND status = 'Solucionado'
+            """,
+            (int(organization_id), int(source_scan_id))
+        )
+
+        rows = c.fetchall()
+        verified = 0
+
+        for task_id, finding_vector in rows:
+            if str(finding_vector or "").strip() in remaining_vectors:
+                continue
+
+            c.execute(
+                f"""
+                UPDATE remediation_tasks
+                SET status = 'Verificado'
+                WHERE id = {ph}
+                  AND organization_id = {ph}
+                """,
+                (int(task_id), int(organization_id))
+            )
+
+            c.execute(
+                f"""
+                INSERT INTO remediation_logs
+                (task_id, timestamp, status, notes)
+                VALUES ({ph}, {ph}, 'Verificado', {ph})
+                """,
+                (
+                    int(task_id),
+                    now,
+                    "CyberAudits volvió a evaluar el objetivo y el hallazgo ya no fue detectado."
+                )
+            )
+            verified += 1
+
+        if "postgres" not in st.secrets:
+            conn.commit()
+
+        return verified
+
+    finally:
+        c.close()
+        conn.close()
+
+
+def generate_client_docx(hostname, findings, cyber_score, profile, scan_meta=None):
     doc = Document()
     for section in doc.sections:
         section.top_margin = Inches(0.7)
@@ -1885,10 +1955,16 @@ def generate_client_docx(hostname, findings, cyber_score, profile):
     r.font.color.rgb = RGBColor(15, 23, 42)
 
     doc.add_paragraph(title)
+    scan_meta = scan_meta or {}
+    eval_state, eval_message = evaluation_status(scan_meta, findings)
+
     meta = (
         f"Dirigido a: {recipient}\n"
         f"Objetivo analizado: {hostname}\n"
-        f"CyberScore: {cyber_score}/100\n"
+        f"CyberScore técnico: {cyber_score}/100\n"
+        f"Estado de evaluación: {eval_state}\n"
+        f"Cobertura: {scan_meta.get('coverage', 'N/D')}%\n"
+        f"Confianza: {scan_meta.get('confidence', 'N/D')}\n"
         f"Fecha: {datetime.datetime.now().strftime('%Y-%m-%d')}"
     )
     if legal_name:
@@ -1896,6 +1972,12 @@ def generate_client_docx(hostname, findings, cyber_score, profile):
     if department:
         meta += f"\nÁrea responsable: {department}"
     doc.add_paragraph(meta)
+
+    if eval_state != "COMPLETA":
+        doc.add_paragraph(
+            f"Nota de integridad: {eval_message} "
+            "Un control no concluyente no se considera seguro ni vulnerable."
+        )
 
     doc.add_heading("Resumen de hallazgos", level=2)
     if not findings:
@@ -1923,7 +2005,10 @@ def generate_client_docx(hostname, findings, cyber_score, profile):
     return buffer.getvalue()
 
 
-def generate_client_pdf(findings, hostname, cyber_score, profile, output_filename):
+def generate_client_pdf(findings, hostname, cyber_score, profile, output_filename, scan_meta=None):
+    scan_meta = scan_meta or {}
+    eval_state, eval_message = evaluation_status(scan_meta, findings)
+
     display_name = html.escape(str(profile.get("display_name") or "Organización"))
     recipient = html.escape(str(profile.get("report_recipient") or "Dirección General"))
     title = html.escape(str(profile.get("report_title") or "Evaluación de Postura de Ciberseguridad"))
@@ -1973,6 +2058,7 @@ def generate_client_pdf(findings, hostname, cyber_score, profile, output_filenam
         .card-title {{ font-weight:700; margin-bottom:7px; }}
         .card-title span {{ float:right; font-size:8pt; background:#eef4ff; padding:2px 7px; border-radius:12px; }}
         .footer-note {{ margin-top:22px; color:#64748b; font-size:8.5pt; border-top:1px solid #e1e7f0; padding-top:9px; }}
+        .trust-note {{ margin-top:12px; padding:10px 12px; border-left:4px solid #f59e0b; background:#fffbeb; border-radius:6px; }}
     </style>
     </head>
     <body>
@@ -1985,9 +2071,21 @@ def generate_client_pdf(findings, hostname, cyber_score, profile, output_filenam
             <div><strong>Dirigido a:</strong> {recipient}</div>
             <div><strong>Objetivo:</strong> {html.escape(str(hostname))}</div>
             <div><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</div>
+            <div><strong>Estado de evaluación:</strong> {html.escape(eval_state)}</div>
+            <div><strong>Cobertura:</strong> {scan_meta.get('coverage', 'N/D')}%</div>
+            <div><strong>Confianza:</strong> {html.escape(str(scan_meta.get('confidence', 'N/D')))}</div>
             {extra_meta}
-            <div style="margin-top:8px;">CyberScore <span class="score">{int(cyber_score)}/100</span></div>
+            <div style="margin-top:8px;">CyberScore técnico <span class="score">{int(cyber_score)}/100</span></div>
         </div>
+        {
+            (
+                '<div class="trust-note"><strong>Nota de integridad:</strong> '
+                + html.escape(eval_message)
+                + ' Un control no concluyente no se considera seguro ni vulnerable.</div>'
+            )
+            if eval_state != "COMPLETA"
+            else ""
+        }
         <h2>Hallazgos y recomendaciones</h2>
         {cards}
         <div class="footer-note">{footer_text}<br>Powered by CyberAudits</div>
@@ -3627,28 +3725,79 @@ def scan_target(url, email_domain=""):
 # GENERADORES DE REPORTES (PDF Y DOCX DIFERENCIADOS)
 # ==========================================
 def generate_chart(stats):
-    labels, sizes, colors = list(stats.keys()), list(stats.values()), ['#dc2626', '#f59e0b', '#3b82f6', '#10b981']
-    non_zero = [(l, s, c) for l, s, c in zip(labels, sizes, colors) if s > 0]
-    if not non_zero: non_zero = [("Seguras", 1, "#10b981")]
-    l_f, s_f, c_f = zip(*non_zero)
+    palette = {
+        "Críticas": "#dc2626",
+        "Medias": "#f59e0b",
+        "Bajas": "#3b82f6",
+        "Seguras": "#10b981",
+        "Seguras verificadas": "#10b981",
+        "No concluyentes": "#94a3b8"
+    }
+
+    non_zero = [
+        (label, value, palette.get(label, "#64748b"))
+        for label, value in stats.items()
+        if int(value or 0) > 0
+    ]
+
+    if not non_zero:
+        non_zero = [("Sin datos concluyentes", 1, "#94a3b8")]
+
+    labels, sizes, colors = zip(*non_zero)
     fig, ax = plt.subplots(figsize=(4.5, 2.8))
-    ax.pie(s_f, labels=l_f, colors=c_f, autopct='%1.1f%%', startangle=90, textprops={'fontsize': 8, 'weight': 'bold'})
+    ax.pie(
+        sizes,
+        labels=labels,
+        colors=colors,
+        autopct='%1.1f%%',
+        startangle=90,
+        textprops={'fontsize': 8, 'weight': 'bold'}
+    )
     ax.axis('equal')
     plt.tight_layout()
+
     chart_path = "vulnerability_chart.png"
     plt.savefig(chart_path, dpi=300, bbox_inches='tight', transparent=True)
     plt.close()
-    with open(chart_path, "rb") as f: return base64.b64encode(f.read()).decode("utf-8")
 
-def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject):
+    with open(chart_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, scan_meta=None):
+    scan_meta = scan_meta or {}
+    eval_state, eval_message = evaluation_status(scan_meta, findings)
+
     doc = Document()
     for section in doc.sections: section.top_margin = section.bottom_margin = section.left_margin = section.right_margin = Inches(1)
     
     run_title = doc.add_paragraph().add_run(f"INFORME: {report_type.upper()}")
     run_title.font.size, run_title.font.bold, run_title.font.color.rgb = Pt(15), True, RGBColor(15, 23, 42)
     
-    doc.add_paragraph(f"Emitido por: {agency_name} ({agency_tagline})\nDirigido a: {recipient_name} | Asunto: {report_subject}\nObjetivo analizado: {hostname} | CyberScore de Seguridad: {risk_score}/100")
+    doc.add_paragraph(
+        f"Emitido por: {agency_name} ({agency_tagline})\n"
+        f"Dirigido a: {recipient_name} | Asunto: {report_subject}\n"
+        f"Objetivo analizado: {hostname}\n"
+        f"CyberScore técnico: {risk_score}/100 | Estado: {eval_state} | "
+        f"Cobertura: {scan_meta.get('coverage', 'N/D')}% | "
+        f"Confianza: {scan_meta.get('confidence', 'N/D')}"
+    )
+
+    if eval_state != "COMPLETA":
+        doc.add_paragraph(
+            f"Nota de integridad: {eval_message} "
+            "Los controles no concluyentes no se contabilizan como seguros."
+        )
     
+    trust_note_html = (
+        ""
+        if eval_state == "COMPLETA"
+        else (
+            '<div class="trust-note"><strong>Nota de integridad:</strong> '
+            + html.escape(eval_message)
+            + ' Los controles no concluyentes no se contabilizan como seguros.</div>'
+        )
+    )
+
     if "Técnico" in report_type:
         doc.add_heading("Detalle Técnico y Bloques de Configuración", level=2)
         for idx, f in enumerate(findings, 1):
@@ -3657,7 +3806,17 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
             doc.add_paragraph(f"Descripción técnica: {f['desc']}")
             doc.add_paragraph(f"Impacto operativo: {f['impact']}")
             p_fix = doc.add_paragraph()
-            p_fix.add_run(f"Remediación técnica / Snippet:\n{f.get('snippet', 'N/A')}").font.bold = True
+            snippet_text = (
+                f.get("snippet")
+                or (
+                    "No aplica: el control no pudo verificarse de forma concluyente."
+                    if not f.get("verified", True)
+                    else f.get("fix", "Sin bloque de configuración específico.")
+                )
+            )
+            p_fix.add_run(
+                f"Remediación técnica / Snippet:\n{snippet_text}"
+            ).font.bold = True
             
     elif "Narrativo" in report_type:
         doc.add_heading("Informe Ejecutivo y Situación Actual", level=2)
@@ -3687,7 +3846,10 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
     buffer.seek(0)
     return buffer.getvalue()
 
-def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, output_filename):
+def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, output_filename, scan_meta=None):
+    scan_meta = scan_meta or {}
+    eval_state, eval_message = evaluation_status(scan_meta, findings)
+
     css_base = """
         @page { size: A4; margin: 15mm; }
         body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #1e293b; line-height: 1.5; }
@@ -3701,6 +3863,8 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         .card-body { padding: 10px 12px; }
         .badge { float: right; padding: 2px 8px; border-radius: 12px; font-size: 7.5pt; color: white; }
         .bg-crit { background-color: #dc2626; } .bg-med { background-color: #f59e0b; } .bg-low { background-color: #3b82f6; }
+        td { vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+        .trust-note { margin: 10px 0 16px 0; padding: 9px 11px; background:#fffbeb; border-left:4px solid #f59e0b; border-radius:5px; }
     """
 
     if "Narrativo" in report_type:
@@ -3718,6 +3882,10 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                     <tr>
                         <td><strong>Objetivo Analizado:</strong> {hostname}</td>
                         <td><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Estado:</strong> {eval_state} · <strong>Cobertura:</strong> {scan_meta.get('coverage', 'N/D')}%</td>
+                        <td><strong>Confianza:</strong> {scan_meta.get('confidence', 'N/D')}</td>
                     </tr>
                 </table>
             </div>
@@ -3738,14 +3906,18 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                         <td><strong>Objetivo Analizado:</strong> {hostname}</td>
                         <td><strong>Fecha:</strong> {datetime.datetime.now().strftime('%Y-%m-%d')}</td>
                     </tr>
+                    <tr>
+                        <td><strong>Estado:</strong> {eval_state} · <strong>Cobertura:</strong> {scan_meta.get('coverage', 'N/D')}%</td>
+                        <td><strong>Confianza:</strong> {scan_meta.get('confidence', 'N/D')}</td>
+                    </tr>
                 </table>
             </div>
         """
 
     if "Técnico" in report_type:
-        content = header_html + f"""
+        content = header_html + trust_note_html + f"""
             <h2 class="title">1. Resumen Técnico de Postura</h2>
-            <p>CyberScore Técnico: <strong>{risk_score}/100</strong>.</p>
+            <p>CyberScore técnico sobre controles verificados: <strong>{risk_score}/100</strong>.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 250px;"></div>
             <h2 class="title">2. Evidencia de Hallazgos y Bloques de Configuración</h2>
         """
@@ -3759,17 +3931,24 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
                     <p><strong>Impacto Operativo:</strong> {f['impact']}</p>
                     <div style="background:#f0f9ff; border-left:3px solid #0284c7; padding:8px; margin-top:8px;">
                         <strong>Remediación Técnica (Snippet / Config):</strong><br>
-                        <code>{f.get('snippet', 'N/A')}</code>
+                        <code>{html.escape(str(
+                            f.get('snippet')
+                            or (
+                                "No aplica: el control no pudo verificarse de forma concluyente."
+                                if not f.get("verified", True)
+                                else f.get("fix", "Sin bloque de configuración específico.")
+                            )
+                        ))}</code>
                     </div>
                 </div>
             </div>
             """
             
     elif "Narrativo" in report_type:
-        content = header_html + f"""
+        content = header_html + trust_note_html + f"""
             <h2 class="title">Informe Ejecutivo y Situación Actual</h2>
             <p>Estimado/a <strong>{recipient_name}</strong>,</p>
-            <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha determinado un CyberScore global de <strong>{risk_score} sobre 100</strong>, donde una puntuación mayor representa una mejor postura de seguridad.</p>
+            <p>Por medio del presente documento, el equipo de auditoría emite el dictamen gerencial respecto al análisis perimetral realizado sobre el objetivo <strong>{hostname}</strong>. Tras la evaluación, se ha calculado un CyberScore técnico de <strong>{risk_score} sobre 100</strong> sobre los controles que pudieron verificarse de forma concluyente.</p>
             <h2 class="title">Análisis de Hallazgos y Consecuencias</h2>
             <p>A continuación se detallan las situaciones detectadas, lo que está pasando y el impacto crítico para la continuidad del negocio en caso de no aplicarse las medidas correctivas:</p>
         """
@@ -3788,9 +3967,9 @@ def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_
         content += "<p style='margin-top:15px;'>Quedamos a su entera disposición para coordinar y notificar las acciones correctivas con las áreas responsables.</p>"
         
     else: # ISO / Compliance
-        content = header_html + f"""
+        content = header_html + trust_note_html + f"""
             <h2 class="title">1. Mapa Orientativo de Controles (ISO 27001 / NIST)</h2>
-            <p>CyberScore Técnico: <strong>{risk_score}/100</strong>. Este informe relaciona hallazgos técnicos con referencias de buenas prácticas y no constituye una certificación de cumplimiento.</p>
+            <p>CyberScore técnico sobre controles verificados: <strong>{risk_score}/100</strong>. Este informe relaciona hallazgos técnicos con referencias de buenas prácticas y no constituye una certificación de cumplimiento.</p>
             <div style="text-align: center; margin: 15px 0;"><img src="data:image/png;base64,{chart_b64}" style="width: 220px;"></div>
             <h2 class="title">2. Análisis de Controles Incumplidos y Marcos Regulatorios</h2>
         """
@@ -3935,6 +4114,67 @@ def score_status(score):
     return "CRÍTICA", "Se detectaron riesgos que requieren revisión inmediata."
 
 
+def evaluation_status(meta, findings=None):
+    """Clasifica la completitud sin confundir no-concluyente con seguro."""
+    meta = meta or {}
+    findings = findings or []
+
+    if meta.get("legacy_meta"):
+        return (
+            "PARCIAL",
+            "Este registro histórico no contiene el detalle completo de cobertura de las versiones actuales."
+        )
+
+    for finding in findings:
+        if (
+            finding.get("category") == "Validación"
+            and finding.get("severity") == "CRÍTICO"
+        ):
+            return (
+                "FALLIDA",
+                "La evaluación no pudo iniciarse o completarse de forma válida."
+            )
+
+    evaluated = meta.get("evaluated_by_category") or {}
+    inconclusive_map = meta.get("inconclusive_by_category") or {}
+
+    verified_checks = meta.get("verified_checks")
+    if verified_checks is None:
+        verified_checks = sum(int(v or 0) for v in evaluated.values())
+
+    inconclusive = sum(int(v or 0) for v in inconclusive_map.values())
+    coverage = int(meta.get("coverage", 0) or 0)
+
+    if int(verified_checks or 0) <= 0:
+        return (
+            "FALLIDA",
+            "No hubo controles suficientes verificados para emitir una evaluación."
+        )
+
+    if inconclusive > 0 or coverage < 100:
+        return (
+            "PARCIAL",
+            "El CyberScore se calcula únicamente sobre los controles que pudieron verificarse."
+        )
+
+    return (
+        "COMPLETA",
+        "Todos los controles intentados en esta evaluación fueron concluyentes."
+    )
+
+
+def trusted_score_status(score, meta, findings=None):
+    state, message = evaluation_status(meta, findings)
+
+    if state == "FALLIDA":
+        return "EVALUACIÓN FALLIDA", message
+
+    if state == "PARCIAL":
+        return "EVALUACIÓN PARCIAL", message
+
+    return score_status(score)
+
+
 def category_scores(findings, scan_details=None):
     groups = {
         "TLS & Certificado": {"TLS"},
@@ -3948,6 +4188,9 @@ def category_scores(findings, scan_details=None):
     evaluated = (
         (scan_details or {}).get("evaluated_by_category", {})
     )
+    inconclusive = (
+        (scan_details or {}).get("inconclusive_by_category", {})
+    )
 
     result = {}
 
@@ -3956,6 +4199,15 @@ def category_scores(findings, scan_details=None):
             int(evaluated.get(category, 0) or 0)
             for category in categories
         )
+        inconclusive_count = sum(
+            int(inconclusive.get(category, 0) or 0)
+            for category in categories
+        )
+
+        # Un control inconcluso nunca se presenta como 100/100.
+        if scan_details is not None and inconclusive_count > 0:
+            result[label] = None
+            continue
 
         if scan_details is not None and evaluated_count <= 0:
             result[label] = None
@@ -3981,16 +4233,22 @@ def category_scores(findings, scan_details=None):
 def build_scan_meta(stats, findings, scan_details=None):
     scan_details = scan_details or {}
 
+    evaluated_map = scan_details.get("evaluated_by_category", {})
+    inconclusive_map = scan_details.get("inconclusive_by_category", {})
+
     inconclusive = sum(
         int(v or 0)
-        for v in scan_details.get(
-            "inconclusive_by_category",
-            {}
-        ).values()
+        for v in inconclusive_map.values()
     )
 
-    # Backward-compatible fallback for older scan engine behavior.
-    if not scan_details:
+    if scan_details:
+        # Incluye controles informativos que sí fueron verificados.
+        verified_checks = sum(
+            int(v or 0)
+            for v in evaluated_map.values()
+        )
+    else:
+        verified_checks = int(sum(stats.values()))
         inconclusive = sum(
             1
             for f in findings
@@ -4000,7 +4258,6 @@ def build_scan_meta(stats, findings, scan_details=None):
             )
         )
 
-    verified_checks = int(sum(stats.values()))
     total_checks = verified_checks + inconclusive
 
     if total_checks <= 0:
@@ -4017,48 +4274,77 @@ def build_scan_meta(stats, findings, scan_details=None):
     else:
         confidence = "BAJA"
 
-    return {
+    meta = {
         "verified_checks": verified_checks,
         "total_checks": total_checks,
         "coverage": coverage,
         "confidence": confidence,
-        "category_scores": category_scores(
-            findings,
-            scan_details
-        ),
-        "email_domain": scan_details.get(
-            "email_domain",
-            ""
-        ),
-        "evaluated_by_category": scan_details.get(
-            "evaluated_by_category",
-            {}
-        ),
-        "inconclusive_by_category": scan_details.get(
-            "inconclusive_by_category",
-            {}
-        ),
-        "dnssec_ad": scan_details.get(
-            "dnssec_ad"
-        )
+        "category_scores": category_scores(findings, scan_details),
+        "email_domain": scan_details.get("email_domain", ""),
+        "evaluated_by_category": evaluated_map,
+        "inconclusive_by_category": inconclusive_map,
+        "dnssec_ad": scan_details.get("dnssec_ad")
     }
+
+    state, _ = evaluation_status(meta, findings)
+    meta["evaluation_status"] = state
+    return meta
 
 
 def fallback_scan_meta(findings):
-    informational = sum(
+    inconclusive = sum(
         1
         for f in findings
-        if f.get("severity") == "INFORMATIVO"
+        if (
+            f.get("severity") == "INFORMATIVO"
+            and not f.get("verified", True)
+        )
     )
 
-    coverage = 100 if informational == 0 else 80
+    groups = {
+        "TLS & Certificado": {"TLS"},
+        "Seguridad Web": {"Headers", "Cookies"},
+        "Transporte": {"Transporte"},
+        "Exposición": {"Exposición"},
+        "DNS Security": {"DNS"},
+        "Email Security": {"Email"}
+    }
+
+    legacy_scores = {}
+    for label, categories in groups.items():
+        category_findings = [
+            f for f in findings
+            if f.get("category") in categories
+        ]
+        if not category_findings:
+            legacy_scores[label] = None
+            continue
+
+        if any(not f.get("verified", True) for f in category_findings):
+            legacy_scores[label] = None
+            continue
+
+        penalty = sum(
+            finding_weight(f)
+            for f in category_findings
+            if is_actionable(f)
+        )
+        legacy_scores[label] = max(0, 100 - min(100, penalty))
 
     return {
-        "verified_checks": None,
-        "total_checks": None,
-        "coverage": coverage,
-        "confidence": "ALTA" if coverage >= 90 else "MEDIA",
-        "category_scores": category_scores(findings, None)
+        "verified_checks": max(1, len(findings) - inconclusive),
+        "total_checks": max(1, len(findings)),
+        "coverage": 80 if inconclusive else 100,
+        "confidence": "BAJA",
+        "category_scores": legacy_scores,
+        "evaluated_by_category": {},
+        "inconclusive_by_category": (
+            {"Legacy": inconclusive}
+            if inconclusive
+            else {}
+        ),
+        "legacy_meta": True,
+        "evaluation_status": "PARCIAL"
     }
 
 
@@ -4128,9 +4414,14 @@ def evaluation_target(row):
 
 
 def evaluation_label(row):
+    findings = safe_findings(row.get("findings_json"))
+    meta = safe_meta(row.get("scan_meta_json")) or fallback_scan_meta(findings)
+    state, _ = evaluation_status(meta, findings)
+
     return (
         f"#{int(row['id'])} · {row['timestamp']} · "
-        f"{evaluation_target(row)} · CyberScore {int(row['risk_score'])}/100"
+        f"{evaluation_target(row)} · "
+        f"CyberScore {int(row['risk_score'])}/100 · {state}"
     )
 
 
@@ -4266,7 +4557,7 @@ def render_public_cyberpass(slug):
         meta = fallback_scan_meta(findings)
 
     score = int(latest["risk_score"] or 0)
-    status_label, status_description = score_status(score)
+    status_label, status_description = trusted_score_status(score, meta, findings)
     categories = meta.get("category_scores", {})
 
     # Public mode must not expose internal workspace navigation or findings.
@@ -4491,7 +4782,7 @@ def render_public_home():
             if is_actionable(f)
         ]
 
-        status_label, status_description = score_status(score)
+        status_label, status_description = trusted_score_status(score, meta, findings)
 
         st.markdown("---")
         st.markdown("## Resultado preliminar")
@@ -4979,7 +5270,15 @@ def render_client_portal():
             findings = safe_findings(latest["findings_json"])
             meta = safe_meta(latest.get("scan_meta_json")) or fallback_scan_meta(findings)
             score = int(latest["risk_score"])
-            label, description = score_status(score)
+            label, description = trusted_score_status(
+                score,
+                meta,
+                findings
+            )
+            eval_state, eval_message = evaluation_status(
+                meta,
+                findings
+            )
             actionable = [f for f in findings if is_actionable(f)]
 
             score_col, info_col = st.columns([1.05, 2.2])
@@ -5007,7 +5306,17 @@ def render_client_portal():
                 s2.metric("Medios", sum(1 for f in actionable if f.get("severity") == "MEDIO"))
                 s3.metric("Bajos", sum(1 for f in actionable if f.get("severity") == "BAJO"))
 
-                st.caption(f"Última evaluación: {latest['timestamp']} · {latest['hostname']}")
+                st.caption(
+                    f"Última evaluación #{int(latest['id'])}: "
+                    f"{latest['timestamp']} · {evaluation_target(latest)}"
+                )
+
+            if eval_state == "PARCIAL":
+                st.warning("⚠️ Evaluación parcial: " + eval_message)
+            elif eval_state == "FALLIDA":
+                st.error("❌ Evaluación fallida: " + eval_message)
+            else:
+                st.success("✅ Evaluación completa: " + eval_message)
 
             st.markdown("### Postura por categoría")
             categories = meta.get("category_scores", {}) if isinstance(meta, dict) else {}
@@ -5478,31 +5787,11 @@ def render_client_portal():
                     "a esta evaluación."
                 )
             else:
-                c1, c2, c3 = st.columns(3)
-                c1.metric(
-                    "Pendientes",
-                    int(
-                        (
-                            tasks_df["status"] == "Pendiente"
-                        ).sum()
-                    )
-                )
-                c2.metric(
-                    "En proceso",
-                    int(
-                        (
-                            tasks_df["status"] == "En Proceso"
-                        ).sum()
-                    )
-                )
-                c3.metric(
-                    "Solucionados",
-                    int(
-                        (
-                            tasks_df["status"] == "Solucionado"
-                        ).sum()
-                    )
-                )
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Pendientes", int((tasks_df["status"] == "Pendiente").sum()))
+                c2.metric("En proceso", int((tasks_df["status"] == "En Proceso").sum()))
+                c3.metric("Solucionados", int((tasks_df["status"] == "Solucionado").sum()))
+                c4.metric("Verificados", int((tasks_df["status"] == "Verificado").sum()))
 
                 for _, task in tasks_df.iterrows():
                     task_id = int(task["id"])
@@ -5527,6 +5816,12 @@ def render_client_portal():
                         """,
                         unsafe_allow_html=True
                     )
+
+                    if current_status == "Verificado":
+                        st.success(
+                            "✅ Verificado por CyberAudits mediante una evaluación posterior."
+                        )
+                        continue
 
                     with st.form(
                         f"client_task_{task_id}_v210"
@@ -5650,6 +5945,12 @@ def render_client_portal():
                             target_url=normalized_target
                         )
 
+                        verified_count = verify_solved_tasks_after_rescan(
+                            org_id,
+                            scan_id,
+                            new_findings
+                        )
+
                     st.session_state[
                         "client_findings_scan_v210"
                     ] = int(new_scan_id)
@@ -5682,6 +5983,12 @@ def render_client_portal():
                             f"Verificación #{new_scan_id}: "
                             f"CyberScore sin cambios "
                             f"({new_score}/100)."
+                        )
+
+                    if verified_count:
+                        notice_text += (
+                            f" · {verified_count} ticket(s) quedaron "
+                            "Verificados por CyberAudits."
                         )
 
                     st.session_state[
@@ -5739,6 +6046,10 @@ def render_client_portal():
             findings = safe_findings(
                 row["findings_json"]
             )
+            report_meta = (
+                safe_meta(row.get("scan_meta_json"))
+                or fallback_scan_meta(findings)
+            )
 
             org_profile = get_organization_profile(
                 org_id,
@@ -5777,14 +6088,16 @@ def render_client_portal():
                 selected_target,
                 row["risk_score"],
                 org_profile,
-                pdf_name
+                pdf_name,
+                scan_meta=report_meta
             )
 
             docx_data = generate_client_docx(
                 selected_target,
                 findings,
                 row["risk_score"],
-                org_profile
+                org_profile,
+                scan_meta=report_meta
             )
 
             d1, d2 = st.columns(2)
@@ -5944,7 +6257,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.10 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.10.1 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -6142,7 +6455,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.10 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.10.1 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -6195,7 +6508,15 @@ with tab_dashboard:
             latest_meta = fallback_scan_meta(latest_findings)
 
         score = int(latest["risk_score"])
-        status_label, status_description = score_status(score)
+        status_label, status_description = trusted_score_status(
+            score,
+            latest_meta,
+            latest_findings
+        )
+        eval_state, eval_message = evaluation_status(
+            latest_meta,
+            latest_findings
+        )
 
         actionable = [
             f for f in latest_findings
@@ -6222,7 +6543,8 @@ with tab_dashboard:
 
         st.caption(
             f"Workspace: {selected_org_name} · "
-            f"Último objetivo: {latest['hostname']} · "
+            f"Evaluación #{int(latest['id'])} · "
+            f"Objetivo: {evaluation_target(latest)} · "
             f"Evaluado: {latest['timestamp']}"
         )
 
@@ -6295,6 +6617,13 @@ with tab_dashboard:
                     f"Variación respecto al escaneo anterior: "
                     f"{delta:+d} puntos."
                 )
+
+        if eval_state == "PARCIAL":
+            st.warning("⚠️ Evaluación parcial: " + eval_message)
+        elif eval_state == "FALLIDA":
+            st.error("❌ Evaluación fallida: " + eval_message)
+        else:
+            st.success("✅ Evaluación completa: " + eval_message)
 
         st.markdown("### Postura por categoría")
 
@@ -6895,30 +7224,43 @@ with tab_reports:
         stored_findings = safe_findings(
             selected_scan_row["findings_json"]
         )
-
-        st.caption(
-            f"Objetivo: {selected_scan_row['hostname']} · "
-            f"IP: {selected_scan_row['ip']} · "
-            f"CyberScore: {selected_scan_row['risk_score']}/100"
+        selected_scan_meta = (
+            safe_meta(selected_scan_row.get("scan_meta_json"))
+            or fallback_scan_meta(stored_findings)
+        )
+        selected_eval_state, selected_eval_message = evaluation_status(
+            selected_scan_meta,
+            stored_findings
         )
 
+        st.caption(
+            f"Objetivo: {evaluation_target(selected_scan_row)} · "
+            f"IP: {selected_scan_row['ip']} · "
+            f"CyberScore técnico: {selected_scan_row['risk_score']}/100 · "
+            f"Estado: {selected_eval_state} · "
+            f"Cobertura: {selected_scan_meta.get('coverage', 'N/D')}%"
+        )
+
+        if selected_eval_state != "COMPLETA":
+            st.warning(selected_eval_message)
+
+        inconclusive_count = sum(
+            int(v or 0)
+            for v in (
+                selected_scan_meta.get("inconclusive_by_category", {})
+                or {}
+            ).values()
+        )
+        verified_checks = int(selected_scan_meta.get("verified_checks") or 0)
+        actionable_count = count_actionable(stored_findings)
+        safe_verified = max(0, verified_checks - actionable_count)
+
         stats_dummy = {
-            "Críticas": sum(
-                1 for x in stored_findings
-                if x.get("severity") == "CRÍTICO"
-            ),
-            "Medias": sum(
-                1 for x in stored_findings
-                if x.get("severity") == "MEDIO"
-            ),
-            "Bajas": sum(
-                1 for x in stored_findings
-                if x.get("severity") == "BAJO"
-            ),
-            "Seguras": max(
-                1,
-                10 - count_actionable(stored_findings)
-            )
+            "Críticas": sum(1 for x in stored_findings if x.get("severity") == "CRÍTICO"),
+            "Medias": sum(1 for x in stored_findings if x.get("severity") == "MEDIO"),
+            "Bajas": sum(1 for x in stored_findings if x.get("severity") == "BAJO"),
+            "Seguras verificadas": safe_verified,
+            "No concluyentes": inconclusive_count
         }
 
         chart_b64 = generate_chart(stats_dummy)
@@ -6943,7 +7285,8 @@ with tab_reports:
                 "Informe Técnico Exhaustivo",
                 recipient_name,
                 report_subject,
-                pdf_tech
+                pdf_tech,
+                scan_meta=selected_scan_meta
             )
 
             docx_tech = generate_docx(
@@ -6954,7 +7297,8 @@ with tab_reports:
                 agency_tagline,
                 "Informe Técnico Exhaustivo",
                 recipient_name,
-                report_subject
+                report_subject,
+                scan_meta=selected_scan_meta
             )
 
             with open(pdf_tech, "rb") as f:
@@ -7000,7 +7344,8 @@ with tab_reports:
                 "Informe Narrativo (Ejecutivo)",
                 recipient_name,
                 report_subject,
-                pdf_exec
+                pdf_exec,
+                scan_meta=selected_scan_meta
             )
 
             docx_exec = generate_docx(
@@ -7011,7 +7356,8 @@ with tab_reports:
                 agency_tagline,
                 "Informe Narrativo (Ejecutivo)",
                 recipient_name,
-                report_subject
+                report_subject,
+                scan_meta=selected_scan_meta
             )
 
             with open(pdf_exec, "rb") as f:
@@ -7061,7 +7407,8 @@ with tab_reports:
                 control_report_type,
                 recipient_name,
                 report_subject,
-                pdf_controls
+                pdf_controls,
+                scan_meta=selected_scan_meta
             )
 
             docx_controls = generate_docx(
@@ -7072,7 +7419,8 @@ with tab_reports:
                 agency_tagline,
                 control_report_type,
                 recipient_name,
-                report_subject
+                report_subject,
+                scan_meta=selected_scan_meta
             )
 
             with open(pdf_controls, "rb") as f:
@@ -7306,7 +7654,8 @@ with tab_remediation:
         for state in [
             "Pendiente",
             "En Proceso",
-            "Solucionado"
+            "Solucionado",
+            "Verificado"
         ]:
             c_cnt.execute(
                 f"""
@@ -7323,16 +7672,18 @@ with tab_remediation:
         c_cnt.close()
         conn_cnt.close()
 
-        r1, r2, r3 = st.columns(3)
+        r1, r2, r3, r4 = st.columns(4)
         r1.metric("Pendientes", counts["Pendiente"])
         r2.metric("En proceso", counts["En Proceso"])
         r3.metric("Solucionados", counts["Solucionado"])
+        r4.metric("Verificados", counts["Verificado"])
 
-        t_pending, t_progress, t_done = st.tabs(
+        t_pending, t_progress, t_done, t_verified = st.tabs(
             [
                 f"🟡 Pendientes ({counts['Pendiente']})",
                 f"🔄 En proceso ({counts['En Proceso']})",
-                f"✅ Solucionados ({counts['Solucionado']})"
+                f"✅ Solucionados ({counts['Solucionado']})",
+                f"🛡️ Verificados ({counts['Verificado']})"
             ]
         )
 
@@ -7517,6 +7868,12 @@ with tab_remediation:
         with t_done:
             render_tickets(
                 "Solucionado",
+                closed=True
+            )
+
+        with t_verified:
+            render_tickets(
+                "Verificado",
                 closed=True
             )
 
