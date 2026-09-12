@@ -1821,7 +1821,7 @@ def get_client_remediation_tasks(organization_id, scan_id):
 
 
 def update_client_remediation_task(organization_id, task_id, new_status, note):
-    if new_status not in {"Pendiente", "En Proceso", "Solucionado"}:
+    if new_status not in {"Pendiente", "En Proceso", "Solucionado", "Reabierto"}:
         raise ValueError("Estado no permitido.")
 
     conn = get_db_connection()
@@ -1859,9 +1859,16 @@ def update_client_remediation_task(organization_id, task_id, new_status, note):
 def verify_solved_tasks_after_rescan(
     organization_id,
     source_scan_id,
+    new_scan_id,
     new_findings
 ):
-    """Solo CyberAudits puede asignar Verificado."""
+    """
+    Verifica tickets que el cliente había marcado como Solucionado.
+
+    - Si el hallazgo desapareció: Verificado.
+    - Si el hallazgo sigue apareciendo: Reabierto.
+    - Reabierto solo lo asigna CyberAudits como resultado de un re-scan.
+    """
     remaining_vectors = {
         str(f.get("vector") or "").strip()
         for f in (new_findings or [])
@@ -1872,6 +1879,9 @@ def verify_solved_tasks_after_rescan(
     c = conn.cursor()
     ph = _db_ph()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    verified = 0
+    reopened = 0
 
     try:
         c.execute(
@@ -1886,12 +1896,77 @@ def verify_solved_tasks_after_rescan(
         )
 
         rows = c.fetchall()
-        verified = 0
 
         for task_id, finding_vector in rows:
-            if str(finding_vector or "").strip() in remaining_vectors:
+            vector = str(finding_vector or "").strip()
+
+            if vector in remaining_vectors:
+                # La corrección declarada no pasó la verificación.
+                c.execute(
+                    f"""
+                    UPDATE remediation_tasks
+                    SET status = 'Reabierto'
+                    WHERE id = {ph}
+                      AND organization_id = {ph}
+                    """,
+                    (int(task_id), int(organization_id))
+                )
+
+                c.execute(
+                    f"""
+                    INSERT INTO remediation_logs
+                    (task_id, timestamp, status, notes)
+                    VALUES ({ph}, {ph}, 'Reabierto', {ph})
+                    """,
+                    (
+                        int(task_id),
+                        now,
+                        "La verificación volvió a detectar el hallazgo. "
+                        "La corrección declarada no pudo validarse."
+                    )
+                )
+
+                # El ticket de la NUEVA evaluación nace como Pendiente;
+                # lo convertimos a Reabierto para reflejar continuidad.
+                c.execute(
+                    f"""
+                    UPDATE remediation_tasks
+                    SET status = 'Reabierto'
+                    WHERE organization_id = {ph}
+                      AND scan_id = {ph}
+                      AND finding_vector = {ph}
+                    """,
+                    (
+                        int(organization_id),
+                        int(new_scan_id),
+                        vector
+                    )
+                )
+
+                # Registrar también el evento sobre el ticket nuevo.
+                c.execute(
+                    f"""
+                    INSERT INTO remediation_logs
+                    (task_id, timestamp, status, notes)
+                    SELECT id, {ph}, 'Reabierto', {ph}
+                    FROM remediation_tasks
+                    WHERE organization_id = {ph}
+                      AND scan_id = {ph}
+                      AND finding_vector = {ph}
+                    """,
+                    (
+                        now,
+                        "El hallazgo persiste después de la verificación.",
+                        int(organization_id),
+                        int(new_scan_id),
+                        vector
+                    )
+                )
+
+                reopened += 1
                 continue
 
+            # La corrección fue comprobada.
             c.execute(
                 f"""
                 UPDATE remediation_tasks
@@ -1911,15 +1986,20 @@ def verify_solved_tasks_after_rescan(
                 (
                     int(task_id),
                     now,
-                    "CyberAudits volvió a evaluar el objetivo y el hallazgo ya no fue detectado."
+                    "CyberAudits volvió a evaluar el objetivo y "
+                    "el hallazgo ya no fue detectado."
                 )
             )
+
             verified += 1
 
         if "postgres" not in st.secrets:
             conn.commit()
 
-        return verified
+        return {
+            "verified": verified,
+            "reopened": reopened
+        }
 
     finally:
         c.close()
@@ -5818,11 +5898,12 @@ def render_client_portal():
                     "a esta evaluación."
                 )
             else:
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("Pendientes", int((tasks_df["status"] == "Pendiente").sum()))
                 c2.metric("En proceso", int((tasks_df["status"] == "En Proceso").sum()))
                 c3.metric("Solucionados", int((tasks_df["status"] == "Solucionado").sum()))
-                c4.metric("Verificados", int((tasks_df["status"] == "Verificado").sum()))
+                c4.metric("Reabiertos", int((tasks_df["status"] == "Reabierto").sum()))
+                c5.metric("Verificados", int((tasks_df["status"] == "Verificado").sum()))
 
                 for _, task in tasks_df.iterrows():
                     task_id = int(task["id"])
@@ -5854,14 +5935,26 @@ def render_client_portal():
                         )
                         continue
 
-                    with st.form(
-                        f"client_task_{task_id}_v210"
-                    ):
+                    if current_status == "Reabierto":
+                        st.warning(
+                            "⚠️ Reabierto por CyberAudits: la última verificación "
+                            "volvió a detectar este hallazgo."
+                        )
+                        statuses = [
+                            "Reabierto",
+                            "En Proceso",
+                            "Solucionado"
+                        ]
+                    else:
                         statuses = [
                             "Pendiente",
                             "En Proceso",
                             "Solucionado"
                         ]
+
+                    with st.form(
+                        f"client_task_{task_id}_v210"
+                    ):
 
                         new_status = st.selectbox(
                             "Estado",
@@ -5976,10 +6069,18 @@ def render_client_portal():
                             target_url=normalized_target
                         )
 
-                        verified_count = verify_solved_tasks_after_rescan(
+                        verification_result = verify_solved_tasks_after_rescan(
                             org_id,
                             scan_id,
+                            new_scan_id,
                             new_findings
+                        )
+
+                        verified_count = int(
+                            verification_result.get("verified", 0)
+                        )
+                        reopened_count = int(
+                            verification_result.get("reopened", 0)
                         )
 
                     # Do not mutate widget-backed keys here: Hallazgos and
@@ -6016,6 +6117,13 @@ def render_client_portal():
                         notice_text += (
                             f" · {verified_count} ticket(s) quedaron "
                             "Verificados por CyberAudits."
+                        )
+
+                    if reopened_count:
+                        notice_type = "warning"
+                        notice_text += (
+                            f" · {reopened_count} ticket(s) fueron "
+                            "Reabiertos porque el hallazgo sigue presente."
                         )
 
                     st.session_state[
@@ -6284,7 +6392,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.10.2 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.10.3 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -6482,7 +6590,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.10.2 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.10.3 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -7682,6 +7790,7 @@ with tab_remediation:
             "Pendiente",
             "En Proceso",
             "Solucionado",
+            "Reabierto",
             "Verificado"
         ]:
             c_cnt.execute(
@@ -7699,17 +7808,19 @@ with tab_remediation:
         c_cnt.close()
         conn_cnt.close()
 
-        r1, r2, r3, r4 = st.columns(4)
+        r1, r2, r3, r4, r5 = st.columns(5)
         r1.metric("Pendientes", counts["Pendiente"])
         r2.metric("En proceso", counts["En Proceso"])
         r3.metric("Solucionados", counts["Solucionado"])
-        r4.metric("Verificados", counts["Verificado"])
+        r4.metric("Reabiertos", counts["Reabierto"])
+        r5.metric("Verificados", counts["Verificado"])
 
-        t_pending, t_progress, t_done, t_verified = st.tabs(
+        t_pending, t_progress, t_done, t_reopened, t_verified = st.tabs(
             [
                 f"🟡 Pendientes ({counts['Pendiente']})",
                 f"🔄 En proceso ({counts['En Proceso']})",
                 f"✅ Solucionados ({counts['Solucionado']})",
+                f"⚠️ Reabiertos ({counts['Reabierto']})",
                 f"🛡️ Verificados ({counts['Verificado']})"
             ]
         )
@@ -7896,6 +8007,12 @@ with tab_remediation:
             render_tickets(
                 "Solucionado",
                 closed=True
+            )
+
+        with t_reopened:
+            render_tickets(
+                "Reabierto",
+                closed=False
             )
 
         with t_verified:
