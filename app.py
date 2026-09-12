@@ -4487,6 +4487,41 @@ def prepare_scan_selector_state(key, scan_ids):
 
 
 
+def queue_client_scan_selection(scan_id):
+    """
+    Programa qué evaluación debe quedar seleccionada en Hallazgos,
+    Remediación e Informes para el SIGUIENTE rerun.
+
+    No modifica directamente claves de widgets ya instanciados.
+    """
+    st.session_state[
+        "client_pending_scan_selection_v210"
+    ] = int(scan_id)
+
+
+def apply_client_scan_selection_queue():
+    """
+    Aplica la selección pendiente antes de crear los selectbox del portal.
+    """
+    pending = st.session_state.pop(
+        "client_pending_scan_selection_v210",
+        None
+    )
+
+    if pending is None:
+        return
+
+    pending = int(pending)
+
+    for selector_key in (
+        "client_findings_scan_v210",
+        "client_remediation_scan_v210",
+        "client_report_scan_v210"
+    ):
+        st.session_state[selector_key] = pending
+
+
+
 def count_actionable(findings):
     return sum(1 for f in findings if is_actionable(f))
 
@@ -5188,6 +5223,10 @@ def render_client_portal():
     display_org_name = str(org_profile.get("display_name") or org_name).strip()
     logo_uri = _profile_logo_uri(org_profile)
 
+    # Important: apply a queued scan selection BEFORE any selectbox
+    # using these session-state keys is instantiated.
+    apply_client_scan_selection_queue()
+
     st.sidebar.markdown("## 🛡️ CyberAudits")
     st.sidebar.caption("Portal Cliente")
     st.sidebar.markdown(f"**{display_org_name}**")
@@ -5444,17 +5483,9 @@ def render_client_portal():
                             target_url=normalized_target
                         )
 
-                    # La evaluación recién creada queda seleccionada
-                    # automáticamente en Hallazgos, Remediación e Informes.
-                    st.session_state[
-                        "client_findings_scan_v210"
-                    ] = int(scan_id)
-                    st.session_state[
-                        "client_remediation_scan_v210"
-                    ] = int(scan_id)
-                    st.session_state[
-                        "client_report_scan_v210"
-                    ] = int(scan_id)
+                    # La evaluación recién creada quedará seleccionada
+                    # en el próximo rerun, antes de instanciar los selectbox.
+                    queue_client_scan_selection(scan_id)
 
                     st.session_state[
                         "client_scan_notice_v210"
@@ -5951,15 +5982,11 @@ def render_client_portal():
                             new_findings
                         )
 
-                    st.session_state[
-                        "client_findings_scan_v210"
-                    ] = int(new_scan_id)
-                    st.session_state[
-                        "client_remediation_scan_v210"
-                    ] = int(new_scan_id)
-                    st.session_state[
-                        "client_report_scan_v210"
-                    ] = int(new_scan_id)
+                    # Do not mutate widget-backed keys here: Hallazgos and
+                    # Remediación selectboxes have already been instantiated
+                    # during this Streamlit run. Queue the selection and apply
+                    # it at the beginning of the next rerun.
+                    queue_client_scan_selection(new_scan_id)
 
                     delta = int(new_score) - previous_score
 
@@ -6257,7 +6284,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.10.1 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.10.2 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -6455,7 +6482,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.10.1 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.10.2 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
