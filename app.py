@@ -473,6 +473,18 @@ def init_db():
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS findings_json TEXT;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS scan_meta_json TEXT;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS target_url TEXT;")
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS evaluation_name TEXT;")
+        c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS asset_id INTEGER;")
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_assets (
+            id SERIAL PRIMARY KEY,
+            organization_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            status TEXT DEFAULT 'Autorizado',
+            is_primary INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (organization_id, domain)
+        )""")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id SERIAL PRIMARY KEY, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE remediation_tasks ADD COLUMN IF NOT EXISTS scan_id INTEGER;")
@@ -522,6 +534,20 @@ def init_db():
         except: pass
         try: c.execute("ALTER TABLE history ADD COLUMN target_url TEXT;")
         except: pass
+        try: c.execute("ALTER TABLE history ADD COLUMN evaluation_name TEXT;")
+        except: pass
+        try: c.execute("ALTER TABLE history ADD COLUMN asset_id INTEGER;")
+        except: pass
+        c.execute("""CREATE TABLE IF NOT EXISTS organization_assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            organization_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            status TEXT DEFAULT 'Autorizado',
+            is_primary INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (organization_id, domain)
+        )""")
         c.execute("""CREATE TABLE IF NOT EXISTS remediation_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, organization_id INTEGER, scan_id INTEGER, hostname TEXT, finding_vector TEXT, severity TEXT DEFAULT 'MEDIO', status TEXT DEFAULT 'Pendiente', notes TEXT)""")
         try:
             c.execute("ALTER TABLE remediation_tasks ADD COLUMN organization_id INTEGER;")
@@ -595,7 +621,9 @@ def save_scan_to_db(
     organization_id=None,
     findings=None,
     scan_meta=None,
-    target_url=None
+    target_url=None,
+    evaluation_name=None,
+    asset_id=None
 ):
     conn = get_db_connection()
     c = conn.cursor()
@@ -625,10 +653,12 @@ def save_scan_to_db(
                 organization_id,
                 findings_json,
                 scan_meta_json,
-                target_url
+                target_url,
+                evaluation_name,
+                asset_id
             )
             VALUES
-            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
             RETURNING id
             """,
             (
@@ -641,7 +671,9 @@ def save_scan_to_db(
                 organization_id,
                 findings_str,
                 meta_str,
-                stored_target_url
+                stored_target_url,
+                (evaluation_name or "").strip(),
+                asset_id
             )
         )
         scan_id = c.fetchone()[0]
@@ -659,10 +691,12 @@ def save_scan_to_db(
                 organization_id,
                 findings_json,
                 scan_meta_json,
-                target_url
+                target_url,
+                evaluation_name,
+                asset_id
             )
             VALUES
-            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
             """,
             (
                 timestamp,
@@ -674,7 +708,9 @@ def save_scan_to_db(
                 organization_id,
                 findings_str,
                 meta_str,
-                stored_target_url
+                stored_target_url,
+                (evaluation_name or "").strip(),
+                asset_id
             )
         )
         scan_id = c.lastrowid
@@ -2174,6 +2210,220 @@ def generate_client_pdf(findings, hostname, cyber_score, profile, output_filenam
     """
 
     HTML(string=html_doc).write_pdf(output_filename)
+
+
+
+def _clean_asset_domain(value):
+    value = (value or "").strip().lower()
+    value = re.sub(r"^https?://", "", value)
+    value = value.split("/", 1)[0].strip().strip(".")
+    if value.startswith("www."):
+        value = value[4:]
+    return value
+
+
+def get_organization_assets(organization_id):
+    conn = get_db_connection()
+    ph = _db_ph()
+    try:
+        return pd.read_sql_query(
+            f"""
+            SELECT id, organization_id, name, domain, status, is_primary, created_at
+            FROM organization_assets
+            WHERE organization_id = {ph}
+            ORDER BY is_primary DESC, id ASC
+            """,
+            conn,
+            params=(int(organization_id),)
+        )
+    finally:
+        conn.close()
+
+
+def ensure_primary_asset(organization_id, primary_domain):
+    domain = _clean_asset_domain(primary_domain)
+    if not domain:
+        return None
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        if is_pg:
+            c.execute(
+                f"""
+                INSERT INTO organization_assets
+                (organization_id, name, domain, status, is_primary)
+                VALUES ({ph}, {ph}, {ph}, 'Autorizado', 1)
+                ON CONFLICT (organization_id, domain)
+                DO UPDATE SET is_primary = 1
+                RETURNING id
+                """,
+                (int(organization_id), "Web principal", domain)
+            )
+            row = c.fetchone()
+            asset_id = int(row[0]) if row else None
+        else:
+            c.execute(
+                """
+                INSERT INTO organization_assets
+                (organization_id, name, domain, status, is_primary)
+                VALUES (?, ?, ?, 'Autorizado', 1)
+                ON CONFLICT(organization_id, domain)
+                DO UPDATE SET is_primary = 1
+                """,
+                (int(organization_id), "Web principal", domain)
+            )
+            c.execute(
+                """
+                SELECT id
+                FROM organization_assets
+                WHERE organization_id = ? AND domain = ?
+                LIMIT 1
+                """,
+                (int(organization_id), domain)
+            )
+            row = c.fetchone()
+            asset_id = int(row[0]) if row else None
+            conn.commit()
+
+        if asset_id is not None:
+            c.execute(
+                f"""
+                UPDATE history
+                SET asset_id = {ph}
+                WHERE organization_id = {ph}
+                  AND asset_id IS NULL
+                  AND LOWER(hostname) = LOWER({ph})
+                """,
+                (asset_id, int(organization_id), domain)
+            )
+            if not is_pg:
+                conn.commit()
+
+        return asset_id
+    finally:
+        c.close()
+        conn.close()
+
+
+def add_organization_asset(organization_id, name, domain, primary_domain):
+    name = (name or "").strip() or "Activo web"
+    domain = _clean_asset_domain(domain)
+    primary = _clean_asset_domain(primary_domain)
+
+    if not domain:
+        raise ValueError("Ingresá un dominio válido.")
+
+    if domain != primary and not domain.endswith("." + primary):
+        raise ValueError(
+            "En esta beta solo podés agregar el dominio autorizado "
+            "o subdominios que pertenezcan a ese dominio."
+        )
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    is_pg = "postgres" in st.secrets
+
+    try:
+        if is_pg:
+            c.execute(
+                f"""
+                INSERT INTO organization_assets
+                (organization_id, name, domain, status, is_primary)
+                VALUES ({ph}, {ph}, {ph}, 'Autorizado', 0)
+                ON CONFLICT (organization_id, domain)
+                DO UPDATE SET name = EXCLUDED.name
+                """,
+                (int(organization_id), name, domain)
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO organization_assets
+                (organization_id, name, domain, status, is_primary)
+                VALUES (?, ?, ?, 'Autorizado', 0)
+                ON CONFLICT(organization_id, domain)
+                DO UPDATE SET name = excluded.name
+                """,
+                (int(organization_id), name, domain)
+            )
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def asset_row_by_id(assets_df, asset_id):
+    if assets_df is None or assets_df.empty:
+        return None
+    match = assets_df[
+        assets_df["id"].astype(int) == int(asset_id)
+    ]
+    return None if match.empty else match.iloc[0]
+
+
+def update_evaluation_name(organization_id, scan_id, evaluation_name):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    try:
+        c.execute(
+            f"""
+            UPDATE history
+            SET evaluation_name = {ph}
+            WHERE id = {ph}
+              AND organization_id = {ph}
+            """,
+            (
+                (evaluation_name or "").strip(),
+                int(scan_id),
+                int(organization_id)
+            )
+        )
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def compare_evaluations(row_base, row_new):
+    base_findings = [
+        f for f in safe_findings(row_base.get("findings_json"))
+        if is_actionable(f)
+    ]
+    new_findings = [
+        f for f in safe_findings(row_new.get("findings_json"))
+        if is_actionable(f)
+    ]
+
+    base_map = {
+        str(f.get("vector") or "").strip(): f
+        for f in base_findings
+    }
+    new_map = {
+        str(f.get("vector") or "").strip(): f
+        for f in new_findings
+    }
+
+    base_keys = set(base_map)
+    new_keys = set(new_map)
+
+    return {
+        "score_base": int(row_base["risk_score"]),
+        "score_new": int(row_new["risk_score"]),
+        "score_delta": int(row_new["risk_score"]) - int(row_base["risk_score"]),
+        "findings_base": len(base_findings),
+        "findings_new": len(new_findings),
+        "findings_delta": len(new_findings) - len(base_findings),
+        "corrected": sorted(base_keys - new_keys),
+        "persistent": sorted(base_keys & new_keys),
+        "new": sorted(new_keys - base_keys)
+    }
 
 
 def get_client_primary_domain(organization_id, email):
@@ -4442,7 +4692,9 @@ def load_history(organization_id):
         report_type,
         findings_json,
         scan_meta_json,
-        target_url
+        target_url,
+        evaluation_name,
+        asset_id
     """
 
     if organization_id is not None:
@@ -4498,8 +4750,20 @@ def evaluation_label(row):
     meta = safe_meta(row.get("scan_meta_json")) or fallback_scan_meta(findings)
     state, _ = evaluation_status(meta, findings)
 
+    try:
+        value = row.get("evaluation_name")
+        name = (
+            str(value).strip()
+            if value is not None and not pd.isna(value)
+            else ""
+        )
+    except Exception:
+        name = ""
+
+    name_prefix = f"{name} · " if name else ""
+
     return (
-        f"#{int(row['id'])} · {row['timestamp']} · "
+        f"#{int(row['id'])} · {name_prefix}{row['timestamp']} · "
         f"{evaluation_target(row)} · "
         f"CyberScore {int(row['risk_score'])}/100 · {state}"
     )
@@ -5299,6 +5563,9 @@ def render_client_portal():
     client_email = st.session_state.get("client_email", "")
     primary_domain = get_client_primary_domain(org_id, client_email)
 
+    primary_asset_id = ensure_primary_asset(org_id, primary_domain)
+    assets_df = get_organization_assets(org_id)
+
     org_profile = get_organization_profile(org_id, fallback_name=org_name)
     display_org_name = str(org_profile.get("display_name") or org_name).strip()
     logo_uri = _profile_logo_uri(org_profile)
@@ -5347,6 +5614,7 @@ def render_client_portal():
 
     (
         tab_summary,
+        tab_assets,
         tab_scan,
         tab_findings,
         tab_remediation,
@@ -5355,6 +5623,7 @@ def render_client_portal():
         tab_account
     ) = st.tabs([
         "🏠 Resumen",
+        "🌐 Activos",
         "🔎 Evaluaciones",
         "🧭 Hallazgos",
         "🛠 Remediación",
@@ -5475,6 +5744,77 @@ def render_client_portal():
                 st.line_chart(chart_df)
 
     # --------------------------------------------------------
+    # ACTIVOS
+    # --------------------------------------------------------
+    with tab_assets:
+        st.subheader("Activos")
+        st.write(
+            "Organizá los dominios y subdominios de la superficie web autorizada."
+        )
+
+        assets_df = get_organization_assets(org_id)
+
+        if assets_df.empty:
+            st.info("Todavía no hay activos registrados.")
+        else:
+            st.caption(f"{len(assets_df)} activo(s) registrado(s).")
+
+            for _, asset in assets_df.iterrows():
+                c1, c2, c3 = st.columns([2.4, 4.4, 1.4])
+
+                with c1:
+                    st.markdown(f"**{html.escape(str(asset['name']))}**")
+
+                with c2:
+                    st.code(str(asset["domain"]), language="text")
+
+                with c3:
+                    if int(asset.get("is_primary") or 0) == 1:
+                        st.success("Principal")
+                    else:
+                        st.info(str(asset.get("status") or "Autorizado"))
+
+        st.markdown("---")
+        st.markdown("### Agregar subdominio")
+        st.caption(
+            "Por seguridad, desde el Portal Cliente solo se pueden agregar "
+            "subdominios del dominio ya autorizado."
+        )
+
+        with st.form("client_add_asset_v211"):
+            asset_name = st.text_input(
+                "Nombre del activo",
+                placeholder="Portal de clientes"
+            )
+            asset_domain = st.text_input(
+                "Dominio / subdominio",
+                placeholder=(
+                    f"app.{primary_domain}"
+                    if primary_domain
+                    else "app.empresa.com"
+                )
+            )
+            add_asset = st.form_submit_button(
+                "Agregar activo",
+                type="primary",
+                use_container_width=True
+            )
+
+        if add_asset:
+            try:
+                add_organization_asset(
+                    org_id,
+                    asset_name,
+                    asset_domain,
+                    primary_domain
+                )
+                st.success("Activo agregado.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo agregar el activo: {e}")
+
+
+    # --------------------------------------------------------
     # EVALUACIONES
     # --------------------------------------------------------
     with tab_scan:
@@ -5484,22 +5824,56 @@ def render_client_portal():
         if scan_notice:
             st.success(scan_notice)
 
-        if not primary_domain:
+        assets_df = get_organization_assets(org_id)
+
+        if not primary_domain or assets_df.empty:
             st.error(
-                "No hay un dominio asociado a tu organización. "
+                "No hay activos autorizados para esta organización. "
                 "Contactá al administrador."
             )
         else:
-            st.write(f"Dominio autorizado: **{primary_domain}**")
+            asset_ids = [int(v) for v in assets_df["id"].tolist()]
+
+            if st.session_state.get("client_asset_v211") not in asset_ids:
+                st.session_state["client_asset_v211"] = (
+                    int(primary_asset_id)
+                    if primary_asset_id in asset_ids
+                    else asset_ids[0]
+                )
+
+            selected_asset_id = st.selectbox(
+                "Activo a evaluar",
+                options=asset_ids,
+                format_func=lambda asset_id: (
+                    f"{asset_row_by_id(assets_df, asset_id)['name']} · "
+                    f"{asset_row_by_id(assets_df, asset_id)['domain']}"
+                ),
+                key="client_asset_v211"
+            )
+
+            selected_asset = asset_row_by_id(
+                assets_df,
+                selected_asset_id
+            )
+            selected_asset_domain = str(
+                selected_asset["domain"]
+            ).strip()
+
             st.caption(
-                "Podés evaluar distintas páginas/URLs dentro de este dominio. "
-                "Cada ejecución queda guardada como una evaluación independiente."
+                "Cada ejecución queda guardada como una evaluación "
+                "independiente dentro del activo seleccionado."
+            )
+
+            evaluation_name_input = st.text_input(
+                "Nombre de la evaluación · opcional",
+                placeholder="Ej.: Auditoría inicial / Después del parche",
+                key="client_evaluation_name_v211"
             )
 
             target_url_input = st.text_input(
                 "Página o URL a evaluar",
-                value=f"https://{primary_domain}/",
-                placeholder=f"https://{primary_domain}/ruta",
+                value=f"https://{selected_asset_domain}/",
+                placeholder=f"https://{selected_asset_domain}/ruta",
                 key="client_target_url_v210",
                 help=(
                     "Podés cambiar la ruta (/login, /contacto, /app, etc.). "
@@ -5527,7 +5901,7 @@ def render_client_portal():
                 try:
                     normalized_target, _ = normalize_client_target_url(
                         target_url_input,
-                        primary_domain
+                        selected_asset_domain
                     )
 
                     with st.spinner("Analizando postura de seguridad..."):
@@ -5560,7 +5934,9 @@ def render_client_portal():
                             org_id,
                             findings,
                             scan_meta,
-                            target_url=normalized_target
+                            target_url=normalized_target,
+                            evaluation_name=evaluation_name_input,
+                            asset_id=int(selected_asset_id)
                         )
 
                     # La evaluación recién creada quedará seleccionada
@@ -5583,17 +5959,29 @@ def render_client_portal():
 
         history_df = load_history(org_id)
 
+        if (
+            not history_df.empty
+            and "asset_id" in history_df.columns
+            and "selected_asset_id" in locals()
+        ):
+            history_asset_df = history_df[
+                history_df["asset_id"].fillna(-1).astype(int)
+                == int(selected_asset_id)
+            ].copy()
+        else:
+            history_asset_df = history_df.copy()
+
         st.markdown("---")
         st.markdown("### Evaluaciones guardadas")
 
-        if history_df.empty:
+        if history_asset_df.empty:
             st.info(
-                "Todavía no hay evaluaciones guardadas para esta organización."
+                "Todavía no hay evaluaciones guardadas para este activo."
             )
         else:
             st.caption(
-                f"{len(history_df)} evaluación(es), ordenadas de la más nueva "
-                "a la más antigua."
+                f"{len(history_asset_df)} evaluación(es) del activo seleccionado, "
+                "ordenadas de la más nueva a la más antigua."
             )
 
             pending_delete = st.session_state.get(
@@ -5686,7 +6074,7 @@ def render_client_portal():
                 "🗂️ Gestionar historial de evaluaciones",
                 expanded=True
             ):
-                for _, scan_row in history_df.iterrows():
+                for _, scan_row in history_asset_df.iterrows():
                     scan_id = int(scan_row["id"])
                     info_col, delete_col = st.columns(
                         [8.6, 1.4],
@@ -5694,16 +6082,51 @@ def render_client_portal():
                     )
 
                     with info_col:
+                        current_name = str(
+                            scan_row.get("evaluation_name") or ""
+                        ).strip()
+
+                        display_name = (
+                            current_name
+                            if current_name
+                            else f"Evaluación #{scan_id}"
+                        )
+
                         st.markdown(
-                            f"**#{scan_id} · "
+                            f"**{html.escape(display_name)} · "
                             f"{html.escape(evaluation_target(scan_row))}**"
                         )
                         st.caption(
-                            f"{scan_row['timestamp']} · "
+                            f"#{scan_id} · {scan_row['timestamp']} · "
                             f"CyberScore {int(scan_row['risk_score'])}/100 · "
                             f"{int(scan_row['findings_count'] or 0)} hallazgo(s) · "
                             f"{scan_row['report_type']}"
                         )
+
+                        name_col, save_col = st.columns([4, 1.4])
+
+                        with name_col:
+                            renamed_value = st.text_input(
+                                "Nombre",
+                                value=current_name,
+                                placeholder="Ej.: Producción inicial",
+                                key=f"eval_name_v211_{scan_id}",
+                                label_visibility="collapsed"
+                            )
+
+                        with save_col:
+                            if st.button(
+                                "Guardar nombre",
+                                key=f"save_eval_name_v211_{scan_id}",
+                                use_container_width=True
+                            ):
+                                update_evaluation_name(
+                                    org_id,
+                                    scan_id,
+                                    renamed_value
+                                )
+                                st.success("Nombre actualizado.")
+                                st.rerun()
 
                     with delete_col:
                         if st.button(
@@ -5715,6 +6138,117 @@ def render_client_portal():
                                 "client_pending_delete_scan_v210"
                             ] = scan_id
                             st.rerun()
+
+            st.markdown("---")
+            st.markdown("### Comparar evaluaciones")
+
+            if len(history_asset_df) < 2:
+                st.info(
+                    "Necesitás al menos dos evaluaciones del mismo activo "
+                    "para comparar la evolución."
+                )
+            else:
+                compare_ids = [
+                    int(v)
+                    for v in history_asset_df["id"].tolist()
+                ]
+
+                left_compare, right_compare = st.columns(2)
+
+                with left_compare:
+                    base_id = st.selectbox(
+                        "Evaluación base",
+                        options=list(reversed(compare_ids)),
+                        format_func=lambda scan_id: evaluation_label(
+                            history_row_by_id(history_asset_df, scan_id)
+                        ),
+                        key="compare_base_v211"
+                    )
+
+                with right_compare:
+                    newer_id = st.selectbox(
+                        "Comparar con",
+                        options=compare_ids,
+                        format_func=lambda scan_id: evaluation_label(
+                            history_row_by_id(history_asset_df, scan_id)
+                        ),
+                        key="compare_new_v211"
+                    )
+
+                if int(base_id) == int(newer_id):
+                    st.warning("Seleccioná dos evaluaciones distintas.")
+                else:
+                    base_row = history_row_by_id(
+                        history_asset_df,
+                        base_id
+                    )
+                    newer_row = history_row_by_id(
+                        history_asset_df,
+                        newer_id
+                    )
+
+                    comparison = compare_evaluations(
+                        base_row,
+                        newer_row
+                    )
+
+                    c1, c2, c3, c4 = st.columns(4)
+
+                    c1.metric(
+                        "CyberScore base",
+                        f"{comparison['score_base']}/100"
+                    )
+                    c2.metric(
+                        "CyberScore actual",
+                        f"{comparison['score_new']}/100",
+                        delta=f"{comparison['score_delta']:+d}"
+                    )
+                    c3.metric(
+                        "Hallazgos actuales",
+                        comparison["findings_new"],
+                        delta=f"{comparison['findings_delta']:+d}",
+                        delta_color="inverse"
+                    )
+                    c4.metric(
+                        "Corregidos",
+                        len(comparison["corrected"])
+                    )
+
+                    st.info(
+                        f"CyberScore {comparison['score_base']} → "
+                        f"{comparison['score_new']} "
+                        f"({comparison['score_delta']:+d}) · "
+                        f"{len(comparison['corrected'])} corregido(s) · "
+                        f"{len(comparison['persistent'])} persisten · "
+                        f"{len(comparison['new'])} nuevo(s)."
+                    )
+
+                    fixed_col, persist_col, fresh_col = st.columns(3)
+
+                    with fixed_col:
+                        st.markdown("#### ✅ Corregidos")
+                        if comparison["corrected"]:
+                            for item in comparison["corrected"]:
+                                st.write(f"• {item}")
+                        else:
+                            st.caption("Ninguno.")
+
+                    with persist_col:
+                        st.markdown("#### ⚠️ Persisten")
+                        if comparison["persistent"]:
+                            for item in comparison["persistent"]:
+                                st.write(f"• {item}")
+                        else:
+                            st.caption("Ninguno.")
+
+                    with fresh_col:
+                        st.markdown("#### 🆕 Nuevos")
+                        if comparison["new"]:
+                            for item in comparison["new"]:
+                                st.write(f"• {item}")
+                        else:
+                            st.caption("Ninguno.")
+
 
     # --------------------------------------------------------
     # HALLAZGOS
@@ -6057,6 +6591,27 @@ def render_client_portal():
                             new_details
                         )
 
+                        source_name = str(
+                            selected_scan.get("evaluation_name") or ""
+                        ).strip()
+
+                        verification_name = (
+                            f"Verificación · {source_name}"
+                            if source_name
+                            else f"Verificación de #{scan_id}"
+                        )
+
+                        source_asset_id = selected_scan.get("asset_id")
+                        try:
+                            source_asset_id = (
+                                int(source_asset_id)
+                                if source_asset_id is not None
+                                and not pd.isna(source_asset_id)
+                                else None
+                            )
+                        except Exception:
+                            source_asset_id = None
+
                         new_scan_id = save_scan_to_db(
                             new_hostname,
                             new_geo.get("ip", "N/A"),
@@ -6066,7 +6621,9 @@ def render_client_portal():
                             org_id,
                             new_findings,
                             new_meta,
-                            target_url=normalized_target
+                            target_url=normalized_target,
+                            evaluation_name=verification_name,
+                            asset_id=source_asset_id
                         )
 
                         verification_result = verify_solved_tasks_after_rescan(
@@ -6392,7 +6949,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.10.3 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.11 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -6590,7 +7147,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.10.3 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.11 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
