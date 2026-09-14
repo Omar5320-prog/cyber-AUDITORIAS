@@ -467,7 +467,8 @@ def init_db():
     is_pg = "postgres" in st.secrets
     
     if is_pg:
-        c.execute("""CREATE TABLE IF NOT EXISTS organizations (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS organizations (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, status TEXT DEFAULT 'Activo', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Activo';")
         c.execute("""CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS organization_id INTEGER;")
         c.execute("ALTER TABLE history ADD COLUMN IF NOT EXISTS findings_json TEXT;")
@@ -524,7 +525,9 @@ def init_db():
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 1;")
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;")
     else:
-        c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, status TEXT DEFAULT 'Activo', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        try: c.execute("ALTER TABLE organizations ADD COLUMN status TEXT DEFAULT 'Activo';")
+        except: pass
         c.execute("""CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, hostname TEXT, ip TEXT, risk_score INTEGER, findings_count INTEGER, report_type TEXT, organization_id INTEGER, findings_json TEXT, scan_meta_json TEXT)""")
         try: c.execute("ALTER TABLE history ADD COLUMN organization_id INTEGER;")
         except: pass
@@ -601,6 +604,20 @@ def init_db():
         c.execute(
             "UPDATE public_leads SET status = 'Pendiente' "
             "WHERE status IS NULL OR status = ''"
+        )
+        if not is_pg:
+            conn.commit()
+    except Exception:
+        pass
+
+    try:
+        c.execute(
+            "UPDATE organizations SET status = 'Activo' "
+            "WHERE status IS NULL OR status = ''"
+        )
+        c.execute(
+            "UPDATE organization_members SET role = 'OWNER' "
+            "WHERE role IS NULL OR role = '' OR role = 'CLIENT'"
         )
         if not is_pg:
             conn.commit()
@@ -989,7 +1006,7 @@ def _supabase_admin_headers():
     }
 
 
-def supabase_invite_user(email, organization_id=None, role="CLIENT"):
+def supabase_invite_user(email, organization_id=None, role="OWNER"):
     email = (email or "").strip().lower()
 
     if not _valid_email_address(email):
@@ -1119,7 +1136,7 @@ def upsert_organization_member(
     organization_id,
     email,
     auth_user_id,
-    role="CLIENT",
+    role="OWNER",
     status="Invitado"
 ):
     conn = get_db_connection()
@@ -1522,7 +1539,8 @@ def get_member_for_identity(user_id=None, email=None):
                     om.status,
                     om.must_change_password,
                     om.last_login,
-                    o.name AS organization_name
+                    o.name AS organization_name,
+                    o.status AS organization_status
                 FROM organization_members om
                 LEFT JOIN organizations o
                     ON o.id = om.organization_id
@@ -1544,7 +1562,8 @@ def get_member_for_identity(user_id=None, email=None):
                     om.status,
                     om.must_change_password,
                     om.last_login,
-                    o.name AS organization_name
+                    o.name AS organization_name,
+                    o.status AS organization_status
                 FROM organization_members om
                 LEFT JOIN organizations o
                     ON o.id = om.organization_id
@@ -1561,6 +1580,263 @@ def get_member_for_identity(user_id=None, email=None):
         return None
 
     return df.iloc[0].to_dict()
+
+
+
+VALID_MEMBER_ROLES = ["OWNER", "ADMIN", "ANALYST", "VIEWER"]
+
+
+def normalize_member_role(role):
+    role = str(role or "VIEWER").upper().strip()
+    if role == "CLIENT":
+        role = "OWNER"
+    return role if role in VALID_MEMBER_ROLES else "VIEWER"
+
+
+def client_can(action):
+    role = normalize_member_role(
+        st.session_state.get("client_role", "VIEWER")
+    )
+
+    capabilities = {
+        "OWNER": {
+            "assets",
+            "scan",
+            "manage_evaluations",
+            "remediate",
+            "org_edit"
+        },
+        "ADMIN": {
+            "assets",
+            "scan",
+            "manage_evaluations",
+            "remediate",
+            "org_edit"
+        },
+        "ANALYST": {
+            "scan",
+            "remediate"
+        },
+        "VIEWER": set()
+    }
+
+    return action in capabilities.get(role, set())
+
+
+def load_clients_overview():
+    conn = get_db_connection()
+    try:
+        return pd.read_sql_query(
+            """
+            SELECT
+                o.id,
+                o.name,
+                COALESCE(op.display_name, o.name) AS display_name,
+                COALESCE(o.status, 'Activo') AS status,
+                o.created_at,
+                (
+                    SELECT COUNT(*)
+                    FROM organization_members om
+                    WHERE om.organization_id = o.id
+                ) AS users_count,
+                (
+                    SELECT COUNT(*)
+                    FROM organization_assets oa
+                    WHERE oa.organization_id = o.id
+                ) AS assets_count,
+                (
+                    SELECT COUNT(*)
+                    FROM history h
+                    WHERE h.organization_id = o.id
+                ) AS evaluations_count,
+                (
+                    SELECT h2.risk_score
+                    FROM history h2
+                    WHERE h2.organization_id = o.id
+                    ORDER BY h2.id DESC
+                    LIMIT 1
+                ) AS latest_score,
+                (
+                    SELECT MAX(om2.last_login)
+                    FROM organization_members om2
+                    WHERE om2.organization_id = o.id
+                ) AS last_activity
+            FROM organizations o
+            LEFT JOIN organization_profiles op
+                ON op.organization_id = o.id
+            ORDER BY display_name ASC
+            """,
+            conn
+        )
+    finally:
+        conn.close()
+
+
+def load_organization_members_admin(organization_id):
+    conn = get_db_connection()
+    ph = _db_ph()
+    try:
+        return pd.read_sql_query(
+            f"""
+            SELECT
+                id,
+                organization_id,
+                email,
+                auth_user_id,
+                role,
+                status,
+                must_change_password,
+                last_login,
+                created_at,
+                updated_at
+            FROM organization_members
+            WHERE organization_id = {ph}
+            ORDER BY
+                CASE role
+                    WHEN 'OWNER' THEN 1
+                    WHEN 'ADMIN' THEN 2
+                    WHEN 'ANALYST' THEN 3
+                    WHEN 'VIEWER' THEN 4
+                    ELSE 5
+                END,
+                email ASC
+            """,
+            conn,
+            params=(int(organization_id),)
+        )
+    finally:
+        conn.close()
+
+
+def set_organization_access_status(organization_id, status):
+    if status not in {"Activo", "Suspendido"}:
+        raise ValueError("Estado de organización no permitido.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    try:
+        c.execute(
+            f"""
+            UPDATE organizations
+            SET status = {ph}
+            WHERE id = {ph}
+            """,
+            (status, int(organization_id))
+        )
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def set_member_role_admin(organization_id, member_id, role):
+    role = normalize_member_role(role)
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    try:
+        c.execute(
+            f"""
+            UPDATE organization_members
+            SET role = {ph},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = {ph}
+              AND organization_id = {ph}
+            """,
+            (role, int(member_id), int(organization_id))
+        )
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def set_member_status_admin(organization_id, member_id, status):
+    if status not in {"Activo", "Suspendido", "Invitado", "Confirmado"}:
+        raise ValueError("Estado de usuario no permitido.")
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    ph = _db_ph()
+    try:
+        c.execute(
+            f"""
+            UPDATE organization_members
+            SET status = {ph},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = {ph}
+              AND organization_id = {ph}
+            """,
+            (status, int(member_id), int(organization_id))
+        )
+        if "postgres" not in st.secrets:
+            conn.commit()
+    finally:
+        c.close()
+        conn.close()
+
+
+def invite_member_to_organization(organization_id, email, role):
+    email = (email or "").strip().lower()
+    role = normalize_member_role(role)
+
+    if not _valid_email_address(email):
+        raise ValueError("Ingresá un email válido.")
+
+    existing = get_member_for_identity(email=email)
+    if existing:
+        existing_org = int(existing.get("organization_id"))
+        if existing_org != int(organization_id):
+            raise ValueError(
+                "Ese email ya pertenece a otra organización."
+            )
+        raise ValueError(
+            "Ese usuario ya pertenece a esta organización."
+        )
+
+    user_data = supabase_invite_user(
+        email,
+        organization_id=int(organization_id),
+        role=role
+    )
+
+    auth_user_id = (
+        user_data.get("id")
+        or (user_data.get("user") or {}).get("id")
+    )
+
+    if not auth_user_id:
+        raise RuntimeError(
+            "Supabase no devolvió el ID del usuario invitado."
+        )
+
+    upsert_organization_member(
+        int(organization_id),
+        email,
+        auth_user_id,
+        role=role,
+        status="Invitado"
+    )
+
+    return {
+        "email": email,
+        "auth_user_id": auth_user_id,
+        "role": role
+    }
+
+
+def get_client_admin_summary(organization_id):
+    clients = load_clients_overview()
+    match = clients[
+        clients["id"].astype(int) == int(organization_id)
+    ]
+    if match.empty:
+        return None
+    return match.iloc[0].to_dict()
 
 
 def supabase_password_login(email, password):
@@ -5389,6 +5665,11 @@ def render_client_login():
                         "Tu acceso todavía no está habilitado."
                     )
 
+                if str(member.get("organization_status") or "Activo") == "Suspendido":
+                    raise RuntimeError(
+                        "La organización se encuentra suspendida."
+                    )
+
                 st.session_state.client_authenticated = True
                 st.session_state.client_email = (
                     str(member.get("email") or email).strip().lower()
@@ -5540,6 +5821,7 @@ def render_client_portal():
     if (
         not current_member
         or str(current_member.get("status") or "") == "Suspendido"
+        or str(current_member.get("organization_status") or "Activo") == "Suspendido"
     ):
         _clear_client_session()
         st.error("Tu acceso a CyberAudits fue suspendido por un administrador.")
@@ -5554,6 +5836,11 @@ def render_client_portal():
                 pass
             st.rerun()
         st.stop()
+
+    # Roles can be changed by the admin while the user is logged in.
+    st.session_state.client_role = normalize_member_role(
+        current_member.get("role")
+    )
 
     if st.session_state.get("client_must_change_password", False):
         render_client_password_change()
@@ -5580,6 +5867,9 @@ def render_client_portal():
     if primary_domain:
         st.sidebar.caption(primary_domain)
     st.sidebar.caption(client_email)
+    st.sidebar.caption(
+        f"Rol: {normalize_member_role(st.session_state.get('client_role'))}"
+    )
 
     if st.sidebar.button("Cerrar sesión", use_container_width=True):
         _clear_client_session()
@@ -5797,7 +6087,8 @@ def render_client_portal():
             add_asset = st.form_submit_button(
                 "Agregar activo",
                 type="primary",
-                use_container_width=True
+                use_container_width=True,
+                disabled=not client_can("assets")
             )
 
         if add_asset:
@@ -5896,7 +6187,8 @@ def render_client_portal():
                 "🚀 Ejecutar evaluación",
                 type="primary",
                 use_container_width=True,
-                key="client_run_scan_v210"
+                key="client_run_scan_v210",
+                disabled=not client_can("scan")
             ):
                 try:
                     normalized_target, _ = normalize_client_target_url(
@@ -6118,7 +6410,8 @@ def render_client_portal():
                             if st.button(
                                 "Guardar nombre",
                                 key=f"save_eval_name_v211_{scan_id}",
-                                use_container_width=True
+                                use_container_width=True,
+                                disabled=not client_can("manage_evaluations")
                             ):
                                 update_evaluation_name(
                                     org_id,
@@ -6132,7 +6425,8 @@ def render_client_portal():
                         if st.button(
                             "🗑️ Eliminar",
                             key=f"client_delete_scan_{scan_id}_v210",
-                            use_container_width=True
+                            use_container_width=True,
+                            disabled=not client_can("manage_evaluations")
                         ):
                             st.session_state[
                                 "client_pending_delete_scan_v210"
@@ -6515,7 +6809,8 @@ def render_client_portal():
 
                         save_task = st.form_submit_button(
                             "Guardar actualización",
-                            use_container_width=True
+                            use_container_width=True,
+                            disabled=not client_can("remediate")
                         )
 
                     if save_task:
@@ -6548,7 +6843,8 @@ def render_client_portal():
                 "🔄 Verificar correcciones de esta evaluación",
                 type="primary",
                 use_container_width=True,
-                key="client_verify_fix_v210"
+                key="client_verify_fix_v210",
+                disabled=not client_can("remediate")
             ):
                 try:
                     previous_score = int(
@@ -6855,7 +7151,12 @@ def render_client_portal():
             )
             logo_upload = st.file_uploader("Logo · PNG/JPG, máximo 350 KB", type=["png", "jpg", "jpeg"])
             remove_logo = st.checkbox("Quitar logo actual")
-            save_profile = st.form_submit_button("Guardar perfil", type="primary", use_container_width=True)
+            save_profile = st.form_submit_button(
+                "Guardar perfil",
+                type="primary",
+                use_container_width=True,
+                disabled=not client_can("org_edit")
+            )
 
         if current_profile.get("logo_b64"):
             st.caption("Logo actual")
@@ -6900,7 +7201,7 @@ def render_client_portal():
         st.subheader("Cuenta")
         st.write(f"**Email:** {client_email}")
         st.write(f"**Organización:** {display_org_name}")
-        st.write(f"**Rol:** {st.session_state.get('client_role', 'CLIENT')}")
+        st.write(f"**Rol:** {normalize_member_role(st.session_state.get('client_role', 'VIEWER'))}")
 
         st.markdown("### Cambiar contraseña")
         with st.form("client_account_password_v29"):
@@ -6949,7 +7250,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.11 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.12 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -7147,7 +7448,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.11 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.12 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -7159,13 +7460,14 @@ st.markdown(
 )
 
 
-tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_leads = st.tabs(
+tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_clients, tab_leads = st.tabs(
     [
         "🏠 Dashboard",
         "🔎 Security Scan",
         "📄 Reports",
         "📈 History",
         "🛠 Remediation",
+        "🏢 Clientes",
         "👥 Leads"
     ]
 )
@@ -8585,6 +8887,385 @@ with tab_remediation:
             "“Verificar ahora”. CyberAudits generará una nueva evaluación "
             "para comprobar si el CyberScore mejoró."
         )
+
+
+# ==========================================
+# CLIENTES / USUARIOS / ROLES
+# ==========================================
+
+with tab_clients:
+    st.subheader("Clientes")
+
+    st.write(
+        "Administrá organizaciones activas, sus usuarios, roles, "
+        "activos y estado de acceso."
+    )
+
+    temp_member_access = st.session_state.get(
+        "admin_member_temp_access_v212"
+    )
+
+    if temp_member_access:
+        st.success(
+            "🔑 Credencial temporal generada. Copiala ahora."
+        )
+        st.code(
+            f"Email: {temp_member_access['email']}\n"
+            f"Contraseña temporal: {temp_member_access['password']}",
+            language="text"
+        )
+        st.warning(
+            "La contraseña no se guarda en CyberAudits. "
+            "El usuario deberá cambiarla al ingresar."
+        )
+        if st.button(
+            "Ocultar credencial",
+            key="hide_member_temp_v212"
+        ):
+            st.session_state.pop(
+                "admin_member_temp_access_v212",
+                None
+            )
+            st.rerun()
+
+    clients_df = load_clients_overview()
+
+    if clients_df.empty:
+        st.info(
+            "Todavía no hay organizaciones cliente."
+        )
+    else:
+        total_clients = len(clients_df)
+        active_clients = int(
+            (clients_df["status"] == "Activo").sum()
+        )
+        suspended_clients = int(
+            (clients_df["status"] == "Suspendido").sum()
+        )
+        total_users = int(
+            clients_df["users_count"].fillna(0).sum()
+        )
+
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Clientes", total_clients)
+        mc2.metric("Activos", active_clients)
+        mc3.metric("Suspendidos", suspended_clients)
+        mc4.metric("Usuarios", total_users)
+
+        client_ids = [
+            int(v)
+            for v in clients_df["id"].tolist()
+        ]
+
+        selected_client_id = st.selectbox(
+            "Seleccioná un cliente",
+            options=client_ids,
+            format_func=lambda org_id: str(
+                clients_df[
+                    clients_df["id"].astype(int) == int(org_id)
+                ].iloc[0]["display_name"]
+            ),
+            key="admin_client_select_v212"
+        )
+
+        client_summary = get_client_admin_summary(
+            selected_client_id
+        )
+
+        if client_summary:
+            st.markdown("---")
+
+            st.markdown(
+                f"## {html.escape(str(client_summary['display_name']))}"
+            )
+            st.caption(
+                f"Organización #{int(client_summary['id'])} · "
+                f"Workspace: {client_summary['name']}"
+            )
+
+            cc1, cc2, cc3, cc4 = st.columns(4)
+
+            cc1.metric(
+                "Usuarios",
+                int(client_summary.get("users_count") or 0)
+            )
+            cc2.metric(
+                "Activos",
+                int(client_summary.get("assets_count") or 0)
+            )
+            cc3.metric(
+                "Evaluaciones",
+                int(client_summary.get("evaluations_count") or 0)
+            )
+
+            latest_score = client_summary.get("latest_score")
+            cc4.metric(
+                "Último CyberScore",
+                (
+                    f"{int(latest_score)}/100"
+                    if latest_score is not None
+                    and not pd.isna(latest_score)
+                    else "N/D"
+                )
+            )
+
+            status = str(
+                client_summary.get("status")
+                or "Activo"
+            )
+
+            left_status, right_status = st.columns(
+                [3, 1.4]
+            )
+
+            with left_status:
+                if status == "Activo":
+                    st.success(
+                        "🟢 Organización activa"
+                    )
+                else:
+                    st.error(
+                        "🔴 Organización suspendida"
+                    )
+
+                last_activity = client_summary.get(
+                    "last_activity"
+                )
+                if last_activity is not None and not pd.isna(last_activity):
+                    st.caption(
+                        f"Última actividad registrada: {last_activity}"
+                    )
+
+            with right_status:
+                if status == "Activo":
+                    if st.button(
+                        "⛔ Suspender organización",
+                        key=f"suspend_org_v212_{selected_client_id}",
+                        use_container_width=True
+                    ):
+                        set_organization_access_status(
+                            selected_client_id,
+                            "Suspendido"
+                        )
+                        st.success(
+                            "Organización suspendida."
+                        )
+                        st.rerun()
+                else:
+                    if st.button(
+                        "✅ Restaurar organización",
+                        key=f"restore_org_v212_{selected_client_id}",
+                        type="primary",
+                        use_container_width=True
+                    ):
+                        set_organization_access_status(
+                            selected_client_id,
+                            "Activo"
+                        )
+                        st.success(
+                            "Organización restaurada."
+                        )
+                        st.rerun()
+
+            st.markdown("### Usuarios")
+
+            members_df = load_organization_members_admin(
+                selected_client_id
+            )
+
+            if members_df.empty:
+                st.info(
+                    "Esta organización todavía no tiene usuarios."
+                )
+            else:
+                for _, member in members_df.iterrows():
+                    member_id = int(member["id"])
+                    member_email = str(member["email"])
+                    member_role = normalize_member_role(
+                        member.get("role")
+                    )
+                    member_status = str(
+                        member.get("status")
+                        or "Invitado"
+                    )
+
+                    st.markdown("---")
+
+                    info_col, role_col, access_col, password_col = st.columns(
+                        [3.4, 2.2, 2.1, 2.2],
+                        vertical_alignment="center"
+                    )
+
+                    with info_col:
+                        st.markdown(
+                            f"**{html.escape(member_email)}**"
+                        )
+                        st.caption(
+                            f"Estado: {member_status} · "
+                            f"Último acceso: "
+                            f"{member.get('last_login') or 'Sin registro'}"
+                        )
+
+                    with role_col:
+                        new_role = st.selectbox(
+                            "Rol",
+                            VALID_MEMBER_ROLES,
+                            index=VALID_MEMBER_ROLES.index(
+                                member_role
+                            ),
+                            key=f"member_role_v212_{member_id}",
+                            label_visibility="collapsed"
+                        )
+
+                        if st.button(
+                            "Guardar rol",
+                            key=f"save_role_v212_{member_id}",
+                            use_container_width=True
+                        ):
+                            set_member_role_admin(
+                                selected_client_id,
+                                member_id,
+                                new_role
+                            )
+                            st.success(
+                                f"Rol actualizado a {new_role}."
+                            )
+                            st.rerun()
+
+                    with access_col:
+                        if member_status == "Suspendido":
+                            if st.button(
+                                "✅ Restaurar usuario",
+                                key=f"restore_member_v212_{member_id}",
+                                use_container_width=True
+                            ):
+                                set_member_status_admin(
+                                    selected_client_id,
+                                    member_id,
+                                    "Activo"
+                                )
+                                st.rerun()
+                        else:
+                            if st.button(
+                                "⛔ Suspender usuario",
+                                key=f"suspend_member_v212_{member_id}",
+                                use_container_width=True
+                            ):
+                                set_member_status_admin(
+                                    selected_client_id,
+                                    member_id,
+                                    "Suspendido"
+                                )
+                                st.rerun()
+
+                    with password_col:
+                        auth_user_id = str(
+                            member.get("auth_user_id")
+                            or ""
+                        )
+
+                        if auth_user_id:
+                            if st.button(
+                                "🔑 Acceso temporal",
+                                key=f"member_temp_v212_{member_id}",
+                                use_container_width=True
+                            ):
+                                try:
+                                    temp_password = (
+                                        _generate_temporary_password()
+                                    )
+
+                                    supabase_admin_set_password(
+                                        auth_user_id,
+                                        temp_password
+                                    )
+
+                                    set_member_password_change_required(
+                                        member_email,
+                                        True
+                                    )
+
+                                    st.session_state[
+                                        "admin_member_temp_access_v212"
+                                    ] = {
+                                        "email": member_email,
+                                        "password": temp_password
+                                    }
+
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(
+                                        f"No se pudo generar el acceso: {e}"
+                                    )
+
+            st.markdown("---")
+            st.markdown("### Invitar usuario")
+
+            st.caption(
+                "El usuario quedará asociado exclusivamente a esta organización."
+            )
+
+            with st.form(
+                f"invite_org_member_v212_{selected_client_id}"
+            ):
+                invite_email = st.text_input(
+                    "Email",
+                    placeholder="analista@empresa.com"
+                )
+                invite_role = st.selectbox(
+                    "Rol inicial",
+                    VALID_MEMBER_ROLES,
+                    index=2
+                )
+
+                invite_submit = st.form_submit_button(
+                    "Enviar invitación",
+                    type="primary",
+                    use_container_width=True
+                )
+
+            if invite_submit:
+                try:
+                    with st.spinner(
+                        "Creando usuario e invitación..."
+                    ):
+                        invite_member_to_organization(
+                            selected_client_id,
+                            invite_email,
+                            invite_role
+                        )
+
+                    st.success(
+                        "Invitación enviada correctamente."
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        f"No se pudo invitar al usuario: {e}"
+                    )
+
+            st.markdown("---")
+            st.markdown("### Activos del cliente")
+
+            client_assets = get_organization_assets(
+                selected_client_id
+            )
+
+            if client_assets.empty:
+                st.caption(
+                    "Sin activos registrados."
+                )
+            else:
+                for _, asset in client_assets.iterrows():
+                    label = (
+                        "Principal"
+                        if int(asset.get("is_primary") or 0) == 1
+                        else str(asset.get("status") or "Autorizado")
+                    )
+                    st.write(
+                        f"• **{asset['name']}** — "
+                        f"`{asset['domain']}` — {label}"
+                    )
 
 
 # ==========================================
