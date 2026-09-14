@@ -524,6 +524,22 @@ def init_db():
         )""")
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 1;")
         c.execute("ALTER TABLE organization_members ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;")
+        c.execute("""CREATE TABLE IF NOT EXISTS security_events (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            event_type TEXT NOT NULL,
+            actor_email TEXT,
+            actor_user_id TEXT,
+            session_organization_id INTEGER,
+            requested_organization_id INTEGER,
+            resource TEXT,
+            action TEXT,
+            detail TEXT
+        )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_history_org ON history(organization_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_remediation_org_scan ON remediation_tasks(organization_id, scan_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_members_org ON organization_members(organization_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_assets_org ON organization_assets(organization_id);")
     else:
         c.execute("""CREATE TABLE IF NOT EXISTS organizations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, status TEXT DEFAULT 'Activo', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         try: c.execute("ALTER TABLE organizations ADD COLUMN status TEXT DEFAULT 'Activo';")
@@ -598,6 +614,22 @@ def init_db():
         except: pass
         try: c.execute("ALTER TABLE organization_members ADD COLUMN last_login TIMESTAMP;")
         except: pass
+        c.execute("""CREATE TABLE IF NOT EXISTS security_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            event_type TEXT NOT NULL,
+            actor_email TEXT,
+            actor_user_id TEXT,
+            session_organization_id INTEGER,
+            requested_organization_id INTEGER,
+            resource TEXT,
+            action TEXT,
+            detail TEXT
+        )""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_history_org ON history(organization_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_remediation_org_scan ON remediation_tasks(organization_id, scan_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_members_org ON organization_members(organization_id);")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_assets_org ON organization_assets(organization_id);")
         conn.commit()
 
     try:
@@ -642,6 +674,14 @@ def save_scan_to_db(
     evaluation_name=None,
     asset_id=None
 ):
+    if organization_id is not None:
+        assert_client_tenant_access(
+            organization_id,
+            capability="scan",
+            resource="history",
+            action="insert"
+        )
+
     conn = get_db_connection()
     c = conn.cursor()
 
@@ -784,6 +824,13 @@ def delete_client_scan(organization_id, scan_id):
     Elimina una evaluación y sus tickets solamente si pertenecen
     a la organización autenticada del cliente.
     """
+    assert_client_tenant_access(
+        organization_id,
+        capability="manage_evaluations",
+        resource="history",
+        action="delete"
+    )
+
     conn = get_db_connection()
     c = conn.cursor()
     ph = _db_ph()
@@ -1623,6 +1670,252 @@ def client_can(action):
     return action in capabilities.get(role, set())
 
 
+def log_security_event(
+    event_type,
+    requested_organization_id=None,
+    resource="",
+    action="",
+    detail=""
+):
+    """Registra eventos de seguridad sin almacenar credenciales."""
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        ph = _db_ph()
+        c.execute(
+            f"""
+            INSERT INTO security_events
+            (
+                event_type,
+                actor_email,
+                actor_user_id,
+                session_organization_id,
+                requested_organization_id,
+                resource,
+                action,
+                detail
+            )
+            VALUES
+            ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            """,
+            (
+                str(event_type or "SECURITY_EVENT"),
+                str(st.session_state.get("client_email") or ""),
+                str(st.session_state.get("client_user_id") or ""),
+                st.session_state.get("client_organization_id"),
+                requested_organization_id,
+                str(resource or ""),
+                str(action or ""),
+                str(detail or "")[:1000]
+            )
+        )
+        if "postgres" not in st.secrets:
+            conn.commit()
+        c.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def assert_client_tenant_access(
+    organization_id,
+    capability=None,
+    resource="",
+    action="read"
+):
+    """
+    Segunda barrera de aislamiento.
+    Admin/backend no usa sesión de cliente y no queda limitado por este guard.
+    """
+    if not st.session_state.get("client_authenticated", False):
+        return True
+
+    try:
+        requested_org = int(organization_id)
+        session_org = int(st.session_state.get("client_organization_id"))
+    except Exception:
+        log_security_event(
+            "TENANT_CONTEXT_INVALID",
+            requested_organization_id=organization_id,
+            resource=resource,
+            action=action
+        )
+        raise PermissionError(
+            "No se pudo validar el contexto de seguridad."
+        )
+
+    if requested_org != session_org:
+        log_security_event(
+            "TENANT_ACCESS_DENIED",
+            requested_organization_id=requested_org,
+            resource=resource,
+            action=action,
+            detail="organization_id solicitado distinto del tenant de sesión."
+        )
+        raise PermissionError(
+            "Acceso denegado: el recurso no pertenece a tu organización."
+        )
+
+    member = get_member_for_identity(
+        user_id=st.session_state.get("client_user_id"),
+        email=st.session_state.get("client_email")
+    )
+
+    if not member:
+        log_security_event(
+            "TENANT_MEMBER_NOT_FOUND",
+            requested_organization_id=requested_org,
+            resource=resource,
+            action=action
+        )
+        raise PermissionError("La sesión ya no tiene acceso habilitado.")
+
+    if int(member.get("organization_id")) != session_org:
+        log_security_event(
+            "TENANT_MEMBERSHIP_MISMATCH",
+            requested_organization_id=requested_org,
+            resource=resource,
+            action=action
+        )
+        raise PermissionError(
+            "La membresía no coincide con la organización."
+        )
+
+    if str(member.get("status") or "") == "Suspendido":
+        raise PermissionError("El usuario se encuentra suspendido.")
+
+    if str(member.get("organization_status") or "Activo") == "Suspendido":
+        raise PermissionError("La organización se encuentra suspendida.")
+
+    role = normalize_member_role(member.get("role"))
+    st.session_state.client_role = role
+
+    if capability and not client_can(capability):
+        log_security_event(
+            "ROLE_ACCESS_DENIED",
+            requested_organization_id=requested_org,
+            resource=resource,
+            action=action,
+            detail=f"Rol {role} sin capacidad {capability}."
+        )
+        raise PermissionError(
+            "Tu rol actual no permite realizar esta operación."
+        )
+
+    return True
+
+
+def load_security_events(limit=100):
+    limit = int(max(1, min(int(limit), 500)))
+    conn = get_db_connection()
+    try:
+        return pd.read_sql_query(
+            f"""
+            SELECT
+                id,
+                timestamp,
+                event_type,
+                actor_email,
+                session_organization_id,
+                requested_organization_id,
+                resource,
+                action,
+                detail
+            FROM security_events
+            ORDER BY id DESC
+            LIMIT {limit}
+            """,
+            conn
+        )
+    finally:
+        conn.close()
+
+
+def run_multitenant_integrity_audit():
+    """Audita cruces lógicos sin modificar información."""
+    conn = get_db_connection()
+    tests = [
+        (
+            "Tickets asociados a scans de otra organización",
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_tasks rt
+            JOIN history h ON h.id = rt.scan_id
+            WHERE COALESCE(rt.organization_id, -1)
+               <> COALESCE(h.organization_id, -1)
+            """
+        ),
+        (
+            "Tickets huérfanos",
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_tasks rt
+            LEFT JOIN history h ON h.id = rt.scan_id
+            WHERE rt.scan_id IS NOT NULL AND h.id IS NULL
+            """
+        ),
+        (
+            "Logs de remediación huérfanos",
+            """
+            SELECT COUNT(*) AS total
+            FROM remediation_logs rl
+            LEFT JOIN remediation_tasks rt ON rt.id = rl.task_id
+            WHERE rt.id IS NULL
+            """
+        ),
+        (
+            "Miembros con organización inexistente",
+            """
+            SELECT COUNT(*) AS total
+            FROM organization_members om
+            LEFT JOIN organizations o ON o.id = om.organization_id
+            WHERE o.id IS NULL
+            """
+        ),
+        (
+            "Activos con organización inexistente",
+            """
+            SELECT COUNT(*) AS total
+            FROM organization_assets oa
+            LEFT JOIN organizations o ON o.id = oa.organization_id
+            WHERE o.id IS NULL
+            """
+        ),
+        (
+            "Perfiles con organización inexistente",
+            """
+            SELECT COUNT(*) AS total
+            FROM organization_profiles op
+            LEFT JOIN organizations o ON o.id = op.organization_id
+            WHERE o.id IS NULL
+            """
+        )
+    ]
+
+    rows = []
+    try:
+        for label, query in tests:
+            try:
+                result = pd.read_sql_query(query, conn)
+                total = int(result.iloc[0]["total"])
+                rows.append({
+                    "control": label,
+                    "incidencias": total,
+                    "estado": "OK" if total == 0 else "REVISAR"
+                })
+            except Exception as e:
+                rows.append({
+                    "control": label,
+                    "incidencias": None,
+                    "estado": "ERROR",
+                    "detalle": str(e)[:300]
+                })
+    finally:
+        conn.close()
+
+    return pd.DataFrame(rows)
+
+
 def load_clients_overview():
     conn = get_db_connection()
     try:
@@ -1941,6 +2234,12 @@ def supabase_user_change_password(access_token, new_password):
 
 
 def get_organization_profile(organization_id, fallback_name=""):
+    assert_client_tenant_access(
+        organization_id,
+        resource="organization_profiles",
+        action="select"
+    )
+
     conn = get_db_connection()
     ph = _db_ph()
     try:
@@ -2002,6 +2301,13 @@ def save_organization_profile(
     logo_b64,
     logo_mime
 ):
+    assert_client_tenant_access(
+        organization_id,
+        capability="org_edit",
+        resource="organization_profiles",
+        action="update"
+    )
+
     conn = get_db_connection()
     c = conn.cursor()
     ph = _db_ph()
@@ -2112,6 +2418,12 @@ def _profile_logo_uri(profile):
 
 
 def get_client_remediation_tasks(organization_id, scan_id):
+    assert_client_tenant_access(
+        organization_id,
+        resource="remediation_tasks",
+        action="select"
+    )
+
     conn = get_db_connection()
     ph = _db_ph()
     try:
@@ -2133,6 +2445,13 @@ def get_client_remediation_tasks(organization_id, scan_id):
 
 
 def update_client_remediation_task(organization_id, task_id, new_status, note):
+    assert_client_tenant_access(
+        organization_id,
+        capability="remediate",
+        resource="remediation_tasks",
+        action="update"
+    )
+
     if new_status not in {"Pendiente", "En Proceso", "Solucionado", "Reabierto"}:
         raise ValueError("Estado no permitido.")
 
@@ -2174,6 +2493,13 @@ def verify_solved_tasks_after_rescan(
     new_scan_id,
     new_findings
 ):
+    assert_client_tenant_access(
+        organization_id,
+        capability="remediate",
+        resource="remediation_tasks",
+        action="verify"
+    )
+
     """
     Verifica tickets que el cliente había marcado como Solucionado.
 
@@ -2499,6 +2825,12 @@ def _clean_asset_domain(value):
 
 
 def get_organization_assets(organization_id):
+    assert_client_tenant_access(
+        organization_id,
+        resource="organization_assets",
+        action="select"
+    )
+
     conn = get_db_connection()
     ph = _db_ph()
     try:
@@ -2586,6 +2918,13 @@ def ensure_primary_asset(organization_id, primary_domain):
 
 
 def add_organization_asset(organization_id, name, domain, primary_domain):
+    assert_client_tenant_access(
+        organization_id,
+        capability="assets",
+        resource="organization_assets",
+        action="insert"
+    )
+
     name = (name or "").strip() or "Activo web"
     domain = _clean_asset_domain(domain)
     primary = _clean_asset_domain(primary_domain)
@@ -2643,6 +2982,13 @@ def asset_row_by_id(assets_df, asset_id):
 
 
 def update_evaluation_name(organization_id, scan_id, evaluation_name):
+    assert_client_tenant_access(
+        organization_id,
+        capability="manage_evaluations",
+        resource="history",
+        action="rename"
+    )
+
     conn = get_db_connection()
     c = conn.cursor()
     ph = _db_ph()
@@ -2703,6 +3049,12 @@ def compare_evaluations(row_base, row_new):
 
 
 def get_client_primary_domain(organization_id, email):
+    assert_client_tenant_access(
+        organization_id,
+        resource="public_leads",
+        action="select_domain"
+    )
+
     conn = get_db_connection()
     ph = _db_ph()
 
@@ -2735,6 +3087,12 @@ def get_client_primary_domain(organization_id, email):
 
 
 def get_client_latest_lead(organization_id, email):
+    assert_client_tenant_access(
+        organization_id,
+        resource="public_leads",
+        action="select"
+    )
+
     conn = get_db_connection()
     ph = _db_ph()
 
@@ -4955,6 +5313,13 @@ def fallback_scan_meta(findings):
 
 
 def load_history(organization_id):
+    if organization_id is not None:
+        assert_client_tenant_access(
+            organization_id,
+            resource="history",
+            action="select"
+        )
+
     conn = get_db_connection()
     ph = "%s" if "postgres" in st.secrets else "?"
 
@@ -5837,7 +6202,25 @@ def render_client_portal():
             st.rerun()
         st.stop()
 
-    # Roles can be changed by the admin while the user is logged in.
+    # El rol y el tenant se revalidan en cada interacción.
+    current_org_id = int(current_member.get("organization_id"))
+
+    if current_org_id != int(st.session_state.get("client_organization_id")):
+        log_security_event(
+            "SESSION_TENANT_CHANGED",
+            requested_organization_id=st.session_state.get(
+                "client_organization_id"
+            ),
+            resource="session",
+            action="validate"
+        )
+        _clear_client_session()
+        st.error(
+            "La organización asociada a esta sesión cambió. "
+            "Volvé a iniciar sesión."
+        )
+        st.stop()
+
     st.session_state.client_role = normalize_member_role(
         current_member.get("role")
     )
@@ -7250,7 +7633,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.12.1 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.13 · SECURE MULTI-TENANT</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -7448,7 +7831,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.12.1 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.13 · SECURE MULTI-TENANT</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -7460,7 +7843,7 @@ st.markdown(
 )
 
 
-tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_clients, tab_leads = st.tabs(
+tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_clients, tab_security, tab_leads = st.tabs(
     [
         "🏠 Dashboard",
         "🔎 Security Scan",
@@ -7468,6 +7851,7 @@ tab_dashboard, tab_scan, tab_reports, tab_history, tab_remediation, tab_clients,
         "📈 History",
         "🛠 Remediation",
         "🏢 Clientes",
+        "🔐 Seguridad",
         "👥 Leads"
     ]
 )
@@ -9266,6 +9650,89 @@ with tab_clients:
                         f"• **{asset['name']}** — "
                         f"`{asset['domain']}` — {label}"
                     )
+
+
+# ==========================================
+# SECURITY / MULTI-TENANT ASSURANCE
+# ==========================================
+
+with tab_security:
+    st.subheader("Seguridad multi-tenant")
+
+    st.write(
+        "CyberAudits aplica una segunda barrera en el backend: "
+        "el organization_id solicitado debe coincidir con el tenant "
+        "de la sesión y con el rol vigente."
+    )
+
+    a, b, c = st.columns(3)
+    a.metric("Tenant Guard", "ACTIVO")
+    b.metric("Roles backend", "ACTIVO")
+    c.metric("Security Events", "ACTIVO")
+
+    st.info(
+        "RLS se entrega como migración separada para Supabase. "
+        "Como el backend usa credenciales de servidor, el Tenant Guard "
+        "sigue siendo obligatorio incluso con RLS."
+    )
+
+    st.markdown("### Auditoría de integridad")
+
+    if st.button(
+        "🔎 Ejecutar comprobación multi-tenant",
+        type="primary",
+        key="tenant_audit_v213_btn"
+    ):
+        st.session_state["tenant_audit_v213"] = (
+            run_multitenant_integrity_audit()
+        )
+
+    audit_df = st.session_state.get("tenant_audit_v213")
+
+    if isinstance(audit_df, pd.DataFrame):
+        problems = audit_df[audit_df["estado"] != "OK"]
+
+        if problems.empty:
+            st.success(
+                "✅ No se detectaron cruces entre organizaciones "
+                "ni relaciones huérfanas."
+            )
+        else:
+            st.error(
+                f"Hay {len(problems)} control(es) que requieren revisión."
+            )
+
+        st.dataframe(
+            audit_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.markdown("---")
+    st.markdown("### Eventos de seguridad")
+
+    events_df = load_security_events(100)
+
+    if events_df.empty:
+        st.caption("Todavía no hay eventos de seguridad.")
+    else:
+        st.dataframe(
+            events_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.markdown("---")
+    st.markdown("### Capas de aislamiento")
+    st.markdown(
+        """
+        **1. Sesión** — usuario autenticado y organización activa.  
+        **2. Rol** — OWNER / ADMIN / ANALYST / VIEWER.  
+        **3. Tenant Guard** — bloquea organization_id ajenos en backend.  
+        **4. Consultas** — datos cliente filtrados por organization_id.  
+        **5. RLS** — defensa adicional para Supabase Auth/API.
+        """
+    )
 
 
 # ==========================================
