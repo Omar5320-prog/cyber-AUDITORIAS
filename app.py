@@ -4394,16 +4394,6 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
             "Los controles no concluyentes no se contabilizan como seguros."
         )
     
-    trust_note_html = (
-        ""
-        if eval_state == "COMPLETA"
-        else (
-            '<div class="trust-note"><strong>Nota de integridad:</strong> '
-            + html.escape(eval_message)
-            + ' Los controles no concluyentes no se contabilizan como seguros.</div>'
-        )
-    )
-
     if "Técnico" in report_type:
         doc.add_heading("Detalle Técnico y Bloques de Configuración", level=2)
         for idx, f in enumerate(findings, 1):
@@ -4455,6 +4445,16 @@ def generate_docx(hostname, findings, risk_score, agency_name, agency_tagline, r
 def generate_pdf(findings, chart_b64, hostname, risk_score, agency_name, agency_tagline, report_type, recipient_name, report_subject, output_filename, scan_meta=None):
     scan_meta = scan_meta or {}
     eval_state, eval_message = evaluation_status(scan_meta, findings)
+
+    trust_note_html = (
+        ""
+        if eval_state == "COMPLETA"
+        else (
+            '<div class="trust-note"><strong>Nota de integridad:</strong> '
+            + html.escape(eval_message)
+            + ' Los controles no concluyentes no se contabilizan como seguros.</div>'
+        )
+    )
 
     css_base = """
         @page { size: A4; margin: 15mm; }
@@ -7250,7 +7250,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.12 · PRIVATE BETA</div>
+            <div class="ca-kicker">CYBERAUDITS 2.12.1 · PRIVATE BETA</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -7448,7 +7448,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.12 · PRIVATE BETA</div>
+        <div class="ca-kicker">CYBERAUDITS 2.12.1 · PRIVATE BETA</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
