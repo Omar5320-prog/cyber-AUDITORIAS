@@ -1439,7 +1439,7 @@ def _generate_temporary_password(length=18):
             return value
 
 
-def supabase_admin_set_password(user_id, password):
+def supabase_admin_set_password(user_id, password, confirm_email=True):
     if not user_id:
         raise ValueError("Falta el identificador del usuario.")
 
@@ -1448,10 +1448,20 @@ def supabase_admin_set_password(user_id, password):
 
     supabase_url, _ = _supabase_admin_config()
 
+    payload = {
+        "password": password
+    }
+
+    # El acceso temporal es administrado por CyberAudits.
+    # Si el usuario todavía estaba Invitado, confirmamos el email
+    # para que pueda autenticarse con la contraseña temporal.
+    if confirm_email:
+        payload["email_confirm"] = True
+
     response = requests.put(
         f"{supabase_url}/auth/v1/admin/users/{user_id}",
         headers=_supabase_admin_headers(),
-        json={"password": password},
+        json=payload,
         timeout=12
     )
 
@@ -2071,6 +2081,26 @@ def set_member_status_admin(organization_id, member_id, status):
     finally:
         c.close()
         conn.close()
+
+
+def activate_member_after_temp_access(
+    organization_id,
+    member_id,
+    email
+):
+    """
+    Activa el miembro después de que Admin le asigna una
+    contraseña temporal válida en Supabase.
+    """
+    set_member_status_admin(
+        organization_id,
+        member_id,
+        "Activo"
+    )
+    set_member_password_change_required(
+        email,
+        True
+    )
 
 
 def invite_member_to_organization(organization_id, email, role):
@@ -7633,7 +7663,7 @@ def require_private_beta_login():
     st.markdown(
         """
         <div class="auth-shell">
-            <div class="ca-kicker">CYBERAUDITS 2.13 · SECURE MULTI-TENANT</div>
+            <div class="ca-kicker">CYBERAUDITS 2.13.1 · SECURE MULTI-TENANT</div>
             <h2 style="margin-top:6px;">Acceso al workspace</h2>
             <p class="muted">
                 Esta instancia contiene historial, reportes y controles administrativos.
@@ -7831,7 +7861,7 @@ if selected_org_id is not None:
 st.markdown(
     """
     <div class="ca-brand">
-        <div class="ca-kicker">CYBERAUDITS 2.13 · SECURE MULTI-TENANT</div>
+        <div class="ca-kicker">CYBERAUDITS 2.13.1 · SECURE MULTI-TENANT</div>
         <h1>Descubrí el riesgo. Corregí lo importante. Demostralo.</h1>
         <p>
             Evaluación verificable de postura de seguridad,
@@ -9278,39 +9308,17 @@ with tab_remediation:
 # ==========================================
 
 with tab_clients:
+    st.session_state.pop(
+        "admin_member_temp_access_v212",
+        None
+    )
+
     st.subheader("Clientes")
 
     st.write(
         "Administrá organizaciones activas, sus usuarios, roles, "
         "activos y estado de acceso."
     )
-
-    temp_member_access = st.session_state.get(
-        "admin_member_temp_access_v212"
-    )
-
-    if temp_member_access:
-        st.success(
-            "🔑 Credencial temporal generada. Copiala ahora."
-        )
-        st.code(
-            f"Email: {temp_member_access['email']}\n"
-            f"Contraseña temporal: {temp_member_access['password']}",
-            language="text"
-        )
-        st.warning(
-            "La contraseña no se guarda en CyberAudits. "
-            "El usuario deberá cambiarla al ingresar."
-        )
-        if st.button(
-            "Ocultar credencial",
-            key="hide_member_temp_v212"
-        ):
-            st.session_state.pop(
-                "admin_member_temp_access_v212",
-                None
-            )
-            st.rerun()
 
     clients_df = load_clients_overview()
 
@@ -9561,17 +9569,20 @@ with tab_clients:
 
                                     supabase_admin_set_password(
                                         auth_user_id,
-                                        temp_password
+                                        temp_password,
+                                        confirm_email=True
                                     )
 
-                                    set_member_password_change_required(
-                                        member_email,
-                                        True
+                                    activate_member_after_temp_access(
+                                        selected_client_id,
+                                        member_id,
+                                        member_email
                                     )
 
                                     st.session_state[
-                                        "admin_member_temp_access_v212"
+                                        "admin_member_temp_access_v213"
                                     ] = {
+                                        "member_id": member_id,
                                         "email": member_email,
                                         "password": temp_password
                                     }
@@ -9581,6 +9592,39 @@ with tab_clients:
                                     st.error(
                                         f"No se pudo generar el acceso: {e}"
                                     )
+
+                    temp_access = st.session_state.get(
+                        "admin_member_temp_access_v213"
+                    )
+
+                    if (
+                        temp_access
+                        and int(temp_access.get("member_id", -1))
+                        == member_id
+                    ):
+                        st.success(
+                            "🔑 Acceso temporal generado correctamente."
+                        )
+                        st.code(
+                            f"Email: {temp_access['email']}\n"
+                            f"Contraseña temporal: {temp_access['password']}",
+                            language="text"
+                        )
+                        st.warning(
+                            "Copiala ahora. CyberAudits no guarda esta "
+                            "contraseña en la base de datos y el usuario "
+                            "deberá cambiarla al iniciar sesión."
+                        )
+
+                        if st.button(
+                            "Ocultar contraseña temporal",
+                            key=f"hide_member_temp_v213_{member_id}"
+                        ):
+                            st.session_state.pop(
+                                "admin_member_temp_access_v213",
+                                None
+                            )
+                            st.rerun()
 
             st.markdown("---")
             st.markdown("### Invitar usuario")
